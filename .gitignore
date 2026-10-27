@@ -1,0 +1,93 @@
+HELP.md
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+# Consignes, outillage local et suivi prive
+AGENTS.md
+HOOK.md
+/.codex/
+/.agents/
+/docs/AUTHENTICATION_PROGRESS.md
+/docs/AUTHENTICATION_REVISION_*.pdf
+/docs/prive/
+
+# Secrets et configuration propre a un poste
+.env
+.env.*
+*.local
+application-local.*
+application-secrets.*
+application-*.local.*
+/secrets/
+/credentials/
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_ed25519
+settings-security.xml
+*.launch
+
+# Donnees, sauvegardes et archives locales
+/data/
+/backups/
+*.csv
+*.xls
+*.xlsx
+*.dump
+*.backup
+*.bak
+*.sql.gz
+*.sqlite
+*.sqlite3
+*.db
+*.zip
+*.7z
+*.tar
+*.tgz
+*.tar.gz
+
+# Sorties d'execution et fichiers temporaires
+/logs/
+*.log
+*.class
+*.hprof
+*.jfr
+*.tmp
+*.swp
+*~
+.DS_Store
+Thumbs.db
