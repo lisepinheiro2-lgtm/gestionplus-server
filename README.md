@@ -64,6 +64,8 @@ Les sources peuvent être publiées pendant le développement ; mettre un servic
 
 ## Documentation et réutilisation
 
+- [Commencer ici : sommaire de la documentation](docs/index.md)
+- [Vision d’ensemble Gestion+ et réunion future](https://github.com/lisepinheiro2-lgtm/gestionRemplacement/blob/main/docs/vision-ensemble.md)
 - [Avancement, preuves et prochaines étapes](docs/AVANCEMENT.md)
 - [Exploration du code et exécution locale](docs/DEVELOPPEMENT.md)
 - [Publication Git et travail sur deux ordinateurs](docs/PUBLICATION.md)

@@ -1,3 +1,10 @@
+---
+summary: "État public du serveur relu le 27 octobre 2026 et feuille de route avec niveaux de preuve."
+read_when:
+  - "reprendre les comptes authentification rôles permissions sessions et audit"
+  - "distinguer code présent tests écrits résultats disponibles et fonctions prévues"
+---
+
 # Avancement et feuille de route
 
 État relu le **27 octobre 2026 (Europe/Paris)** à partir des sources actuelles et des preuves déjà disponibles. Aucun test, build, serveur ou migration n'a été exécuté lors de cette préparation documentaire.

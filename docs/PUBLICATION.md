@@ -1,12 +1,27 @@
+---
+summary: "Publication manuelle des sources et reprise du travail entre deux ordinateurs."
+read_when:
+  - "préparer une revue avant commit ou publication GitHub"
+  - "retrouver les limites du transfert Git et de la synchronisation des notes privées"
+---
+
 # Publier les sources et travailler sur deux ordinateurs
 
-[Présentation](../README.md) · [Avancement](AVANCEMENT.md)
+[Présentation](../README.md) · [Avancement](AVANCEMENT.md) · [Sommaire](index.md)
+
+## Situation à la reprise — 28 octobre 2026
+
+Les dépôts client et serveur existent déjà. Les étapes d’initialisation et de premier envoi ci-dessous restent des repères pour un nouveau dépôt ; elles ne sont pas à réexécuter pour ajouter Docmap ou reprendre le travail.
+
+L’utilisatrice garde les opérations Git dans GitHub Desktop ou son terminal, y compris pour la documentation. L’assistant peut préparer les textes autorisés et expliquer les différences ; il ne lance ni sélection de fichiers, ni commit, ni push. Les commandes de ce guide sont des explications, pas des autorisations.
+
+Le [sommaire serveur](index.md) et la [vision commune](https://github.com/lisepinheiro2-lgtm/gestionRemplacement/blob/main/docs/vision-ensemble.md) organisent le suivi des deux composants. La réunion technique future reste à décider ; elle ne modifie pas le démarrage autonome Swing. Les nouveaux liens entre dépôts ne seront consultables sur GitHub qu’après la publication manuelle des documents correspondants.
 
 Ce guide accompagne une publication publique du **code en développement**. Il ne déploie aucun service. Chaque étape modifiant Git ou GitHub doit être décidée séparément ; les commandes ci-dessous ne constituent pas un script à lancer en bloc.
 
 ## Ce qui appartient au dépôt public
 
-Inclure les sources et tests `src/`, les six migrations qu'il contient, `pom.xml`, les scripts `mvnw` et `mvnw.cmd`, `.mvn/wrapper/maven-wrapper.properties`, `.gitattributes`, `.gitignore`, `README.md` et les trois documents publics de `docs/`.
+Inclure les sources et tests `src/`, les six migrations qu'il contient, `pom.xml`, les scripts `mvnw` et `mvnw.cmd`, `.mvn/wrapper/maven-wrapper.properties`, `.gitattributes`, `.gitignore`, `README.md` et les documents publics de `docs/` : `index.md`, `AVANCEMENT.md`, `DEVELOPPEMENT.md` et `PUBLICATION.md`.
 
 Les configurations applicatives actuelles sont versionnables parce qu'elles contiennent des adresses locales et des références à des variables, sans valeurs secrètes. Les données d'une base PostgreSQL ne sont pas transférées avec ces sources.
 
@@ -31,7 +46,7 @@ Vérifier ensuite, en lecture seule, `git status --short --untracked-files=all` 
 Préférer une sélection explicite :
 
 ```sh
-git add -- .gitignore .gitattributes pom.xml mvnw mvnw.cmd .mvn/wrapper/maven-wrapper.properties src README.md docs/AVANCEMENT.md docs/DEVELOPPEMENT.md docs/PUBLICATION.md
+git add -- .gitignore .gitattributes pom.xml mvnw mvnw.cmd .mvn/wrapper/maven-wrapper.properties src README.md docs/index.md docs/AVANCEMENT.md docs/DEVELOPPEMENT.md docs/PUBLICATION.md
 ```
 
 `add` prépare un instantané des fichiers indiqués pour le prochain commit. Il ne les envoie pas sur Internet.
@@ -68,7 +83,7 @@ git push -u origin main
 
 `push` envoie les commits. `-u` mémorise la branche distante associée pour les synchronisations suivantes. Sur un dépôt public, le contenu et les métadonnées envoyés deviennent consultables.
 
-Contrôler ensuite le README rendu sur GitHub, les liens relatifs et la liste des fichiers. Le lien du serveur vers le client est déjà documenté. Le lien réciproque dans le README du client pourra être ajouté sur demande distincte ; il n'est pas nécessaire pour publier le serveur et n'ajoute aucune dépendance au démarrage Swing.
+Contrôler ensuite le README rendu sur GitHub, les liens relatifs et la liste des fichiers. Le lien du serveur vers le client est déjà documenté. Le README du client renvoie également vers le serveur et la vision commune. Ces liens documentaires n’ajoutent aucune dépendance au démarrage Swing.
 
 ## 5. Récupérer et poursuivre sur le PC fixe
 

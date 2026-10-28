@@ -1,3 +1,10 @@
+---
+summary: "Repères du code Spring Boot et préparation d’une exécution locale sur base isolée."
+read_when:
+  - "explorer les couches Java JPA PostgreSQL et les migrations sans lancer le serveur"
+  - "préparer ultérieurement un lancement ou des tests expressément autorisés"
+---
+
 # Explorer et lancer le serveur localement
 
 [Présentation](../README.md) · [Avancement et limites](AVANCEMENT.md)
