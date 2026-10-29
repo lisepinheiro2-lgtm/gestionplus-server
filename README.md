@@ -7,7 +7,7 @@ Gestion+ est un projet personnel de portfolio, développé progressivement pour 
 > **En développement actif — version déclarée : 0.0.1-SNAPSHOT.**
 > Les sources sont proposées pour découvrir le travail en cours. Le serveur ne fournit pas encore une application utilisable de bout en bout et n'est pas prêt pour un usage en entreprise ou une exposition sur Internet.
 
-[Découvrir le client Swing](https://github.com/lisepinheiro2-lgtm/gestionRemplacement) · [Avancement et feuille de route](docs/AVANCEMENT.md) · [Guide développeur](docs/DEVELOPPEMENT.md)
+[Découvrir le client Swing](https://github.com/lisepinheiro2-lgtm/gestionplus-client) · [Avancement et feuille de route](docs/AVANCEMENT.md) · [Guide développeur](docs/DEVELOPPEMENT.md)
 
 ## Pourquoi un serveur ?
 
@@ -19,7 +19,7 @@ Le développement privilégie une séparation lisible entre métier, persistance
 
 | Élément | Fonctionnement actuel | Cible |
 | --- | --- | --- |
-| [Client Swing](https://github.com/lisepinheiro2-lgtm/gestionRemplacement) | Application de bureau autonome avec CSV locaux. | Échanges avec le serveur pour l'utilisation connectée. |
+| [Client Swing](https://github.com/lisepinheiro2-lgtm/gestionplus-client) | Application de bureau autonome avec CSV locaux. | Échanges avec le serveur pour l'utilisation connectée. |
 | Ce serveur Spring Boot | Modèles, services et adaptateurs de persistance en développement ; toutes les requêtes HTTP sont refusées par la configuration actuelle. | API authentifiée, permissions, comptes et audit. |
 | PostgreSQL | Configuration locale et migrations présentes dans les sources ; état réel d'une base non déduit de ces fichiers. | Stockage du serveur, accessible par celui-ci. |
 
@@ -65,7 +65,7 @@ Les sources peuvent être publiées pendant le développement ; mettre un servic
 ## Documentation et réutilisation
 
 - [Commencer ici : sommaire de la documentation](docs/index.md)
-- [Vision d’ensemble Gestion+ et réunion future](https://github.com/lisepinheiro2-lgtm/gestionRemplacement/blob/main/docs/vision-ensemble.md)
+- [Vision d’ensemble Gestion+ et réunion future](https://github.com/lisepinheiro2-lgtm/gestionplus-client/blob/main/docs/vision-ensemble.md)
 - [Avancement, preuves et prochaines étapes](docs/AVANCEMENT.md)
 - [Exploration du code et exécution locale](docs/DEVELOPPEMENT.md)
 - [Publication Git et travail sur deux ordinateurs](docs/PUBLICATION.md)

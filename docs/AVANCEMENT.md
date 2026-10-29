@@ -70,7 +70,7 @@ L'accès de secours `ADMIN_EMERGENCY` reste à concevoir séparément : poste au
 
 ## Décisions métier transversales — 29 octobre 2026
 
-**Conception précisée, aucune implémentation supplémentaire revendiquée.** Le détail fait référence dans la [vision commune DEC01–DEC06](https://github.com/lisepinheiro2-lgtm/gestionRemplacement/blob/main/docs/vision-ensemble.md#decisions-metier-2026-10-29).
+**Conception précisée, aucune implémentation supplémentaire revendiquée.** Le détail fait référence dans la [vision commune DEC01–DEC06](https://github.com/lisepinheiro2-lgtm/gestionplus-client/blob/main/docs/vision-ensemble.md#decisions-metier-2026-10-29).
 
 | Repère | Conséquence à anticiper côté serveur |
 | --- | --- |

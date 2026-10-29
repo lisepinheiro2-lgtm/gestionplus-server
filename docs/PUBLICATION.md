@@ -15,7 +15,7 @@ Les dépôts client et serveur existent déjà. Les étapes d’initialisation e
 
 L’utilisatrice garde les opérations Git dans GitHub Desktop ou son terminal, y compris pour la documentation. L’assistant peut préparer les textes autorisés et expliquer les différences ; il ne lance ni sélection de fichiers, ni commit, ni push. Les commandes de ce guide sont des explications, pas des autorisations.
 
-Le [sommaire serveur](index.md) et la [vision commune](https://github.com/lisepinheiro2-lgtm/gestionRemplacement/blob/main/docs/vision-ensemble.md) organisent le suivi des deux composants. La réunion technique future reste à décider ; elle ne modifie pas le démarrage autonome Swing. Les nouveaux liens entre dépôts ne seront consultables sur GitHub qu’après la publication manuelle des documents correspondants.
+Le [sommaire serveur](index.md) et la [vision commune](https://github.com/lisepinheiro2-lgtm/gestionplus-client/blob/main/docs/vision-ensemble.md) organisent le suivi des deux composants. La réunion technique future reste à décider ; elle ne modifie pas le démarrage autonome Swing. Les nouveaux liens entre dépôts ne seront consultables sur GitHub qu’après la publication manuelle des documents correspondants.
 
 Ce guide accompagne une publication publique du **code en développement**. Il ne déploie aucun service. Chaque étape modifiant Git ou GitHub doit être décidée séparément ; les commandes ci-dessous ne constituent pas un script à lancer en bloc.
 
