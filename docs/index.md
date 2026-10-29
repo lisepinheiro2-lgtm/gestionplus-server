@@ -17,6 +17,7 @@ Ce serveur fait partie du même projet Gestion+ que le client Swing. Leur réuni
 | Besoin | Document de référence |
 | --- | --- |
 | Comprendre le produit, la couverture des domaines et les frontières client/serveur | [Vision d’ensemble](https://github.com/lisepinheiro2-lgtm/gestionRemplacement/blob/main/docs/vision-ensemble.md) |
+| Retrouver les décisions structures, droits, archives/facturation, concurrence, hors ligne et documents du 29 octobre | [Synthèse serveur DEC01–DEC06](AVANCEMENT.md#décisions-métier-transversales--29-octobre-2026) et [référence commune](https://github.com/lisepinheiro2-lgtm/gestionRemplacement/blob/main/docs/vision-ensemble.md#decisions-metier-2026-10-29) |
 | Reprendre le chantier, distinguer implémenté, en cours et prévu | [Avancement et feuille de route](AVANCEMENT.md) |
 | Comprendre les preuves de tests et les validations manquantes | [Résultats et limites](AVANCEMENT.md#tests--sources-et-résultats-sont-deux-informations-différentes) |
 | Explorer les classes, configurations et prérequis locaux | [Guide développeur](DEVELOPPEMENT.md) |
@@ -29,7 +30,7 @@ Le serveur reste un chantier. L’état public de référence est daté du **27 
 
 La démonstration autonome Swing reste distincte. La sécurité de l’usage connecté doit être imposée côté serveur ; l’absence de connexion n’autorise pas un repli privilégié local.
 
-Ce sommaire a été préparé le **28 octobre 2026**, sans test, build, démarrage ou migration. Les changements de code ultérieurs devront être rapprochés de cet état daté avant toute nouvelle affirmation.
+Ce sommaire a été préparé le **28 octobre 2026**, puis complété le **29 octobre 2026** pour référencer les décisions métier. Aucun test, build, démarrage ou migration exécuté. Les changements de code ultérieurs devront être rapprochés de cet état daté avant toute nouvelle affirmation.
 
 ## Suivi public et suivi privé
 

@@ -1,8 +1,9 @@
 ---
-summary: "État public du serveur relu le 27 octobre 2026 et feuille de route avec niveaux de preuve."
+summary: "État serveur au 27 octobre et décisions métier du 29 : structures, droits, archives, concurrence, hors ligne et documents."
 read_when:
   - "reprendre les comptes authentification rôles permissions sessions et audit"
   - "distinguer code présent tests écrits résultats disponibles et fonctions prévues"
+  - "préparer les décisions DEC01–DEC06 et l’isolation multi-structures"
 ---
 
 # Avancement et feuille de route
@@ -67,6 +68,23 @@ L'ordre pourra évoluer selon les dépendances découvertes. Aucune date de livr
 
 L'accès de secours `ADMIN_EMERGENCY` reste à concevoir séparément : poste autorisé, droits limités, audit et révocation. Il ne remplace pas un administrateur central et ne doit pas devenir une bascule permettant de contourner les permissions.
 
+## Décisions métier transversales — 29 octobre 2026
+
+**Conception précisée, aucune implémentation supplémentaire revendiquée.** Le détail fait référence dans la [vision commune DEC01–DEC06](https://github.com/lisepinheiro2-lgtm/gestionRemplacement/blob/main/docs/vision-ensemble.md#decisions-metier-2026-10-29).
+
+| Repère | Conséquence à anticiper côté serveur |
+| --- | --- |
+| DEC01 — Structures indépendantes | Isoler salariés, clients, planning, interventions, remplacements et documents, y compris recherches/exports. Compte unique multi-structures ou comptes distincts : décision ouverte. Ne pas confondre structure et unité existante ; schéma d'isolation non choisi. |
+| DEC02 — Rôles et permissions | Responsables liés et secrétaires dans leur structure et leur périmètre ; matrice par action à préciser. Ne pas déduire des droits documentaires ou de gestion des comptes des seuls droits métier. |
+| DEC03 — Historique et facturation | Documents conservés après départ selon les règles à définir ; intervention annulée conservée avec facturation à déterminer, puis décision habilitée facturée/non facturée. Alerte distincte à prévoir pour le passé non attribué ; aucune preuve de réalisation déduite de l'attribution seule. |
+| DEC04 — Travail simultané | Verrou temporaire serveur avec information de l'utilisateur et consultation possible, complété par un contrôle de concurrence à l'enregistrement. Refuser l'écrasement silencieux ; portée, expiration et reprise à concevoir. |
+| DEC05 — ADMIN_EMERGENCY | Continuité maximale sur poste autorisé, sous restrictions restant à décider. Données locales chiffrées, authentification sécurisée, audit et réconciliation ; pas d'accès illimité ni de contournement de la révocation ou des permissions serveur. |
+| DEC06 — Documents sensibles | Administrateur : accès complet à sa structure ; comptable : documents nécessaires à sa mission. Catégories et opérations à préciser ; stockage, conservation et protections à concevoir. Aucun accès aux mots de passe/codes/jetons secrets. |
+
+La matrice de droits, les durées de conservation, la validation de facturation, le cycle de vie des verrous, les opérations hors ligne et les choix de stockage restent ouverts. Adapter explicitement les décisions antérieures de comptes, de hiérarchie et de dernier administrateur à la cible multi-structures, sans les remplacer par une hypothèse implicite.
+
+Cette mise à jour ne change pas les états des sources ni les preuves de tests du 27 octobre. Aucun test, build, serveur, migration ou opération Git modifiante exécuté.
+
 ## Faire vivre ce document
 
 Après une séance, actualiser uniquement les blocs réellement concernés. Pour un résultat de test, noter date, commande ou outil, environnement anonymisé, nombres réussis/interrompus/échoués et limite de la preuve. Distinguer les décisions de conception des changements écrits et des validations exécutées.
@@ -76,3 +94,4 @@ Journal public :
 | Date | Évolution documentée |
 | --- | --- |
 | 27 octobre 2026 | Première synthèse publique des sources actuelles et des preuves disponibles ; feuille de route ajoutée. Préparation documentaire uniquement, sans exécution du serveur ou des tests. |
+| 29 octobre 2026 | Six décisions métier transversales ajoutées avec renvoi à la vision commune ; compte multi-structures et paramètres sensibles laissés ouverts. Documentation uniquement, sans nouvelle validation technique. |
