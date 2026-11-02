@@ -56,11 +56,13 @@ public class LoginServiceIntegrationTest {
 	private UserAccount createTestAccount(boolean active) {
 
 		UUID userId = UUID.randomUUID();
-		Employee employee = new Employee(UUID.randomUUID(), "Test", "Employee", 35, "test@example.invalid", "0600000000", null);
+		Employee employee = new Employee(UUID.randomUUID(), "Test", "Employee", 35, "test@example.invalid",
+				"0600000000", null);
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userId, "test_" + userId,
-				active ? UserAccountStatus.ACTIVE : UserAccountStatus.DISABLED, Set.of(UserRole.EMPLOYEE), employee.getEmployeeID());
+				active ? UserAccountStatus.ACTIVE : UserAccountStatus.DISABLED, Set.of(UserRole.EMPLOYEE),
+				employee.getEmployeeID());
 
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 
@@ -127,7 +129,7 @@ public class LoginServiceIntegrationTest {
 	void notCredentialAccount() {
 		UserAccount account = createTestAccount(true);
 		String rawPassword = "jfkel-test-password";
-		
+
 		entityManager.clear();
 		Optional<UserAccount> authenticated = loginService.authenticate(account.getUserName(), rawPassword);
 

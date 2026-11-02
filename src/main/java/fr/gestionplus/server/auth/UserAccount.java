@@ -15,11 +15,11 @@ public class UserAccount {
 	public UserAccount(UUID userID, String userName, UserAccountStatus statu, Set<UserRole> roles, UUID employeeID) {
 		this.userID = Objects.requireNonNull(userID, "L'UUID de l'utilisateur ne peut pas être null");
 		this.employeeID = employeeID;
-		
+
 		if (userName != null) {
 			this.userName = userName.strip();
 		}
-		
+
 		this.statu = Objects.requireNonNull(statu);
 
 		if (userName == null && statu == UserAccountStatus.ACTIVE)
@@ -29,12 +29,30 @@ public class UserAccount {
 			throw new IllegalArgumentException("Le nom d'utilisateur ne peut pas être vide");
 
 		Objects.requireNonNull(roles, "Les rôles ne peuvent pas être null");
-		
+
 		if (roles.isEmpty()) {
 			throw new IllegalArgumentException("Un compte doit posséder au moins un rôle");
 		}
-		
+
 		this.roles = Set.copyOf(roles);
+	}
+
+	public boolean equals(Object obj) {
+		
+		if (!(obj instanceof UserAccount))
+		    return false;
+		
+		UserAccount other = (UserAccount) obj;
+		
+		if (this.userID.equals(other.userID))
+			return true;
+		
+		return false;
+	}
+	
+	@Override
+	public int hashCode() {
+	    return userID.hashCode();
 	}
 
 	public UUID getUserID() {
