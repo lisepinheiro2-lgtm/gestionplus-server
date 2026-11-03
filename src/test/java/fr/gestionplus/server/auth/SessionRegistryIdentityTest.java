@@ -28,7 +28,6 @@ class SessionRegistryIdentityTest {
 		registry.registerNewSession("session-B", account2);
 
 		int total = registry.getAllSessions(account1, false).size();
-
 		assertEquals(2, total);
 	}
 }

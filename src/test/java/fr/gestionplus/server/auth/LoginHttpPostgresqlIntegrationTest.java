@@ -1,5 +1,6 @@
 package fr.gestionplus.server.auth;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -16,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -47,6 +49,10 @@ public class LoginHttpPostgresqlIntegrationTest {
 	private UserCredentialJpaRepository credentialRepository;
 	@Autowired
 	private CredentialService credentialService;
+	@Autowired
+	private SessionRegistry sessionRegistry;
+	@Autowired
+	private SessionRevocationService sessionRevocationService;
 
 	@MockitoBean(enforceOverride = true)
 	private CompromisedPasswordChecker checker;
@@ -175,6 +181,29 @@ public class LoginHttpPostgresqlIntegrationTest {
 
 		mockMvc.perform(get("/api/auth/me").session(secondSession)).andExpect(status().isOk())
 				.andExpect(jsonPath("$.userName").value(account.getUserName()));
+
+		assertEquals(2, sessionRegistry.getAllSessions(account, false).size());
+		assertNotNull(sessionRegistry.getSessionInformation(firstSession.getId()));
+		assertNotNull(sessionRegistry.getSessionInformation(secondSession.getId()));
+	}
+
+	@Test
+	void rejectsAllExpiredSessionsForSameAccount() throws Exception {
+
+		UserAccount account = createTestAccount(true);
+		String rawPassword = "jfkel-test-password";
+
+		saveTestCredential(account, rawPassword);
+
+		MockHttpSession firstSession = openAuthenticatedSession(account, rawPassword);
+		MockHttpSession secondSession = openAuthenticatedSession(account, rawPassword);
+		assertEquals(2, sessionRegistry.getAllSessions(account, false).size());
+
+		sessionRevocationService.revokeAllSessions(account);
+		assertEquals(0, sessionRegistry.getAllSessions(account, false).size());
+
+		mockMvc.perform(get("/api/auth/me").session(firstSession)).andExpect(status().isUnauthorized());
+		mockMvc.perform(get("/api/auth/me").session(secondSession)).andExpect(status().isUnauthorized());
 	}
 
 }

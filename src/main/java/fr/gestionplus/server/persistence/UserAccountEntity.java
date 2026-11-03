@@ -66,4 +66,8 @@ public class UserAccountEntity {
 	public UserAccount toDomain() {
 		return new UserAccount(userId, userName, statu, roles, employeeID);
 	}
+
+	void disable() {
+		statu = UserAccountStatus.DISABLED;
+	}
 }
