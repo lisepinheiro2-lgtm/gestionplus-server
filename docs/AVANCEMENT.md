@@ -1,5 +1,5 @@
 ---
-summary: "État serveur actualisé au 2 novembre 2026 : authentification HTTP, tests ciblés, sessions et révocation à venir."
+summary: "État serveur actualisé au 3 novembre 2026 : révocation ciblée des sessions, désactivation en chantier et socle multi-structures V8."
 read_when:
   - "reprendre les comptes authentification rôles permissions sessions et audit"
   - "distinguer code présent tests écrits résultats disponibles et fonctions prévues"
@@ -8,7 +8,7 @@ read_when:
 
 # Avancement et feuille de route
 
-État initial relu le **27 octobre 2026 (Europe/Paris)**, complété par les décisions du 29 octobre et du 2 novembre. **Actualisation technique le 2 novembre 2026** : fichiers Java présents sur `main` et résultats JUnit ciblés montrés depuis Eclipse. La mise à jour de ce document n'a déclenché aucun test, build, serveur ni migration ; les résultats locaux cités ci-dessous proviennent de séances précédentes.
+État initial relu le **27 octobre 2026 (Europe/Paris)**, complété par les décisions du 29 octobre et du 2 novembre. **Actualisation technique le 2 novembre 2026** : fichiers Java présents sur `main` et résultats JUnit ciblés montrés depuis Eclipse. **Complément au 3 novembre 2026** : avancement du code *local* signalé par captures Eclipse et validations JUnit ciblées ; les nouvelles classes et la migration V8 ne sont pas supposées déjà poussées sur GitHub. Les mises à jour documentaires ne lancent ni test, ni build, ni serveur, ni migration.
 
 ## Comment lire les statuts
 
@@ -29,12 +29,12 @@ Les chemins ci-dessous sont relatifs à `src/main/java/fr/gestionplus/server/`.
 | Vérification de compromission | `integration/PwnedPasswordsChecker` interroge le service Pwned Passwords avec un préfixe d'empreinte ; sept tests avec client HTTP simulé. | Code et tests présents ; comportement réel, réponses multiples et cas limites à valider. Cette empreinte de recherche ne remplace pas Argon2 pour le stockage. |
 | Spring Security / CSRF / déconnexion | `auth/HttpSecurityConfig`, `api/CsrfController`, `api/AuthSessionController` : `GET /api/auth/csrf`, `POST /login`, `GET /api/auth/me`, `POST /logout`. | Implémenté et testé par MockMvc : `200` connexion et consultation autorisée, `401` échec/sans session, `204` déconnexion, refus `403` sans CSRF. Les autres requêtes restent refusées par `denyAll()`. Autorités Spring encore vides ; pas de permissions métier exposées. HTTPS, cookies et paramètres de déploiement restent à valider. |
 | Rôles et permissions | `RolePermissionPolicy` et `AuthorizationService` ; comptes non actifs refusés ; cumul de rôles. | Première politique implémentée. Les rôles incluent `R_H`, mais sa politique dédiée et les contrôles hiérarchiques restent à définir et appliquer. |
-| Persistance des comptes | Entités, repositories, Lookups et `persistence/JpaAccountStore`. | Contrôles du rattachement à un salarié présents ; parcours transactionnel complet et cas concurrents à valider. La création directe dans `AccountProvisioningService` est volontairement désactivée. |
+| Persistance des comptes | Entités, repositories, Lookups et `persistence/JpaAccountStore` ; en local le 3 novembre : `AccountStore.findById()`, `disableAccount()`, `UserAccountEntity.disable()`. | Désactivation et recherche par UUID vérifiées par 3 tests PostgreSQL ciblés. **`AccountManagementService` ne désactive pas encore réellement** ; périmètre, dernier administrateur, transaction et révocation associée restent à sécuriser. Création directe toujours désactivée. |
 | Salariés et unités | Modèles `Employee` et `OrganizationalUnit`, stores, entités JPA et référence d'un salarié vers une unité. | Socle implémenté ; trois tests de conversion vérifiés sur le périmètre décrit ci-dessous. Persistance complète à valider. |
-| Schéma | Six migrations SQL : comptes/credentials/rôles, états de compte, salariés, rattachement compte-salarié, unités, rattachement salarié-unité. | Scripts présents ; pas de nouvelle preuve d'exécution complète V1–V6 pendant cette revue. |
+| Schéma | V1–V7 existantes dans le dépôt, dont audit V7 ; V8 `create_structures_and_memberships` préparée **localement** le 3 novembre. | V8 ajoute trois tables : `organizational_structures`, `structure_memberships`, `structure_membership_roles`. **5 tests PostgreSQL/Testcontainers ciblés réussis** sur V8 ; intégrité référentielle et doublons vérifiés. Cette preuve n'équivaut pas à une migration sur la base de développement. |
 | Audit | `AuditService`, `AuditStore`, `persistence/JpaAuditStore`, entités et repository d'audit. | Persistance JPA présente dans les sources ; raccordement des événements d'authentification, de modification des comptes et de révocation non réalisé. Pas de conclusion de sécurité globale tirée du seul stockage. |
 | Client Swing connecté | Projet client distinct, actuellement autonome en CSV. | Intégration prévue ; aucun échange avec ce serveur dans le démarrage client examiné. |
-| Sessions HTTP et identité de compte | Contexte authentifié conservé en session HTTP ; `UserAccount.equals()`/`hashCode()` fondés sur `userID` ; test isolé de `SessionRegistryImpl`. | Sessions et déconnexion individuelle vérifiées dans des tests ciblés ; deux sessions distinctes d'un même compte testées. **Pas encore de branchement du registre aux sessions HTTP réelles ni de révocation globale.** |
+| Sessions HTTP et identité de compte | Contexte HTTP et identité stable par `userID` ; en local le 3 novembre : bean `SessionRegistry`, `maximumSessions(-1)`, stratégie d'expiration `401`, `SessionRevocationService`. | **5/5 tests HTTP/PostgreSQL ciblés** : deux sessions d'un même compte enregistrées dans le registre, révoquées via le service, puis refusées (`401`). Un test unitaire vérifie que les sessions d'un autre compte restent actives. **Pas de déclenchement métier automatique**, ni de garantie de révocation multi-serveur ou en cas de panne. |
 | Invitations, récupération, MFA et `ADMIN_EMERGENCY` | Objectifs de conception distincts. | Parcours complets à construire et vérifier ; aucune disponibilité annoncée. |
 
 La configuration actuelle contient bien `spring.jpa.hibernate.ddl-auto: validate` et un profil de test PostgreSQL. Les anciens constats sur une indentation incorrecte ou l'absence de profil ne décrivent donc plus les fichiers actuels. Cela ne prouve pas leur bon fonctionnement à l'exécution.
@@ -52,7 +52,13 @@ Inventaire du **27 octobre** : **15 classes et 59 méthodes annotées `@Test`** 
 | `CsrfHttpTest` (MockMvc, services simulés) | Capture JUnit Eclipse du **2 novembre 2026 : 9/9 réussis**, aucune erreur ni échec. | CSRF, connexion HTTP, conservation du contexte, refus d'accès sans session, renouvellement du token CSRF, déconnexion individuelle et refus de déconnexion sans token sur le périmètre MVC simulé. |
 | `LoginHttpPostgresqlIntegrationTest` (Spring Boot + Testcontainers PostgreSQL) | Capture JUnit Eclipse du **2 novembre 2026 : 4/4 réussis**, aucune erreur ni échec. | Vrai stockage PostgreSQL isolé, migrations Flyway, credential Argon2, login actif, mauvais mot de passe, compte initialement désactivé et **deux sessions HTTP distinctes** pour un même compte ; vérification externe de compromission simulée. |
 | `SessionRegistryIdentityTest` (unitaire) | Capture JUnit Eclipse du **2 novembre 2026 : 1/1 réussi** après correction de `equals()` / `hashCode()` ; premier lancement rouge attendu (`2` contre `1`). | Deux instances de `UserAccount` partageant le même UUID sont regroupées dans un `SessionRegistryImpl` créé **manuellement dans le test**. Ce test ne prouve pas le suivi automatique des vraies sessions. |
-| Révocation globale, permissions par structure, sécurité client/serveur de bout en bout | Aucun test concluant disponible pour ces fonctions. | À construire et à valider avant ouverture d'opérations sensibles. |
+| Sessions HTTP + révocation ciblée (`LoginHttpPostgresqlIntegrationTest`) | Captures Eclipse du **3 novembre 2026 : 5/5 réussis**. | Registre connecté aux deux sessions HTTP MockMvc ; appel au `SessionRevocationService` ; refus `401` aux deux requêtes suivantes. Pas de désactivation réelle déclenchante. |
+| `SessionRevocationServiceTest` | **1/1 réussi** (3 novembre, JUnit local). | Deux sessions d'Alice expirent ; la session de Bob reste active. |
+| `UserAccountDisablePostgresqlIntegrationTest` | **3/3 réussis** (3 novembre, JUnit + Testcontainers). | Modification persistée et relue en PostgreSQL ; désactivation via `AccountStore` ; recherche par UUID et absence correctement signalée. Transaction de test annulée à la fin. |
+| `AccountManagementServiceTest` | **2/2 réussis** (3 novembre, Mockito). | Refus de `EMPLOYEE` sans `MANAGE_USERS` et de la cible inconnue. **Aucune désactivation métier autorisée n'est implémentée**, ni contrôle de structure ou de dernier administrateur. |
+| Modèles et conversions multi-structures (`OrganizationalStructureTest`, `StructureMembershipTest`, `OrganizationalStructureEntityTest`, `StructureMembershipIdTest`, `StructureMembershipEntityTest`) | **5/5 + 6/6 + 3/3 + 3/3 + 2/2 réussis** (3 novembre, tests unitaires locaux). | Modèles, rôles par structure, identité composée et conversions en mémoire. Pas encore de validation JPA de `StructureMembershipEntity`. |
+| V8 et structures PostgreSQL (`StructureSchemaPostgresqlIntegrationTest`, `OrganizationalStructureJpaPersistenceTest`) | **5/5 + 1/1 réussis** (3 novembre, Testcontainers). | Tables et contraintes V8, affectation de rôles sur deux structures, écriture/lecture JPA de `OrganizationalStructure`. |
+| Autorisations réellement isolées par structure, révocation automatiquement déclenchée, réseau Swing et suite globale | Aucun test concluant disponible pour ces fonctions. | À construire et à valider avant ouverture d'opérations sensibles. |
 
 Les rapports et captures ciblés proviennent des exécutions locales présentées ; les fichiers générés et journaux bruts ne sont pas publiés dans ce document. **Bilan additionnel du 2 novembre : 9 + 4 + 1 = 14 tests réussis sur trois classes**, lancées séparément. Cela **ne constitue pas une suite complète verte**, ni un test HTTP sur réseau réel depuis Swing. Aucun test n'a été exécuté pendant cette actualisation documentaire.
 
@@ -85,7 +91,7 @@ L'accès de secours `ADMIN_EMERGENCY` reste à concevoir séparément : poste au
 | DEC05 — ADMIN_EMERGENCY | Continuité maximale sur poste autorisé, sous restrictions restant à décider. Données locales chiffrées, authentification sécurisée, audit et réconciliation ; pas d'accès illimité ni de contournement de la révocation ou des permissions serveur. |
 | DEC06 — Documents sensibles | Administrateur : accès complet à sa structure ; comptable : documents nécessaires à sa mission. Catégories et opérations à préciser ; stockage, conservation et protections à concevoir. Aucun accès aux mots de passe/codes/jetons secrets. |
 
-La matrice de droits, les durées de conservation, la validation de facturation, le cycle de vie des verrous, les opérations hors ligne et les choix de stockage restent ouverts. Adapter explicitement les décisions antérieures de comptes, de hiérarchie et de dernier administrateur à la cible multi-structures, sans les remplacer par une hypothèse implicite.
+La matrice de droits, les durées de conservation, la validation de facturation, le cycle de vie des verrous, les opérations hors ligne et certains choix de stockage restent ouverts. **Choix DEC01 précisé le 3 novembre : un compte global peut appartenir à plusieurs structures, avec des rôles différents dans chacune.** Le compte global et la suppression de l'accès à une structure doivent être gérés séparément. Les `OrganizationalUnit` ne désignent pas ces structures indépendantes. Adapter explicitement les décisions antérieures de comptes, de hiérarchie et de dernier administrateur à cette cible.
 
 Cette mise à jour ne change pas les états des sources ni les preuves de tests du 27 octobre. Aucun test, build, serveur, migration ou opération Git modifiante exécuté.
 
@@ -140,6 +146,34 @@ Cette mise à jour ne change pas les états des sources ni les preuves de tests 
 
 **Prochaine étape retenue :** brancher le suivi des sessions HTTP sur une identité stable (`userID`), puis concevoir et tester une désactivation de compte autorisée déclenchant la révocation de **toutes** ses sessions, avec garantie de refus même en cas d'échec technique. Pas de `boolean` de réactivation susceptible de rendre une ancienne session valable. Le mécanisme exact et ses protections doivent être validés par tests avant de le considérer comme opérationnel.
 
+## Avancement technique — 3 novembre 2026 : révocation et multi-structures
+
+**Périmètre de preuve :** captures Eclipse de tests ciblés réalisées localement. Le dépôt GitHub pouvait encore contenir uniquement les changements publiés le 2 novembre au moment de cette mise à jour ; les nouvelles réalisations du 3 novembre sont donc décrites comme **locales**, en attente de commit/push du code. Aucune opération technique n'a été lancée pour cette documentation.
+
+### Sessions et gestion des comptes
+
+- `HttpSecurityConfig` local : bean `SessionRegistryImpl` partagé, gestion des sessions concurrentes avec `maximumSessions(-1)` et stratégie répondant `401` aux sessions expirées.
+- `SessionRevocationService` local : retrouve les sessions d'un `UserAccount` et appelle `expireNow()` sur chacune. Les tests démontrent une révocation sélective (Alice, pas Bob) et le refus des deux sessions HTTP d'Alice sur leur prochaine requête MockMvc.
+- `UserAccountEntity.disable()`, `AccountStore.disableAccount(UUID)` et `AccountStore.findById(UUID)` avec adaptateur `JpaAccountStore` : opérations locales vérifiées par des tests PostgreSQL ciblés.
+- `AccountManagementService` local : vérifie l'existence du demandeur, sa permission `MANAGE_USERS`, puis l'existence de la cible. Tests de refus ciblés au vert. **La méthode métier ne réalise pas encore la désactivation.**
+
+**Sécurité restant à assurer :** droits tenant compte de la structure, dernier administrateur par structure, origine fiable de l'acteur depuis la session serveur, validation transactionnelle, gestion d'un échec de révocation et des accès simultanés, réévaluation des droits après changement, session partagée si plusieurs instances. Le registre en mémoire d'une seule instance ne suffit pas à ces garanties. Aucune API de désactivation ne doit être ouverte à ce stade.
+
+### Structures indépendantes et persistance
+
+- **Décision validée :** un `UserAccount` global peut être membre de plusieurs structures, avec des `Set<UserRole>` différents par structure. Une désactivation globale n'est pas la même opération que la suppression d'une appartenance.
+- Modèles `OrganizationalStructure` (`structureID`, `structureName`) et `StructureMembership` (`userID`, `structureID`, rôles) ; tests unitaires réussis (5 et 6).
+- Migration locale `V8__create_structures_and_memberships.sql` : tables `organizational_structures`, `structure_memberships` et `structure_membership_roles` ; clés primaires simples/composées, clés étrangères et contraintes ; **5/5 tests Testcontainers** sur PostgreSQL isolé.
+- `OrganizationalStructureEntity`, `OrganizationalStructureJpaRepository` : conversions **3/3** et écriture/relecture PostgreSQL **1/1**.
+- `StructureMembershipId` : `@Embeddable`, `Serializable`, deux UUID, égalité et hash cohérents ; tests **3/3**.
+- `StructureMembershipEntity` : `@EmbeddedId`, `@ElementCollection`, jointure à deux colonnes vers la table des rôles, conversion `toDomain()` ; tests en mémoire **2/2**.
+
+**Reprise précise :** créer `StructureMembershipJpaRepository` (clé `StructureMembershipId`), puis rédiger et exécuter un test JPA/PostgreSQL de plusieurs appartenances et rôles par structure, avec relecture après `flush()` / `clear()`. **Ne pas considérer ce mapping comme validé en base avant ce test.**
+
+**À traiter ensuite, avant autorisation métier :** séparation entre le `employee_id` global actuel et les futures fiches salariées propres à chaque structure ; rattachement des unités et données métier aux structures ; transition explicite des anciens rôles globaux sans leur conférer des droits transversaux. Les permissions doivent être vérifiées côté serveur *et* les requêtes filtrées par structure.
+
+**Récapitulatif des réussites ciblées du 3 novembre montrées dans la conversation :** 5 HTTP/PostgreSQL, 1 service de révocation, 3 persistance compte, 2 gestion compte, 5 modèle structure, 6 appartenance, 5 schéma V8, 3 conversion structure JPA, 1 persistance structure JPA, 3 clé composée et 2 conversion appartenance JPA, soit **36 tests réussis sur ces exécutions ciblées**. Ce total n'est **pas** une preuve d'exécution de toute la suite.
+
 ## Faire vivre ce document
 
 Après une séance, actualiser uniquement les blocs réellement concernés. Pour un résultat de test, noter date, commande ou outil, environnement anonymisé, nombres réussis/interrompus/échoués et limite de la preuve. Distinguer les décisions de conception des changements écrits et des validations exécutées.
@@ -152,3 +186,4 @@ Journal public :
 | 29 octobre 2026 | Six décisions métier transversales ajoutées avec renvoi à la vision commune ; compte multi-structures et paramètres sensibles laissés ouverts. Documentation uniquement, sans nouvelle validation technique. |
 | 2 novembre 2026 — conception | Décision Spring Security + sessions serveur + API JSON pour Swing ; exigences de révocation, MFA et sécurité HTTP ; ordre A–G pour la mise en œuvre. Documentation de conception initiale. |
 | 2 novembre 2026 — réalisation et vérifications | Premier parcours HTTP Spring Security + CSRF + déconnexion, contrôleurs CSRF/session, égalité de compte par UUID ; captures locales : 9 tests MVC, 4 intégration PostgreSQL/Testcontainers et 1 registre d'identité réussis. **Révocation globale et intégration Swing non faites.** Mise à jour documentaire sur GitHub, sans test/build supplémentaire. |
+| 3 novembre 2026 | Registre HTTP et service de révocation testés ; persistance de désactivation et refus métier partiels ; choix du compte unique multi-structures ; modèles, migration V8, entité/repository de structure, clé composée et entité d'appartenance en local. **36 réussites ciblées** sur les classes listées, mais pas de suite complète, pas de révocation automatique, pas d'autorisation inter-structures. Prochaine étape : repository et intégration JPA des appartenances. |
