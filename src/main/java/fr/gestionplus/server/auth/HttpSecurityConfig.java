@@ -5,10 +5,12 @@ import java.util.Objects;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
+import org.springframework.security.access.hierarchicalroles.RoleHierarchyImpl;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.core.session.SessionRegistryImpl;
+import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
 public class HttpSecurityConfig {
@@ -17,6 +19,20 @@ public class HttpSecurityConfig {
 
 	public HttpSecurityConfig(GestionAuthenticationProvider authenticationProvider) {
 		this.authenticationProvider = Objects.requireNonNull(authenticationProvider);
+	}
+
+	@Bean
+	public RoleHierarchy roleHierarchy() {
+		return RoleHierarchyImpl.fromHierarchy("""
+				ROLE_SUPER_ADMIN > ROLE_ADMIN
+				ROLE_ADMIN > ROLE_R_H
+				ROLE_ADMIN > ROLE_ACCOUNTANT
+				ROLE_R_H > ROLE_MANAGER
+				ROLE_R_H > ROLE_SECRETARY
+				ROLE_MANAGER > ROLE_TEAM_LEAD
+				ROLE_SECRETARY > ROLE_TEAM_LEAD
+				ROLE_TEAM_LEAD > ROLE_EMPLOYEE
+				""");
 	}
 
 	@Bean

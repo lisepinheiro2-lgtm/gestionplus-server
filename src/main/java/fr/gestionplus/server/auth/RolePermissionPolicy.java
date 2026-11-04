@@ -1,6 +1,5 @@
-package fr.gestionplus.server.auth;
 
-import java.security.AllPermission;
+package fr.gestionplus.server.auth;
 
 public class RolePermissionPolicy {
 
@@ -12,14 +11,48 @@ public class RolePermissionPolicy {
 
 		switch (role) {
 
-		case ADMIN:
+		case SUPER_ADMIN, ADMIN:
 			return true;
+
+		case R_H:
+			switch (permission) {
+
+			// Comptes utilisateurs
+			case INVITE_USERS, MANAGE_USERS, MANAGE_USER_ROLES,
+
+					// Contrats
+					CREATE_CONTRACT, EDIT_CONTRACT,
+
+					// Planning et interventions
+					VIEW_TEAM_SCHEDULE, CREATE_INTERVENTION, EDIT_INTERVENTION, CANCEL_INTERVENTION,
+					ASSIGN_INTERVENTION, MANAGE_ABSENCES, MANAGE_REPLACEMENTS,
+
+					// Clients
+					CREATE_CLIENT, VIEW_CLIENT_PUBLIC_PROFILE, EDIT_CLIENT_PUBLIC_PROFILE,
+
+					// Salariés
+					CREATE_EMPLOYEE, VIEW_EMPLOYEE_PROFESSIONAL_PROFILE, EDIT_EMPLOYEE_PROFESSIONAL_PROFILE,
+
+					// Documents ordinaires
+					CREATE_DOCUMENT, VIEW_DOCUMENT, EDIT_DOCUMENT,
+
+					// Archives
+					ARCHIVE_CLIENT, VIEW_ARCHIVED_CLIENTS, RESTORE_CLIENT, ARCHIVE_EMPLOYEE, VIEW_ARCHIVED_EMPLOYEES,
+					RESTORE_EMPLOYEE:
+				return true;
+
+			default:
+				return false;
+			}
 
 		case MANAGER:
 			switch (permission) {
 
-			// Contrats
-			case CREATE_CONTRACT, EDIT_CONTRACT,
+			// Comptes utilisateurs
+			case INVITE_USERS, MANAGE_USERS,
+
+					// Contrats
+					CREATE_CONTRACT, EDIT_CONTRACT,
 
 					// Planning et interventions
 					VIEW_TEAM_SCHEDULE, CREATE_INTERVENTION, EDIT_INTERVENTION, CANCEL_INTERVENTION,
@@ -46,12 +79,15 @@ public class RolePermissionPolicy {
 		case SECRETARY:
 			switch (permission) {
 
-			// Contrats : création de brouillons
-			case CREATE_CONTRACT,
+			// Invitations
+			case INVITE_USERS,
+
+					// Contrats
+					CREATE_CONTRACT, EDIT_CONTRACT,
 
 					// Planning et interventions
 					VIEW_TEAM_SCHEDULE, CREATE_INTERVENTION, EDIT_INTERVENTION, ASSIGN_INTERVENTION,
-					MANAGE_REPLACEMENTS,
+					MANAGE_REPLACEMENTS, MANAGE_ABSENCES, CANCEL_INTERVENTION,
 
 					// Clients
 					CREATE_CLIENT, VIEW_CLIENT_PUBLIC_PROFILE, EDIT_CLIENT_PUBLIC_PROFILE,
@@ -73,20 +109,20 @@ public class RolePermissionPolicy {
 				return false;
 			}
 
-		case EMPLOYEE:
+		case TEAM_LEAD:
 			switch (permission) {
 
-			case VIEW_OWN_SCHEDULE, VIEW_ASSIGNED_CLIENT_PUBLIC_PROFILE, VIEW_OWN_PAYSLIP:
+			case VIEW_TEAM_SCHEDULE:
 				return true;
 
 			default:
 				return false;
 			}
-			
-		case TEAM_LEAD :
+
+		case EMPLOYEE:
 			switch (permission) {
 
-			case VIEW_TEAM_SCHEDULE:
+			case VIEW_OWN_SCHEDULE, VIEW_ASSIGNED_CLIENT_PUBLIC_PROFILE, VIEW_OWN_PAYSLIP:
 				return true;
 
 			default:
@@ -99,7 +135,7 @@ public class RolePermissionPolicy {
 			// Comptabilité et facturation
 			case VIEW_ACCOUNTING, CREATE_INVOICE, EDIT_DRAFT_INVOICE, ISSUE_INVOICE, ISSUE_CREDIT_NOTE,
 
-					// Paie si cette mission lui est confiée
+					// Paie
 					PREPARE_PAYROLL, MANAGE_PAYROLL:
 				return true;
 
@@ -111,5 +147,4 @@ public class RolePermissionPolicy {
 			return false;
 		}
 	}
-
 }
