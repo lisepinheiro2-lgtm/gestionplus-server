@@ -1,5 +1,5 @@
 ---
-summary: "État serveur actualisé au 3 novembre 2026 : révocation ciblée des sessions, désactivation en chantier et socle multi-structures V8."
+summary: "État serveur au 5 novembre 2026 : contrats d’autorisation locaux, tests adaptés non exécutés et garanties restant à vérifier."
 read_when:
   - "reprendre les comptes authentification rôles permissions sessions et audit"
   - "distinguer code présent tests écrits résultats disponibles et fonctions prévues"
@@ -10,6 +10,63 @@ read_when:
 
 État initial relu le **27 octobre 2026 (Europe/Paris)**, complété par les décisions du 29 octobre et du 2 novembre. **Actualisation technique le 2 novembre 2026** : fichiers Java présents sur `main` et résultats JUnit ciblés montrés depuis Eclipse. **Complément au 3 novembre 2026** : avancement du code *local* signalé par captures Eclipse et validations JUnit ciblées ; les nouvelles classes et la migration V8 ne sont pas supposées déjà poussées sur GitHub. Les mises à jour documentaires ne lancent ni test, ni build, ni serveur, ni migration.
 
+<a id="tests-autorisations-2026-11-05"></a>
+## Tests adaptés aux contrats locaux — 5 novembre 2026
+
+**Écrit : 8 fichiers de tests modifiés et 2 ajoutés, exclusivement sous src/test. Compilation et exécution : aucune.** Les sources locales actuelles ont servi de référence, sans utiliser l’ancienne archive du serveur. Les résultats des 2–3 novembre conservés plus bas concernent leurs versions datées ; ils ne valident pas les tests adaptés aujourd’hui.
+
+Les services existaient avant cette adaptation : `AccountManagementService.revokeStructureAccess(targetUserId, structureID)` obtient l’acteur via `AuthenticatedUserProvider`, puis vérifie l’autorisation et la hiérarchie avant de retirer la seule appartenance visée et d’enregistrer un audit de succès. `AuthorizationService.canInStructure` recharge le compte, contrôle son état, la structure et son entreprise ; les rôles ordinaires proviennent des appartenances. Le SUPER_ADMIN doit être celui du tenant propriétaire. La hiérarchie Spring distingue notamment MANAGER/SECRETARY et place ACCOUNTANT sous ADMIN, hors de la chaîne ordinaire. Il s’agit d’une lecture du code, pas d’une validation de ces parcours.
+
+| Fichier sous src/test/java/fr/gestionplus/server/ | Action | Méthodes déclarées | Périmètre écrit |
+| --- | --- | ---: | --- |
+| `account/AccountManagementServiceTest.java` | modifié | 30 | Identité Spring et compte courant, dépendances, auto-révocation, protection ADMIN/SUPER_ADMIN, hiérarchie, permissions et entreprise, audit de succès et autres accès préservés. |
+| `auth/AuthorizationServiceTest.java` | modifié | 23 | Contrat injecté, compte/structure/tenant relus, droits propres à la structure, SUPER_ADMIN limité à son entreprise et interdit comme rôle de structure. |
+| `organization/OrganizationalStructureTest.java` | modifié | 6 | Constructeur avec tenantID, conservation de l’entreprise et refus de null. |
+| `persistence/OrganizationalStructureEntityTest.java` | modifié | 3 | Conservation du tenant lors des conversions métier/JPA. |
+| `persistence/OrganizationalStructureJpaPersistenceTest.java` | modifié | 1 | Création du salarié, du SUPER_ADMIN et du tenant avant la structure ; relecture du rattachement. |
+| `persistence/StructureMembershipJpaPersistenceTest.java` | modifié | 1 | Fixtures rattachées à un tenant pour les appartenances et rôles distincts. |
+| `persistence/JpaStructureMembershipStorePostgresqlIntegrationTest.java` | modifié | 3 | Fixtures avec tenant ; retrait d’une appartenance ordinaire sans altérer le compte, l’autre accès ni les structures. |
+| `persistence/StructureSchemaPostgresqlIntegrationTest.java` | modifié | 14 | V8/V9 et fixtures tenants ; codes SQL précis pour clés étrangères, unicité, NOT NULL et noms vides. |
+| `auth/RoleHierarchyPolicyTest.java` | ajouté | 4 | Hiérarchie Spring réelle, rôles incomparables et obligation de dominer tous les rôles de la cible. |
+| `persistence/TenantOrganizationEntityTest.java` | ajouté | 2 | Conversion du tenant, conservation de son identité, de son nom et de son SUPER_ADMIN. |
+
+**87 méthodes déclarées dans ces dix classes**, dont plusieurs paramétrées : ce nombre décrit les sources concernées, pas un nombre de cas JUnit exécutés ni l’inventaire de toute la suite. Les tests de service utilisent la vraie politique de permissions et la hiérarchie Spring avec des stockages simulés. Les tests PostgreSQL conservent leurs bases Testcontainers dédiées ; aucune connexion ni migration n’a été lancée.
+
+### Vérifications réalisées et limites
+
+- Lecture des contrats actuels et relecture statique des tests ; anciens appels aux méthodes supprimées remplacés.
+- Lors de l’adaptation des tests, comparaison des empreintes sous src : huit modifications, deux ajouts, aucun fichier supprimé et aucun changement sous src/main par cette adaptation. Le contrôle final de la documentation a ensuite relevé une évolution distincte du repository de structure, précisée ci-dessous.
+- Aucun résultat de compilation ou d’exécution, aucun rapport JUnit nouveau. Les 87 méthodes et la suite globale restent non exécutées ; aucune réussite ni conformité complète de sécurité n’est annoncée.
+- Aucune source de production, migration ou configuration modifiée. Cette actualisation documentaire ne modifie pas les tests une seconde fois et ne lance ni build, serveur, application, migration ou opération Git modifiante.
+
+### Points de production laissés ouverts
+
+- **Verrouillage, constat actualisé au dernier contrôle :** la déclaration de `OrganizationalStructureJpaRepository.findByIdForUpdate(UUID)` lue au début ne portait pas de requête explicite. Le fichier a évolué pendant cette mise à jour documentaire, avec ajout de `@Query("SELECT s FROM OrganizationalStructureEntity s WHERE s.structureID = ?1")` en conservant `@Lock(PESSIMISTIC_WRITE)`. L’absence de requête signalée initialement est donc levée dans la déclaration relue ; sa compilation et le verrouillage réel restent non vérifiés. Cette évolution de production est distincte des écritures documentaires de l’assistant.
+- `AccountManagementService.revokeStructureAccess` ne déclenche pas explicitement `SessionRevocationService` et ne journalise actuellement que le succès. La révocation effective des sessions concernées et l’audit des refus restent à raccorder et vérifier.
+- Le contrôle d’un MANAGER porte ici sur la structure, sa permission et la hiérarchie des rôles ; aucun rattachement personnel de la cible à ce manager n’est contrôlé dans cette méthode. Les tests de hiérarchie ne prouvent pas ce périmètre métier.
+- V8/V9 ne garantissent pas en stockage l’unicité d’un ADMIN par structure, l’interdiction de SUPER_ADMIN dans les rôles de structure ni la présence du rôle global SUPER_ADMIN sur le compte référencé par un tenant. Le refus applicatif du rôle de structure est couvert dans les tests écrits, sans démontrer une contrainte SQL.
+- V9 ajoute `tenant_id` puis impose `NOT NULL` sans rattacher les structures préexistantes : une table déjà peuplée nécessite un traitement explicite. Les fixtures neuves ne valident pas cette montée de version.
+
+**Prochaine petite étape proposée, sur demande distincte :** valider la compilation puis l’exécution ciblée des tests sur environnement isolé, en tenant compte de la requête de verrouillage désormais présente et encore non vérifiée. Les résultats attendus des tests écrits sont le refus sans retrait ni audit de succès des opérations interdites, le retrait de la seule appartenance autorisée avec audit compte/structure, et la conservation des autres accès et liens tenant. Les contraintes SQL doivent échouer pour leur cause précise. Aucune correction de production ni exécution n’est autorisée par cette note. L’intégration Swing, la fermeture complète de structure et le mode ADMIN_EMERGENCY hors ligne restent à concevoir ou valider séparément.
+
+<a id="autorisations-2026-11-05"></a>
+## Reprise prioritaire — autorisations et administration — 5 novembre 2026
+
+**Décisions fermes de conception ; aucune nouvelle preuve d’implémentation.** La [référence commune du 5 novembre](https://github.com/lisepinheiro2-lgtm/gestionplus-client/blob/main/docs/vision-ensemble.md#decisions-securite-2026-11-05) précise les anciennes décisions. **Sécuriser d’abord AuthorizationService et les autorisations côté serveur, avant de poursuivre l’authentification et l’intégration Swing.** Les anciennes prochaines actions et l’ordre des tableaux restent historiques lorsqu’ils contredisent cette priorité.
+
+| Sujet | Cible retenue |
+| --- | --- |
+| Déploiement | Spring Boot/PostgreSQL local chez l’entreprise **ou** distant ; aucun hébergement externe obligatoire. Les frontières d’autorisation sont les mêmes. |
+| Entreprise et SUPER_ADMIN | Plusieurs structures possibles par entreprise cliente ; **exactement un SUPER_ADMIN**, créé exclusivement par la développeuse à la mise en service, limité aux structures de cette entreprise. Vérifier le rattachement à l’entreprise propriétaire de la structure ; la présence du rôle ne suffit pas. |
+| ADMIN et suppression | **Exactement un ADMIN nominatif par structure**, jamais supprimable individuellement même par SUPER_ADMIN. Seul le SUPER_ADMIN de l’entreprise peut supprimer une structure ; retirer le rattachement ADMIN et tous les accès à cette structure. Préserver les autres appartenances du compte global multi-structures. Anticiper conservation, transactions/concurrence, sessions, accès hors ligne et synchronisations. |
+| Identité et rôles | Acteur issu de l’identité authentifiée Spring ; compte rechargé au serveur et état contrôlé ; rôles de **StructureMembershipStore** dans la structure demandée. Aucun rôle/UUID librement fourni par Swing ne fait autorité. Le stockage des appartenances ne remplace pas la politique d’autorisation serveur. |
+| Hiérarchie et permissions | Hiérarchie via Spring Security, permissions métier indépendantes. ACCOUNTANT hors chaîne ordinaire mais sous ADMIN/SUPER_ADMIN ; MANAGER/SECRETARY peuvent être incomparables. ADMIN/SUPER_ADMIN : tous les droits métier dans leur périmètre, avec les réserves de cycle de vie ci-dessus. RH modifie les rôles inférieurs autorisés ; ADMIN peut gérer RH. SECRETARY crée/édite les contrats et invite, sans modifier les rôles ni désactiver les comptes. |
+| ADMIN_EMERGENCY | **MODE de secours hors ligne** de chaque ADMIN pour sa propre structure, sur poste préautorisé ; aucun compte ou rôle ordinaire supplémentaire. Authentification sécurisée, données locales chiffrées, traces protégées, droits limités et réconciliation. Pas de connaissance immédiate d’une révocation pendant la déconnexion ; validité limitée et renouvellement à définir. |
+
+**À préciser :** graphe exact et matrice des droits, rôles initiaux d’invitation, mise en service/récupération des comptes uniques, remplacement de l’ADMIN sans suppression individuelle, conservation et fermeture cohérente, compte sans rattachement, révocation ciblée et opérations/durées/clés/conflits hors ligne.
+
+**Non implémenté ou non vérifié par cette intervention :** ces garanties complètes d’entreprise/structure, unicité des administrateurs, suppression sécurisée de structure, hiérarchie raccordée et mode de secours. Les jalons techniques antérieurs sont conservés avec leurs dates et limites ; leur présence ne démontre pas ces parcours complets. Aucun code, test, build, serveur, migration, commit, push ou publication effectué pour cette mise à jour.
+
 ## Comment lire les statuts
 
 - **Implémenté** : code présent et examiné ; pas de promesse de fonctionnement global.
@@ -19,7 +76,7 @@ read_when:
 
 ## État des blocs
 
-Les chemins ci-dessous sont relatifs à `src/main/java/fr/gestionplus/server/`.
+Les chemins ci-dessous sont relatifs à `src/main/java/fr/gestionplus/server/`. Ce tableau conserve les jalons techniques jusqu’au 3 novembre ; la [lecture locale et les tests adaptés du 5 novembre](#tests-autorisations-2026-11-05) précisent les évolutions et limites plus récentes.
 
 | Bloc | Présent dans les sources | État et limite |
 | --- | --- | --- |
@@ -40,6 +97,8 @@ Les chemins ci-dessous sont relatifs à `src/main/java/fr/gestionplus/server/`.
 La configuration actuelle contient bien `spring.jpa.hibernate.ddl-auto: validate` et un profil de test PostgreSQL. Les anciens constats sur une indentation incorrecte ou l'absence de profil ne décrivent donc plus les fichiers actuels. Cela ne prouve pas leur bon fonctionnement à l'exécution.
 
 ## Tests : sources et résultats sont deux informations différentes
+
+Les campagnes ci-dessous restent historiques. Pour les dix classes adaptées le 5 novembre, voir le [bilan des tests écrits et non exécutés](#tests-autorisations-2026-11-05) ; aucune ancienne réussite n’est transférée à leur nouvelle version.
 
 Inventaire du **27 octobre** : **15 classes et 59 méthodes annotées `@Test`** à cette date ; chiffre historique, **non présenté comme l'inventaire actuel**. De nouvelles classes de tests ont depuis été publiées. Un fichier présent sur GitHub et un résultat vert local sont deux preuves distinctes.
 
@@ -63,6 +122,8 @@ Inventaire du **27 octobre** : **15 classes et 59 méthodes annotées `@Test`** 
 Les rapports et captures ciblés proviennent des exécutions locales présentées ; les fichiers générés et journaux bruts ne sont pas publiés dans ce document. **Bilan additionnel du 2 novembre : 9 + 4 + 1 = 14 tests réussis sur trois classes**, lancées séparément. Cela **ne constitue pas une suite complète verte**, ni un test HTTP sur réseau réel depuis Swing. Aucun test n'a été exécuté pendant cette actualisation documentaire.
 
 ## Feuille de route
+
+**Ordre historique :** la [priorité du 5 novembre](#autorisations-2026-11-05) impose désormais de sécuriser les autorisations avant de poursuivre l’authentification et l’intégration Swing ; la règle d’ADMIN unique protégé remplace la seule protection du dernier administrateur.
 
 L'ordre pourra évoluer selon les dépendances découvertes. Aucune date de livraison n'est promise.
 
@@ -187,3 +248,4 @@ Journal public :
 | 2 novembre 2026 — conception | Décision Spring Security + sessions serveur + API JSON pour Swing ; exigences de révocation, MFA et sécurité HTTP ; ordre A–G pour la mise en œuvre. Documentation de conception initiale. |
 | 2 novembre 2026 — réalisation et vérifications | Premier parcours HTTP Spring Security + CSRF + déconnexion, contrôleurs CSRF/session, égalité de compte par UUID ; captures locales : 9 tests MVC, 4 intégration PostgreSQL/Testcontainers et 1 registre d'identité réussis. **Révocation globale et intégration Swing non faites.** Mise à jour documentaire sur GitHub, sans test/build supplémentaire. |
 | 3 novembre 2026 | Registre HTTP et service de révocation testés ; persistance de désactivation et refus métier partiels ; choix du compte unique multi-structures ; modèles, migration V8, entité/repository de structure, clé composée et entité d'appartenance en local. **36 réussites ciblées** sur les classes listées, mais pas de suite complète, pas de révocation automatique, pas d'autorisation inter-structures. Prochaine étape : repository et intégration JPA des appartenances. |
+| 5 novembre 2026 — tests et documentation | Adaptation aux contrats locaux actuels : huit tests modifiés, deux ajoutés, 87 méthodes déclarées non compilées/non exécutées. Contrôles de périmètre, hiérarchie, audit et fixtures tenants ; problèmes de production signalés sans correction. Empreintes de src comparées, production inchangée ; aucune nouvelle réussite applicative ni publication. |

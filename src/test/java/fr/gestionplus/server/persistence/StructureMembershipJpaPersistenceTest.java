@@ -17,6 +17,7 @@ import fr.gestionplus.server.auth.UserRole;
 import fr.gestionplus.server.employee.Employee;
 import fr.gestionplus.server.organization.OrganizationalStructure;
 import fr.gestionplus.server.organization.StructureMembership;
+import fr.gestionplus.server.organization.TenantOrganization;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 
@@ -29,6 +30,8 @@ class StructureMembershipJpaPersistenceTest {
 
 	@Autowired
 	private StructureMembershipJpaRepository membershipRepository;
+	@Autowired
+	private TenantOrganizationJpaRepository tenantRepository;
 	@Autowired
 	private OrganizationalStructureJpaRepository structureRepository;
 	@Autowired
@@ -52,8 +55,9 @@ class StructureMembershipJpaPersistenceTest {
 
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 
-		OrganizationalStructure structureA = new OrganizationalStructure(UUID.randomUUID(), "Structure A");
-		OrganizationalStructure structureB = new OrganizationalStructure(UUID.randomUUID(), "Structure B");
+		UUID tenantID = createTenant();
+		OrganizationalStructure structureA = new OrganizationalStructure(UUID.randomUUID(), "Structure A", tenantID);
+		OrganizationalStructure structureB = new OrganizationalStructure(UUID.randomUUID(), "Structure B", tenantID);
 
 		structureRepository.saveAndFlush(new OrganizationalStructureEntity(structureA));
 		structureRepository.saveAndFlush(new OrganizationalStructureEntity(structureB));
@@ -80,5 +84,21 @@ class StructureMembershipJpaPersistenceTest {
 		assertEquals(structureB.getStructureID(), restoredB.getStructureID());
 		assertEquals(membershipB.getRoles(), restoredB.getRoles());
 		assertEquals(2, membershipRepository.count());
+	}
+
+	private UUID createTenant() {
+		UUID userID = UUID.randomUUID();
+		Employee employee = new Employee(UUID.randomUUID(), "Super", "Admin", 35, "super@example.invalid",
+				"0600000000", null);
+		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
+
+		UserAccount account = new UserAccount(userID, "super_" + userID, UserAccountStatus.ACTIVE,
+				Set.of(UserRole.SUPER_ADMIN), employee.getEmployeeID());
+		accountRepository.saveAndFlush(new UserAccountEntity(account));
+
+		UUID tenantID = UUID.randomUUID();
+		tenantRepository.saveAndFlush(
+				new TenantOrganizationEntity(new TenantOrganization(tenantID, "Entreprise", userID)));
+		return tenantID;
 	}
 }

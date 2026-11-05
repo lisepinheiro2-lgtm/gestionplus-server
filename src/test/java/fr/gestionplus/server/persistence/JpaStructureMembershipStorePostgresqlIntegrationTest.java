@@ -19,6 +19,7 @@ import fr.gestionplus.server.employee.Employee;
 import fr.gestionplus.server.organization.OrganizationalStructure;
 import fr.gestionplus.server.organization.StructureMembership;
 import fr.gestionplus.server.organization.StructureMembershipStore;
+import fr.gestionplus.server.organization.TenantOrganization;
 
 @SpringBootTest(properties = {
 		"spring.datasource.url=jdbc:tc:postgresql:16-alpine:///gestionplus_membership_store_test",
@@ -33,6 +34,8 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 	private EmployeeJpaRepository employeeRepository;
 	@Autowired
 	private UserAccountJpaRepository accountRepository;
+	@Autowired
+	private TenantOrganizationJpaRepository tenantRepository;
 	@Autowired
 	private OrganizationalStructureJpaRepository structureRepository;
 	@Autowired
@@ -55,7 +58,7 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 
-		OrganizationalStructure structure = new OrganizationalStructure(structureID, "Structure A");
+		OrganizationalStructure structure = new OrganizationalStructure(structureID, "Structure A", createTenant());
 
 		structureRepository.saveAndFlush(new OrganizationalStructureEntity(structure));
 
@@ -92,14 +95,15 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 
-		OrganizationalStructure structureA = new OrganizationalStructure(structureAID, "Structure A");
-		OrganizationalStructure structureB = new OrganizationalStructure(structureBID, "Structure B");
+		UUID tenantID = createTenant();
+		OrganizationalStructure structureA = new OrganizationalStructure(structureAID, "Structure A", tenantID);
+		OrganizationalStructure structureB = new OrganizationalStructure(structureBID, "Structure B", tenantID);
 
 		structureRepository.saveAndFlush(new OrganizationalStructureEntity(structureA));
 		structureRepository.saveAndFlush(new OrganizationalStructureEntity(structureB));
 
 		StructureMembership membershipA = new StructureMembership(userID, structureAID,
-				Set.of(UserRole.ADMIN, UserRole.ACCOUNTANT));
+				Set.of(UserRole.SECRETARY, UserRole.ACCOUNTANT));
 
 		StructureMembership membershipB = new StructureMembership(userID, structureBID, Set.of(UserRole.EMPLOYEE));
 
@@ -114,7 +118,7 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 				jdbcTemplate.queryForObject(
 						"SELECT COUNT(*) FROM structure_memberships WHERE user_id = ? AND structure_id = ?", Long.class,
 						userID, structureBID));
-		assertEquals(Set.of("ADMIN", "ACCOUNTANT"),
+		assertEquals(Set.of("SECRETARY", "ACCOUNTANT"),
 				Set.copyOf(jdbcTemplate.queryForList(
 						"SELECT role FROM structure_membership_roles WHERE user_id = ? AND structure_id = ?",
 						String.class, userID, structureAID)));
@@ -152,6 +156,29 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 				String.class, userID));
 		assertEquals(Set.of("EMPLOYEE"), Set.copyOf(jdbcTemplate
 				.queryForList("SELECT role FROM user_account_roles WHERE user_id = ?", String.class, userID)));
+
+		assertEquals(Set.of(structureAID, structureBID), Set.copyOf(jdbcTemplate.queryForList(
+				"SELECT structure_id FROM organizational_structures WHERE tenant_id = ?", UUID.class, tenantID)));
+		assertEquals(tenantID, tenantRepository.findById(tenantID).orElseThrow().toDomain().getTenantID());
+		StructureMembership restoredB = store.findByUserAndStructure(userID, structureBID).orElseThrow();
+		assertEquals(membershipB.getRoles(), restoredB.getRoles());
+		assertEquals(userID, restoredB.getUserID());
+		assertTrue(store.findByUserAndStructure(userID, structureAID).isEmpty());
 	}
 
+	private UUID createTenant() {
+		UUID userID = UUID.randomUUID();
+		Employee employee = new Employee(UUID.randomUUID(), "Super", "Admin", 35, "super@example.invalid",
+				"0600000000", null);
+		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
+
+		UserAccount account = new UserAccount(userID, "super_" + userID, UserAccountStatus.ACTIVE,
+				Set.of(UserRole.SUPER_ADMIN), employee.getEmployeeID());
+		accountRepository.saveAndFlush(new UserAccountEntity(account));
+
+		UUID tenantID = UUID.randomUUID();
+		tenantRepository.saveAndFlush(
+				new TenantOrganizationEntity(new TenantOrganization(tenantID, "Entreprise", userID)));
+		return tenantID;
+	}
 }

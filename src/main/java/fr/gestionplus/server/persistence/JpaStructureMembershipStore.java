@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+
 import fr.gestionplus.server.organization.StructureMembership;
 import fr.gestionplus.server.organization.StructureMembershipStore;
 
@@ -31,6 +32,12 @@ public class JpaStructureMembershipStore implements StructureMembershipStore {
 	public void deleteByUserAndStructure(UUID userID, UUID structureID) {
 		StructureMembershipId structureMembershipID = new StructureMembershipId(userID, structureID);
 		repository.deleteById(structureMembershipID);
+	}
+
+	@Override
+	public Optional<StructureMembership> findByUserAndStructureForUpdate(UUID userID, UUID structureID) {
+		StructureMembershipId id = new StructureMembershipId(userID, structureID);
+		return repository.findByIdForUpdate(id).map(structure -> structure.toDomain());
 	}
 
 }

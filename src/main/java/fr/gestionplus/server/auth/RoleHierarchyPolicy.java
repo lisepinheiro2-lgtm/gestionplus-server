@@ -1,12 +1,10 @@
 package fr.gestionplus.server.auth;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
 import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.stereotype.Component;
 
@@ -24,19 +22,18 @@ public class RoleHierarchyPolicy {
 		if (actorRoles == null || targetRoles == null || actorRoles.isEmpty() || targetRoles.isEmpty()) {
 			return false;
 		}
-		
+
 		for (UserRole role : actorRoles) {
-		    if (role == null) {
-		        return false;
-		    }
+			if (role == null) {
+				return false;
+			}
 		}
-		
+
 		for (UserRole role : targetRoles) {
-		    if (role == null) {
-		        return false;
-		    }
+			if (role == null) {
+				return false;
+			}
 		}
-		
 
 		for (UserRole targetRole : targetRoles) {
 

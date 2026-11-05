@@ -2,8 +2,10 @@
 package fr.gestionplus.server.persistence;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.sql.SQLException;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -30,13 +32,37 @@ class StructureSchemaPostgresqlIntegrationTest {
 		return userID;
 	}
 
-	private UUID createStructure(String name) {
-		
-		UUID structureID = UUID.randomUUID();
-		jdbcTemplate.update("INSERT INTO organizational_structures (structure_id, structure_name) VALUES (?, ?)",
-				structureID, name);
+	private UUID createTenant() {
+		UUID superAdminUserID = createAccount();
+		jdbcTemplate.update("INSERT INTO user_account_roles (user_id, role) VALUES (?, ?)",
+				superAdminUserID, "SUPER_ADMIN");
+		return createTenant("Entreprise", superAdminUserID);
+	}
 
+	private UUID createTenant(String name, UUID superAdminUserID) {
+		UUID tenantID = UUID.randomUUID();
+		jdbcTemplate.update(
+				"INSERT INTO tenant_organizations (tenant_id, tenant_name, super_admin_user_id) VALUES (?, ?, ?)",
+				tenantID, name, superAdminUserID);
+		return tenantID;
+	}
+
+	private UUID createStructure(String name) {
+		return createStructure(name, createTenant());
+	}
+
+	private UUID createStructure(String name, UUID tenantID) {
+		UUID structureID = UUID.randomUUID();
+		jdbcTemplate.update(
+				"INSERT INTO organizational_structures (structure_id, structure_name, tenant_id) VALUES (?, ?, ?)",
+				structureID, name, tenantID);
 		return structureID;
+	}
+
+	private void assertSqlState(String sqlState, Runnable operation) {
+		DataIntegrityViolationException exception = assertThrows(DataIntegrityViolationException.class, operation::run);
+		SQLException cause = assertInstanceOf(SQLException.class, exception.getMostSpecificCause());
+		assertEquals(sqlState, cause.getSQLState());
 	}
 
 	private void addMembership(UUID userID, UUID structureID) {
@@ -45,11 +71,11 @@ class StructureSchemaPostgresqlIntegrationTest {
 	}
 
 	@Test
-	void appliesV8AndCreatesThreeTables() {
+	void appliesV8AndV9AndCreatesStructureAndTenantTables() {
 
 		Long applied = jdbcTemplate.queryForObject(
-				"SELECT COUNT(*) FROM flyway_schema_history WHERE version = '8' AND success = TRUE", Long.class);
-		assertEquals(1L, applied);
+				"SELECT COUNT(*) FROM flyway_schema_history WHERE version IN ('8', '9') AND success = TRUE", Long.class);
+		assertEquals(2L, applied);
 
 		Long tables = jdbcTemplate.queryForObject("""
 				SELECT COUNT(*)
@@ -58,18 +84,20 @@ class StructureSchemaPostgresqlIntegrationTest {
 				AND table_name IN (
 				    'organizational_structures',
 				    'structure_memberships',
-				    'structure_membership_roles'
+				    'structure_membership_roles',
+				    'tenant_organizations'
 				)
 				""", Long.class);
-		assertEquals(3L, tables);
+		assertEquals(4L, tables);
 	}
 
 	@Test
 	void storesDifferentRolesForSameUserInTwoStructures() {
 
 		UUID userID = createAccount();
-		UUID structureA = createStructure("Association A");
-		UUID structureB = createStructure("Association B");
+		UUID tenantID = createTenant();
+		UUID structureA = createStructure("Association A", tenantID);
+		UUID structureB = createStructure("Association B", tenantID);
 
 		addMembership(userID, structureA);
 		addMembership(userID, structureB);
@@ -94,10 +122,10 @@ class StructureSchemaPostgresqlIntegrationTest {
 	void rejectsMembershipWithUnknownAccountOrStructure() {
 
 		UUID structureID = createStructure("Association A");
-		assertThrows(DataIntegrityViolationException.class, () -> addMembership(UUID.randomUUID(), structureID));
+		assertSqlState("23503", () -> addMembership(UUID.randomUUID(), structureID));
 
 		UUID userID = createAccount();
-		assertThrows(DataIntegrityViolationException.class, () -> addMembership(userID, UUID.randomUUID()));
+		assertSqlState("23503", () -> addMembership(userID, UUID.randomUUID()));
 	}
 
 	@Test
@@ -106,21 +134,92 @@ class StructureSchemaPostgresqlIntegrationTest {
 		UUID userID = createAccount();
 		UUID structureID = createStructure("Association A");
 
-		assertThrows(DataIntegrityViolationException.class, () -> jdbcTemplate
+		assertSqlState("23503", () -> jdbcTemplate
 				.update("INSERT INTO structure_membership_roles VALUES (?, ?, ?)", userID, structureID, "ADMIN"));
 
 		addMembership(userID, structureID);
-		assertThrows(DataIntegrityViolationException.class, () -> addMembership(userID, structureID));
+		assertSqlState("23505", () -> addMembership(userID, structureID));
 
 		jdbcTemplate.update("INSERT INTO structure_membership_roles VALUES (?, ?, ?)", userID, structureID, "ADMIN");
-		assertThrows(DataIntegrityViolationException.class, () -> jdbcTemplate
+		assertSqlState("23505", () -> jdbcTemplate
 				.update("INSERT INTO structure_membership_roles VALUES (?, ?, ?)", userID, structureID, "ADMIN"));
 	}
 
 	@Test
 	void rejectsBlankAndNullStructureNames() {
-		assertThrows(DataIntegrityViolationException.class, () -> createStructure("   "));
-		assertThrows(DataIntegrityViolationException.class, () -> createStructure(""));
-		assertThrows(DataIntegrityViolationException.class, () -> createStructure(null));
+		assertSqlState("23514", () -> createStructure("   "));
+		assertSqlState("23514", () -> createStructure(""));
+		assertSqlState("23502", () -> createStructure(null));
+	}
+
+	@Test
+	void rejectsStructureWithoutTenant() {
+		assertSqlState("23502", () -> createStructure("Association A", null));
+	}
+
+	@Test
+	void rejectsStructureWithUnknownTenant() {
+		assertSqlState("23503", () -> createStructure("Association A", UUID.randomUUID()));
+	}
+
+	@Test
+	void rejectsBlankAndNullTenantNames() {
+		UUID superAdminUserID = createAccount();
+
+		assertSqlState("23514", () -> createTenant("   ", superAdminUserID));
+		assertSqlState("23514", () -> createTenant("", superAdminUserID));
+		assertSqlState("23502", () -> createTenant(null, superAdminUserID));
+	}
+
+	@Test
+	void rejectsTenantWithoutSuperAdmin() {
+		assertSqlState("23502", () -> createTenant("Entreprise", null));
+	}
+
+	@Test
+	void rejectsTenantWithUnknownSuperAdmin() {
+		assertSqlState("23503", () -> createTenant("Entreprise", UUID.randomUUID()));
+	}
+
+	@Test
+	void rejectsSameSuperAdminForTwoTenants() {
+		UUID superAdminUserID = createAccount();
+		jdbcTemplate.update("INSERT INTO user_account_roles (user_id, role) VALUES (?, ?)",
+				superAdminUserID, "SUPER_ADMIN");
+		createTenant("Entreprise A", superAdminUserID);
+
+		assertSqlState("23505", () -> createTenant("Entreprise B", superAdminUserID));
+	}
+
+	@Test
+	void preservesTenantLinkForMultipleStructures() {
+		UUID tenantID = createTenant();
+		UUID structureA = createStructure("Association A", tenantID);
+		UUID structureB = createStructure("Association B", tenantID);
+
+		assertEquals(tenantID, jdbcTemplate.queryForObject(
+				"SELECT tenant_id FROM organizational_structures WHERE structure_id = ?", UUID.class, structureA));
+		assertEquals(tenantID, jdbcTemplate.queryForObject(
+				"SELECT tenant_id FROM organizational_structures WHERE structure_id = ?", UUID.class, structureB));
+	}
+
+	@Test
+	void rejectsDeletingTenantWhileStructuresReferenceIt() {
+		UUID tenantID = createTenant();
+		createStructure("Association A", tenantID);
+
+		assertSqlState("23503", () -> jdbcTemplate.update(
+				"DELETE FROM tenant_organizations WHERE tenant_id = ?", tenantID));
+	}
+
+	@Test
+	void rejectsDeletingSuperAdminWhileTenantReferencesIt() {
+		UUID tenantID = createTenant();
+		UUID superAdminUserID = jdbcTemplate.queryForObject(
+				"SELECT super_admin_user_id FROM tenant_organizations WHERE tenant_id = ?", UUID.class, tenantID);
+		jdbcTemplate.update("DELETE FROM user_account_roles WHERE user_id = ?", superAdminUserID);
+
+		assertSqlState("23503", () -> jdbcTemplate.update(
+				"DELETE FROM user_accounts WHERE user_id = ?", superAdminUserID));
 	}
 }

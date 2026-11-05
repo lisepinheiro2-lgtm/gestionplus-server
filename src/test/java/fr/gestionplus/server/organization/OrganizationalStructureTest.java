@@ -14,30 +14,42 @@ class OrganizationalStructureTest {
 	void preservesStructureIdentityAndName() {
 
 		UUID structureID = UUID.randomUUID();
-		OrganizationalStructure structure = new OrganizationalStructure(structureID, "Association A");
+		UUID tenantID = UUID.randomUUID();
+		OrganizationalStructure structure = new OrganizationalStructure(structureID, "Association A", tenantID);
 
 		assertEquals(structureID, structure.getStructureID());
+		assertEquals(tenantID, structure.getTenantID());
 		assertEquals("Association A", structure.getStructureName());
 	}
 
 	@Test
 	void removesUnnecessarySpacesFromName() {
-		OrganizationalStructure structure = new OrganizationalStructure(UUID.randomUUID(), "   Association A   ");
+		OrganizationalStructure structure = new OrganizationalStructure(UUID.randomUUID(), "   Association A   ",
+				UUID.randomUUID());
 		assertEquals("Association A", structure.getStructureName());
 	}
 
 	@Test
 	void rejectsBlankStructureName() {
-		assertThrows(IllegalArgumentException.class, () -> new OrganizationalStructure(UUID.randomUUID(), "   "));
+		assertThrows(IllegalArgumentException.class,
+				() -> new OrganizationalStructure(UUID.randomUUID(), "   ", UUID.randomUUID()));
 	}
 
 	@Test
 	void rejectsNullStructureName() {
-		assertThrows(NullPointerException.class, () -> new OrganizationalStructure(UUID.randomUUID(), null));
+		assertThrows(NullPointerException.class,
+				() -> new OrganizationalStructure(UUID.randomUUID(), null, UUID.randomUUID()));
 	}
 
 	@Test
 	void rejectsNullStructureId() {
-		assertThrows(NullPointerException.class, () -> new OrganizationalStructure(null, "Association A"));
+		assertThrows(NullPointerException.class,
+				() -> new OrganizationalStructure(null, "Association A", UUID.randomUUID()));
+	}
+
+	@Test
+	void rejectsNullTenantId() {
+		assertThrows(NullPointerException.class,
+				() -> new OrganizationalStructure(UUID.randomUUID(), "Association A", null));
 	}
 }

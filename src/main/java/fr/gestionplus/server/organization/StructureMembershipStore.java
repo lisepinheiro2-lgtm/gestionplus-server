@@ -8,4 +8,6 @@ public interface StructureMembershipStore {
 	Optional<StructureMembership> findByUserAndStructure(UUID userID, UUID structureID);
 
 	void deleteByUserAndStructure(UUID userID, UUID structureID);
+
+	Optional<StructureMembership> findByUserAndStructureForUpdate(UUID userID, UUID structureID);
 }

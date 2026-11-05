@@ -3,171 +3,297 @@ package fr.gestionplus.server.auth;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.*;
 
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
-import fr.gestionplus.server.employee.Employee;
+import fr.gestionplus.server.account.AccountStore;
+import fr.gestionplus.server.organization.OrganizationalStructure;
+import fr.gestionplus.server.organization.OrganizationalStructureStore;
 import fr.gestionplus.server.organization.StructureMembership;
+import fr.gestionplus.server.organization.StructureMembershipStore;
+import fr.gestionplus.server.organization.TenantOrganization;
+import fr.gestionplus.server.organization.TenantOrganizationStore;
 
 class AuthorizationServiceTest {
 
-	private final Employee employee = new Employee(UUID.randomUUID(), "Test", "Employee", 35, "test@example.invalid",
-			"0600000000", null);
+	private final UUID userID = UUID.randomUUID();
+	private final UUID structureID = UUID.randomUUID();
+	private final UUID tenantID = UUID.randomUUID();
+	private final StructureMembershipStore structureMembershipStore = mock(StructureMembershipStore.class);
+	private final AccountStore accountStore = mock(AccountStore.class);
+	private final OrganizationalStructureStore organizationalStructureStore = mock(OrganizationalStructureStore.class);
+	private final TenantOrganizationStore tenantOrganizationStore = mock(TenantOrganizationStore.class);
 
-	@Test
-	void inactiveAdminCannotManageUsers() {
-		UserAccount account = new UserAccount(UUID.randomUUID(), "adminTest", UserAccountStatus.DISABLED,
-				Set.of(UserRole.ADMIN), employee.getEmployeeID());
+	private AuthorizationService service;
 
-		assertFalse(AuthorizationService.can(account, Permission.MANAGE_USERS));
+	@BeforeEach
+	void setUp() {
+		service = new AuthorizationService(structureMembershipStore, accountStore, organizationalStructureStore,
+				tenantOrganizationStore);
+	}
+
+	private UserAccount account(UserAccountStatus statu, Set<UserRole> roles) {
+		UserAccount account = new UserAccount(userID, "alice", statu, roles, UUID.randomUUID());
+		when(accountStore.findById(userID)).thenReturn(Optional.of(account));
+		return account;
+	}
+
+	private void structure(UUID structureID, UUID tenantID, UUID superAdminUserID) {
+		when(organizationalStructureStore.findById(structureID))
+				.thenReturn(Optional.of(new OrganizationalStructure(structureID, "Structure", tenantID)));
+		when(tenantOrganizationStore.findById(tenantID))
+				.thenReturn(Optional.of(new TenantOrganization(tenantID, "Entreprise", superAdminUserID)));
+	}
+
+	private void membership(UUID userID, UUID structureID, Set<UserRole> roles) {
+		when(structureMembershipStore.findByUserAndStructure(userID, structureID))
+				.thenReturn(Optional.of(new StructureMembership(userID, structureID, roles)));
 	}
 
 	@Test
-	void adminCanManageUsers() {
-		UserAccount account = new UserAccount(UUID.randomUUID(), "adminTest", UserAccountStatus.ACTIVE,
-				Set.of(UserRole.ADMIN), employee.getEmployeeID());
-
-		assertTrue(AuthorizationService.can(account, Permission.MANAGE_USERS));
-	}
-
-	@Test
-	void employeeCannotManageUsers() {
-		UserAccount account = new UserAccount(UUID.randomUUID(), "employeeTest", UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID());
-
-		assertFalse(AuthorizationService.can(account, Permission.MANAGE_USERS));
-	}
-
-	@Test
-	void secretaryAccountantCanViewAccounting() {
-		UserAccount account = new UserAccount(UUID.randomUUID(), "sophieTest", UserAccountStatus.ACTIVE,
-				Set.of(UserRole.SECRETARY, UserRole.ACCOUNTANT), employee.getEmployeeID());
-
-		assertTrue(AuthorizationService.can(account, Permission.VIEW_ACCOUNTING));
-		assertFalse(AuthorizationService.can(account, Permission.MANAGE_USERS));
-		assertFalse(AuthorizationService.can(account, Permission.EDIT_SENSITIVE_DOCUMENT));
-	}
-
-	@Test
-	void cannotModifyUserRoles() {
-		UserAccount account = new UserAccount(UUID.randomUUID(), "modifRoleTest", UserAccountStatus.ACTIVE,
-				Set.of(UserRole.MANAGER), employee.getEmployeeID());
-
-		assertThrows(UnsupportedOperationException.class, () -> account.getRoles().add(UserRole.ADMIN));
-	}
-
-	@Test
-	void modifyingOriginalRolesDoesNotChangeAccount() {
-		Set<UserRole> roles = new HashSet<>();
-		roles.add(UserRole.EMPLOYEE);
-
-		UserAccount account = new UserAccount(UUID.randomUUID(), "test", UserAccountStatus.ACTIVE, roles,
-				employee.getEmployeeID());
-		roles.add(UserRole.ADMIN);
-
-		assertFalse(account.getRoles().contains(UserRole.ADMIN));
-		assertFalse(AuthorizationService.can(account, Permission.MANAGE_USERS));
-	}
-
-	@Test
-	void adminCanManageUsersInOwnStructure() {
-
-		UUID structureID = UUID.randomUUID();
-
-		UserAccount account = new UserAccount(UUID.randomUUID(), "alice", UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID());
-
-		StructureMembership membership = new StructureMembership(account.getUserID(), structureID,
-				Set.of(UserRole.ADMIN, UserRole.ACCOUNTANT));
-
-		assertTrue(AuthorizationService.canInStructure(account, membership, structureID, Permission.MANAGE_USERS));
-	}
-
-	@Test
-	void globalAdminCannotManageUsersWithEmployeeMembership() {
-
-		UUID structureA = UUID.randomUUID();
-		UUID structureB = UUID.randomUUID();
-
-		UserAccount account = new UserAccount(UUID.randomUUID(), "alice", UserAccountStatus.ACTIVE,
-				Set.of(UserRole.ADMIN), employee.getEmployeeID());
-
-		StructureMembership membershipA = new StructureMembership(account.getUserID(), structureA,
-				Set.of(UserRole.ADMIN));
-
-		StructureMembership membershipB = new StructureMembership(account.getUserID(), structureB,
-				Set.of(UserRole.EMPLOYEE));
-
-		assertTrue(AuthorizationService.canInStructure(account, membershipA, structureA, Permission.MANAGE_USERS));
-
-		assertFalse(AuthorizationService.canInStructure(account, membershipB, structureB, Permission.MANAGE_USERS));
-	}
-
-	@Test
-	void rejectsMembershipBelongingToAnotherUser() {
-
-		UUID structureID = UUID.randomUUID();
-
-		UserAccount account = new UserAccount(UUID.randomUUID(), "alice", UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID());
-
-		StructureMembership membership = new StructureMembership(UUID.randomUUID(), structureID,
-				Set.of(UserRole.ADMIN));
-
-		assertFalse(AuthorizationService.canInStructure(account, membership, structureID, Permission.MANAGE_USERS));
-	}
-
-	@Test
-	void rejectsMembershipFromAnotherStructure() {
-
-		UUID structureA = UUID.randomUUID();
-		UUID structureB = UUID.randomUUID();
-
-		UserAccount account = new UserAccount(UUID.randomUUID(), "alice", UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID());
-
-		StructureMembership membership = new StructureMembership(account.getUserID(), structureA,
-				Set.of(UserRole.ADMIN));
-
-		assertFalse(AuthorizationService.canInStructure(account, membership, structureB, Permission.MANAGE_USERS));
-	}
-
-	@Test
-	void rejectsInactiveAccountsInStructure() {
-
-		UUID userID = UUID.randomUUID();
-		UUID structureID = UUID.randomUUID();
-
-		StructureMembership membership = new StructureMembership(userID, structureID, Set.of(UserRole.ADMIN));
-
-		UserAccount disabled = new UserAccount(userID, "alice", UserAccountStatus.DISABLED, Set.of(UserRole.ADMIN),
-				employee.getEmployeeID());
-
-		UserAccount pending = new UserAccount(userID, "alice", UserAccountStatus.PENDING_ACTIVATION,
-				Set.of(UserRole.ADMIN), employee.getEmployeeID());
-
-		assertFalse(AuthorizationService.canInStructure(disabled, membership, structureID, Permission.MANAGE_USERS));
-
-		assertFalse(AuthorizationService.canInStructure(pending, membership, structureID, Permission.MANAGE_USERS));
+	void rejectsNullDependencies() {
+		assertThrows(NullPointerException.class,
+				() -> new AuthorizationService(null, accountStore, organizationalStructureStore, tenantOrganizationStore));
+		assertThrows(NullPointerException.class,
+				() -> new AuthorizationService(structureMembershipStore, null, organizationalStructureStore,
+						tenantOrganizationStore));
+		assertThrows(NullPointerException.class,
+				() -> new AuthorizationService(structureMembershipStore, accountStore, null, tenantOrganizationStore));
+		assertThrows(NullPointerException.class,
+				() -> new AuthorizationService(structureMembershipStore, accountStore, organizationalStructureStore, null));
 	}
 
 	@Test
 	void rejectsNullParametersInStructure() {
-
-		UUID structureID = UUID.randomUUID();
-		UserAccount account = new UserAccount(UUID.randomUUID(), "alice", UserAccountStatus.ACTIVE,
-				Set.of(UserRole.ADMIN), employee.getEmployeeID());
-		StructureMembership membership = new StructureMembership(account.getUserID(), structureID,
-				Set.of(UserRole.ADMIN));
-
-		assertFalse(AuthorizationService.canInStructure(null, membership, structureID, Permission.MANAGE_USERS));
-		assertFalse(AuthorizationService.canInStructure(account, null, structureID, Permission.MANAGE_USERS));
-		assertFalse(AuthorizationService.canInStructure(account, membership, null, Permission.MANAGE_USERS));
-		assertFalse(AuthorizationService.canInStructure(account, membership, structureID, null));
+		assertFalse(service.canInStructure(null, structureID, Permission.MANAGE_USERS));
+		assertFalse(service.canInStructure(userID, null, Permission.MANAGE_USERS));
+		assertFalse(service.canInStructure(userID, structureID, null));
+		verifyNoInteractions(accountStore, organizationalStructureStore, tenantOrganizationStore, structureMembershipStore);
 	}
 
+	@Test
+	void rejectsUnknownAccount() {
+		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+		verify(accountStore).findById(userID);
+		verifyNoInteractions(organizationalStructureStore, tenantOrganizationStore, structureMembershipStore);
+	}
+
+	@ParameterizedTest
+	@EnumSource(value = UserAccountStatus.class, names = { "DISABLED", "PENDING_ACTIVATION" })
+	void rejectsInactiveAccountsInStructure(UserAccountStatus statu) {
+		account(statu, Set.of(UserRole.SUPER_ADMIN));
+		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+		verifyNoInteractions(organizationalStructureStore, tenantOrganizationStore, structureMembershipStore);
+	}
+
+	@Test
+	void rejectsUnknownStructureEvenForSuperAdmin() {
+		account(UserAccountStatus.ACTIVE, Set.of(UserRole.SUPER_ADMIN));
+		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+		verifyNoInteractions(tenantOrganizationStore, structureMembershipStore);
+	}
+
+	@Test
+	void rejectsUnknownTenantEvenForSuperAdmin() {
+		account(UserAccountStatus.ACTIVE, Set.of(UserRole.SUPER_ADMIN));
+		when(organizationalStructureStore.findById(structureID))
+				.thenReturn(Optional.of(new OrganizationalStructure(structureID, "Structure", tenantID)));
+
+		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+		verify(tenantOrganizationStore).findById(tenantID);
+		verifyNoInteractions(structureMembershipStore);
+	}
+
+	@Test
+	void rejectsUnknownTenantForOrdinaryAdmin() {
+		account(UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE));
+		when(organizationalStructureStore.findById(structureID))
+				.thenReturn(Optional.of(new OrganizationalStructure(structureID, "Structure", tenantID)));
+		membership(userID, structureID, Set.of(UserRole.ADMIN));
+
+		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+	}
+
+	@Test
+	void adminCanManageUsersInOwnStructure() {
+		account(UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE));
+		structure(structureID, tenantID, UUID.randomUUID());
+		membership(userID, structureID, Set.of(UserRole.ADMIN, UserRole.ACCOUNTANT));
+
+		assertTrue(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+	}
+
+	@Test
+	void globalAdminCannotManageUsersWithEmployeeMembership() {
+		account(UserAccountStatus.ACTIVE, Set.of(UserRole.ADMIN));
+		UUID structureB = UUID.randomUUID();
+		UUID superAdminUserID = UUID.randomUUID();
+		structure(structureID, tenantID, superAdminUserID);
+		structure(structureB, tenantID, superAdminUserID);
+		membership(userID, structureID, Set.of(UserRole.ADMIN));
+		membership(userID, structureB, Set.of(UserRole.EMPLOYEE));
+
+		assertTrue(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+		assertFalse(service.canInStructure(userID, structureB, Permission.MANAGE_USERS));
+		assertTrue(service.canInStructure(userID, structureB, Permission.VIEW_OWN_SCHEDULE));
+	}
+
+	@Test
+	void rejectsMissingMembershipEvenWithGlobalAdminRole() {
+		account(UserAccountStatus.ACTIVE, Set.of(UserRole.ADMIN));
+		structure(structureID, tenantID, UUID.randomUUID());
+
+		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+		verify(structureMembershipStore).findByUserAndStructure(userID, structureID);
+	}
+
+	@Test
+	void rejectsMembershipBelongingToAnotherUser() {
+		account(UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE));
+		structure(structureID, tenantID, UUID.randomUUID());
+		UUID otherUserID = UUID.randomUUID();
+		membership(otherUserID, structureID, Set.of(UserRole.ADMIN));
+
+		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+		verify(structureMembershipStore).findByUserAndStructure(userID, structureID);
+		verify(structureMembershipStore, never()).findByUserAndStructure(otherUserID, structureID);
+	}
+
+	@Test
+	void rejectsMembershipFromAnotherStructure() {
+		account(UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE));
+		structure(structureID, tenantID, UUID.randomUUID());
+		UUID structureA = UUID.randomUUID();
+		membership(userID, structureA, Set.of(UserRole.ADMIN));
+
+		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+		verify(structureMembershipStore).findByUserAndStructure(userID, structureID);
+		verify(structureMembershipStore, never()).findByUserAndStructure(userID, structureA);
+	}
+
+	@Test
+	void secretaryAccountantCanViewAccountingWithoutManagingUsersOrSensitiveDocuments() {
+		account(UserAccountStatus.ACTIVE, Set.of(UserRole.ADMIN));
+		structure(structureID, tenantID, UUID.randomUUID());
+		membership(userID, structureID, Set.of(UserRole.SECRETARY, UserRole.ACCOUNTANT));
+
+		assertTrue(service.canInStructure(userID, structureID, Permission.VIEW_ACCOUNTING));
+		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USER_ROLES));
+		assertFalse(service.canInStructure(userID, structureID, Permission.EDIT_SENSITIVE_DOCUMENT));
+		assertTrue(service.canInStructure(userID, structureID, Permission.INVITE_USERS));
+		assertTrue(service.canInStructure(userID, structureID, Permission.CREATE_CONTRACT));
+		assertTrue(service.canInStructure(userID, structureID, Permission.EDIT_CONTRACT));
+	}
+
+	@Test
+	void rejectsEmptyMembershipRoles() {
+		account(UserAccountStatus.ACTIVE, Set.of(UserRole.ADMIN));
+		structure(structureID, tenantID, UUID.randomUUID());
+		membership(userID, structureID, Set.of());
+
+		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+	}
+
+	@ParameterizedTest
+	@EnumSource(Permission.class)
+	void superAdminCanActOnlyInOwnTenantWithoutMembership(Permission permission) {
+		account(UserAccountStatus.ACTIVE, Set.of(UserRole.SUPER_ADMIN));
+		structure(structureID, tenantID, userID);
+
+		assertTrue(service.canInStructure(userID, structureID, permission));
+		verifyNoInteractions(structureMembershipStore);
+	}
+
+	@Test
+	void superAdminCanAccessAnotherStructureOfOwnTenant() {
+		account(UserAccountStatus.ACTIVE, Set.of(UserRole.SUPER_ADMIN));
+		UUID structureB = UUID.randomUUID();
+		structure(structureID, tenantID, userID);
+		structure(structureB, tenantID, userID);
+
+		assertTrue(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+		assertTrue(service.canInStructure(userID, structureB, Permission.MANAGE_USERS));
+	}
+
+	@ParameterizedTest
+	@EnumSource(Permission.class)
+	void superAdminCannotActInAnotherTenantEvenWithAdminMembership(Permission permission) {
+		account(UserAccountStatus.ACTIVE, Set.of(UserRole.SUPER_ADMIN, UserRole.ADMIN));
+		structure(structureID, tenantID, UUID.randomUUID());
+		membership(userID, structureID, Set.of(UserRole.ADMIN));
+
+		assertFalse(service.canInStructure(userID, structureID, permission));
+		verifyNoInteractions(structureMembershipStore);
+	}
+
+	@Test
+	void tenantOwnershipWithoutGlobalSuperAdminRoleDoesNotGrantAccess() {
+		account(UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE));
+		structure(structureID, tenantID, userID);
+
+		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+	}
+
+	@Test
+	void rejectsSuperAdminAsStructureRoleEvenAlongsideAdmin() {
+		account(UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE));
+		structure(structureID, tenantID, userID);
+		membership(userID, structureID, Set.of(UserRole.SUPER_ADMIN, UserRole.ADMIN));
+
+		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+		assertFalse(service.canInStructure(userID, structureID, Permission.VIEW_OWN_SCHEDULE));
+	}
+
+	@Test
+	void reloadsAccountStatusOnEveryAuthorization() {
+		account(UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE));
+		structure(structureID, tenantID, UUID.randomUUID());
+		membership(userID, structureID, Set.of(UserRole.ADMIN));
+		assertTrue(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+
+		account(UserAccountStatus.DISABLED, Set.of(UserRole.ADMIN));
+		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+		verify(accountStore, times(2)).findById(userID);
+	}
+
+	@Test
+	void reloadsMembershipRolesOnEveryAuthorization() {
+		account(UserAccountStatus.ACTIVE, Set.of(UserRole.ADMIN));
+		structure(structureID, tenantID, UUID.randomUUID());
+		membership(userID, structureID, Set.of(UserRole.ADMIN));
+		assertTrue(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+
+		membership(userID, structureID, Set.of(UserRole.EMPLOYEE));
+		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+	}
+
+	@Test
+	void cannotModifyUserRoles() {
+		UserAccount account = account(UserAccountStatus.ACTIVE, Set.of(UserRole.MANAGER));
+		assertThrows(UnsupportedOperationException.class, () -> account.getRoles().add(UserRole.ADMIN));
+	}
+
+	@Test
+	void modifyingOriginalRolesDoesNotChangeAccountOrStructureRights() {
+		Set<UserRole> roles = new HashSet<>();
+		roles.add(UserRole.EMPLOYEE);
+		UserAccount account = account(UserAccountStatus.ACTIVE, roles);
+		structure(structureID, tenantID, UUID.randomUUID());
+		membership(userID, structureID, roles);
+
+		roles.add(UserRole.ADMIN);
+
+		assertFalse(account.getRoles().contains(UserRole.ADMIN));
+		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+	}
 }
