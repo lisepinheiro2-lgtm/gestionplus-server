@@ -2,14 +2,18 @@
 package fr.gestionplus.server.persistence;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import fr.gestionplus.server.auth.UserAccount;
@@ -157,8 +161,10 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 		assertEquals(Set.of("EMPLOYEE"), Set.copyOf(jdbcTemplate
 				.queryForList("SELECT role FROM user_account_roles WHERE user_id = ?", String.class, userID)));
 
-		assertEquals(Set.of(structureAID, structureBID), Set.copyOf(jdbcTemplate.queryForList(
-				"SELECT structure_id FROM organizational_structures WHERE tenant_id = ?", UUID.class, tenantID)));
+		assertEquals(Set.of(structureAID, structureBID),
+				Set.copyOf(jdbcTemplate.queryForList(
+						"SELECT structure_id FROM organizational_structures WHERE tenant_id = ?", UUID.class,
+						tenantID)));
 		assertEquals(tenantID, tenantRepository.findById(tenantID).orElseThrow().toDomain().getTenantID());
 		StructureMembership restoredB = store.findByUserAndStructure(userID, structureBID).orElseThrow();
 		assertEquals(membershipB.getRoles(), restoredB.getRoles());
@@ -167,9 +173,10 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 	}
 
 	private UUID createTenant() {
+
 		UUID userID = UUID.randomUUID();
-		Employee employee = new Employee(UUID.randomUUID(), "Super", "Admin", 35, "super@example.invalid",
-				"0600000000", null);
+		Employee employee = new Employee(UUID.randomUUID(), "Super", "Admin", 35, "super@example.invalid", "0600000000",
+				null);
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userID, "super_" + userID, UserAccountStatus.ACTIVE,
@@ -177,8 +184,223 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 
 		UUID tenantID = UUID.randomUUID();
-		tenantRepository.saveAndFlush(
-				new TenantOrganizationEntity(new TenantOrganization(tenantID, "Entreprise", userID)));
+		tenantRepository
+				.saveAndFlush(new TenantOrganizationEntity(new TenantOrganization(tenantID, "Entreprise", userID)));
+
 		return tenantID;
 	}
+
+	private UUID createStandardAccount() {
+
+		UUID userID = UUID.randomUUID();
+		Employee employee = new Employee(UUID.randomUUID(), "Alice", "Test", 35, "alice_" + userID + "@example.invalid",
+				"0600000000", null);
+		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
+
+		UserAccount account = new UserAccount(userID, "alice_" + userID, UserAccountStatus.ACTIVE,
+				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID());
+		accountRepository.saveAndFlush(new UserAccountEntity(account));
+
+		return userID;
+	}
+
+	private void createStructure(UUID structureID, UUID tenantID) {
+
+		OrganizationalStructure structure = new OrganizationalStructure(structureID, "Structure test", tenantID);
+		structureRepository.saveAndFlush(new OrganizationalStructureEntity(structure));
+	}
+
+	private Set<String> rolesInDatabase(UUID userID, UUID structureID) {
+
+		return Set.copyOf(jdbcTemplate.queryForList(
+				"SELECT role FROM structure_membership_roles " + "WHERE user_id = ? AND structure_id = ?", String.class,
+				userID, structureID));
+	}
+
+	@Test
+	void savesNewMembership() {
+
+		UUID userID = createStandardAccount();
+		UUID structureID = UUID.randomUUID();
+		createStructure(structureID, createTenant());
+		StructureMembership membership = new StructureMembership(userID, structureID, Set.of(UserRole.EMPLOYEE));
+
+		store.save(membership);
+
+		StructureMembership restored = store.findByUserAndStructure(userID, structureID).orElseThrow();
+
+		assertEquals(membership.getRoles(), restored.getRoles());
+		assertEquals(Set.of("EMPLOYEE"), rolesInDatabase(userID, structureID));
+	}
+
+	@Test
+	void replacesRolesWithoutAffectingAnotherStructure() {
+
+		UUID userID = createStandardAccount();
+		UUID tenantID = createTenant();
+		UUID structureAID = UUID.randomUUID();
+		UUID structureBID = UUID.randomUUID();
+
+		createStructure(structureAID, tenantID);
+		createStructure(structureBID, tenantID);
+
+		store.save(new StructureMembership(userID, structureAID, Set.of(UserRole.R_H)));
+		store.save(new StructureMembership(userID, structureBID, Set.of(UserRole.SECRETARY)));
+		store.save(new StructureMembership(userID, structureAID, Set.of(UserRole.ADMIN)));
+
+		assertEquals(Set.of("ADMIN"), rolesInDatabase(userID, structureAID));
+		assertEquals(Set.of("SECRETARY"), rolesInDatabase(userID, structureBID));
+		assertEquals(Set.of(UserRole.ADMIN),
+				store.findByUserAndStructure(userID, structureAID).orElseThrow().getRoles());
+	}
+
+	@Test
+	void rejectsSecondAdminInSameStructure() {
+
+		UUID firstUserID = createStandardAccount();
+		UUID secondUserID = createStandardAccount();
+		UUID structureID = UUID.randomUUID();
+		createStructure(structureID, createTenant());
+
+		store.save(new StructureMembership(firstUserID, structureID, Set.of(UserRole.ADMIN)));
+		store.save(new StructureMembership(secondUserID, structureID, Set.of(UserRole.EMPLOYEE)));
+
+		assertThrows(DataIntegrityViolationException.class,
+				() -> store.save(new StructureMembership(secondUserID, structureID, Set.of(UserRole.ADMIN))));
+		assertEquals(Set.of("ADMIN"), rolesInDatabase(firstUserID, structureID));
+		assertEquals(Set.of("EMPLOYEE"), rolesInDatabase(secondUserID, structureID));
+	}
+
+	@Test
+	void allowsSameAdminInMultipleStructures() {
+
+		UUID userID = createStandardAccount();
+		UUID tenantID = createTenant();
+		UUID structureAID = UUID.randomUUID();
+		UUID structureBID = UUID.randomUUID();
+
+		createStructure(structureAID, tenantID);
+		createStructure(structureBID, tenantID);
+
+		store.save(new StructureMembership(userID, structureAID, Set.of(UserRole.ADMIN)));
+		store.save(new StructureMembership(userID, structureBID, Set.of(UserRole.ADMIN)));
+
+		assertEquals(Set.of("ADMIN"), rolesInDatabase(userID, structureAID));
+		assertEquals(Set.of("ADMIN"), rolesInDatabase(userID, structureBID));
+	}
+
+	@Test
+	void findsAdminOfStructure() {
+
+		UUID structureID = UUID.randomUUID();
+		createStructure(structureID, createTenant());
+
+		UUID adminID = createStandardAccount();
+		UUID rhID = createStandardAccount();
+
+		store.save(new StructureMembership(rhID, structureID, Set.of(UserRole.R_H)));
+		store.save(new StructureMembership(adminID, structureID, Set.of(UserRole.ADMIN)));
+
+		StructureMembership result = store.findAdminByStructure(structureID).orElseThrow();
+
+		assertEquals(adminID, result.getUserID());
+		assertEquals(structureID, result.getStructureID());
+		assertEquals(Set.of(UserRole.ADMIN), result.getRoles());
+	}
+
+	@Test
+	void returnsEmptyWhenStructureHasNoAdmin() {
+
+		UUID structureID = UUID.randomUUID();
+		createStructure(structureID, createTenant());
+
+		UUID userID = createStandardAccount();
+		store.save(new StructureMembership(userID, structureID, Set.of(UserRole.R_H)));
+
+		assertTrue(store.findAdminByStructure(structureID).isEmpty());
+	}
+
+	@Test
+	void findsAdminOnlyInRequestedStructure() {
+
+		UUID tenantID = createTenant();
+		UUID structureAID = UUID.randomUUID();
+		UUID structureBID = UUID.randomUUID();
+
+		createStructure(structureAID, tenantID);
+		createStructure(structureBID, tenantID);
+
+		UUID adminAID = createStandardAccount();
+		UUID adminBID = createStandardAccount();
+
+		store.save(new StructureMembership(adminAID, structureAID, Set.of(UserRole.ADMIN)));
+		store.save(new StructureMembership(adminBID, structureBID, Set.of(UserRole.ADMIN)));
+
+		StructureMembership resultA = store.findAdminByStructure(structureAID).orElseThrow();
+		StructureMembership resultB = store.findAdminByStructure(structureBID).orElseThrow();
+
+		assertEquals(adminAID, resultA.getUserID());
+		assertEquals(structureAID, resultA.getStructureID());
+		assertEquals(adminBID, resultB.getUserID());
+		assertEquals(structureBID, resultB.getStructureID());
+	}
+
+	@Test
+	void findsOnlyAdminMembershipsOfUserInRequestedTenant() {
+
+		UUID userID = createStandardAccount();
+		UUID otherUserID = createStandardAccount();
+
+		UUID tenantAID = createTenant();
+		UUID tenantBID = createTenant();
+
+		UUID structureAID = UUID.randomUUID();
+		UUID structureBID = UUID.randomUUID();
+		UUID structureCID = UUID.randomUUID();
+		UUID structureDID = UUID.randomUUID();
+		UUID structureEID = UUID.randomUUID();
+
+		createStructure(structureAID, tenantAID);
+		createStructure(structureBID, tenantAID);
+		createStructure(structureCID, tenantBID);
+		createStructure(structureDID, tenantAID);
+		createStructure(structureEID, tenantAID);
+
+		store.save(new StructureMembership(userID, structureAID, Set.of(UserRole.ADMIN)));
+		store.save(new StructureMembership(userID, structureBID, Set.of(UserRole.ADMIN)));
+		store.save(new StructureMembership(userID, structureCID, Set.of(UserRole.ADMIN)));
+		store.save(new StructureMembership(userID, structureDID, Set.of(UserRole.R_H)));
+		store.save(new StructureMembership(otherUserID, structureEID, Set.of(UserRole.ADMIN)));
+
+		List<StructureMembership> results = store.findAdminMembershipsByUserAndTenant(userID, tenantAID);
+
+		assertEquals(2, results.size());
+
+		Set<UUID> foundStructureIDs = new HashSet<>();
+
+		for (StructureMembership membership : results) {
+			foundStructureIDs.add(membership.getStructureID());
+			assertEquals(userID, membership.getUserID());
+			assertEquals(Set.of(UserRole.ADMIN), membership.getRoles());
+		}
+
+		assertEquals(Set.of(structureAID, structureBID), foundStructureIDs);
+	}
+
+	@Test
+	void returnsEmptyWhenUserIsNotAdminInTenant() {
+
+		UUID userID = createStandardAccount();
+		UUID tenantID = createTenant();
+		UUID structureID = UUID.randomUUID();
+
+		createStructure(structureID, tenantID);
+
+		store.save(new StructureMembership(userID, structureID, Set.of(UserRole.R_H)));
+
+		List<StructureMembership> results = store.findAdminMembershipsByUserAndTenant(userID, tenantID);
+
+		assertTrue(results.isEmpty());
+	}
+
 }
