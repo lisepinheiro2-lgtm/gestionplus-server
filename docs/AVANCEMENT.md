@@ -4,6 +4,7 @@ read_when:
   - "reprendre les comptes authentification rôles permissions sessions et audit"
   - "distinguer code présent tests écrits résultats disponibles et fonctions prévues"
   - "préparer les décisions DEC01–DEC06 et l’isolation multi-structures"
+  - "anticiper MFA limitations des connexions SSH TLS et ADMIN_EMERGENCY"
 ---
 
 # Avancement et feuille de route
@@ -234,6 +235,47 @@ Cette mise à jour ne change pas les états des sources ni les preuves de tests 
 **À traiter ensuite, avant autorisation métier :** séparation entre le `employee_id` global actuel et les futures fiches salariées propres à chaque structure ; rattachement des unités et données métier aux structures ; transition explicite des anciens rôles globaux sans leur conférer des droits transversaux. Les permissions doivent être vérifiées côté serveur *et* les requêtes filtrées par structure.
 
 **Récapitulatif des réussites ciblées du 3 novembre montrées dans la conversation :** 5 HTTP/PostgreSQL, 1 service de révocation, 3 persistance compte, 2 gestion compte, 5 modèle structure, 6 appartenance, 5 schéma V8, 3 conversion structure JPA, 1 persistance structure JPA, 3 clé composée et 2 conversion appartenance JPA, soit **36 tests réussis sur ces exécutions ciblées**. Ce total n'est **pas** une preuve d'exécution de toute la suite.
+
+<a id="horizon-securite-2026-11-06"></a>
+## Horizon de sécurité — exigences à anticiper (6 novembre 2026)
+
+**Nature : décisions de conception et exigences futures, pas une attestation d'implémentation.** Objectif : faire évoluer le serveur Spring Boot et le client Swing sans reconstruire leurs fondations lorsque les protections seront ajoutées. À chaque chantier, distinguer ce qui est **présent dans le code**, **testé avec preuve**, **partiel** et **prévu** ; les validations historiques ci-dessus restent datées.
+
+### Authentification, comptes et lutte contre les abus
+
+- **MFA obligatoire pour `ADMIN` et `SUPER_ADMIN`** avant tout accès privilégié ; prévoir une **réauthentification forte récente** pour création, activation et transfert des comptes administrateurs. La MFA, le stockage des facteurs, leur enrôlement, récupération et révocation restent à concevoir et tester. Préférer des facteurs résistants au phishing lorsque réalisable ; ne pas confondre SMS d'activation et preuve MFA forte.
+- **Cycle de vie sécurisé des comptes :** création/initialisation contrôlée, invitation, activation, mot de passe, récupération, suspension et désactivation. Ne pas contourner le lien métier avec les salariés sans décider explicitement le cas particulier du compte initial `SUPER_ADMIN`.
+- **Anti-force brute :** limitation des tentatives côté serveur (y compris par compte et autres signaux adaptés), ralentissement progressif et, si nécessaire, blocage temporaire d'IP. Éviter un bannissement IP permanent ou exclusif : NAT, IP partagées et mandataires peuvent pénaliser des utilisateurs légitimes ; éviter aussi les mécanismes facilitant un déni de service sur les comptes.
+- **Sessions :** expiration, rotation des identifiants de session, déconnexion, refus après désactivation ou changement des droits, révocation des sessions existantes et vérification sur chaque requête protégée. Prévoir la cohérence en présence de plusieurs instances serveur et éviter de faire confiance à des rôles figés dans la session.
+- **HTTP :** cookies `Secure`/`HttpOnly` et `SameSite` approprié, protections CSRF, erreurs de connexion non révélatrices, autorisations vérifiées dans les services et aux frontières HTTP. Ne jamais considérer une restriction Swing comme protection serveur.
+
+### Entreprises, structures et opérations privilégiées
+
+- **Isolation multi-tenant :** chaque action, requête métier et donnée persistée doit être limitée à l'entreprise cliente et à la structure autorisées ; ne pas se contenter de masquer les éléments dans Swing. Les rôles globaux et ceux des `StructureMembership` conservent des responsabilités distinctes.
+- **Administrateurs uniques :** un `SUPER_ADMIN` désigné par entreprise cliente ; un seul `ADMIN` par structure. La contrainte d'unicité SQL envisagée dans **V10** empêcherait *deux* `ADMIN`, mais **ne garantit pas à elle seule qu'il en existe toujours un**. La création d'une structure et son transfert d'administration doivent préserver cette règle ; ne pas modifier une migration Flyway déjà appliquée.
+- **Transfert d'`ADMIN` :** exclusivement par le `SUPER_ADMIN` de l'entreprise propriétaire, après vérification de sa session/MFA récente et de l'éligibilité du successeur. Retirer le rôle de l'ancien puis attribuer celui du successeur **dans une transaction unique**, sous sérialisation adaptée des opérations concurrentes ; échec = retour à l'état précédent. L'ancien titulaire ne conserve pas le privilège `ADMIN`, mais peut conserver d'autres rôles autorisés. Prévoir audit (acteur, ancienne/nouvelle cible, structure, résultat) et réévaluation/révocation des sessions concernées.
+- **Protection des opérations :** une unicité en base, des contrôles métier, des transactions et des tests de concurrence ont des rôles complémentaires ; aucun mécanisme seul ne constitue une garantie de sécurité globale.
+
+### Communications, infrastructure et exploitation
+
+- **HTTPS/TLS** pour tous les échanges réseau entre client Swing et serveur Spring Boot, avec vérification des certificats côté client. Le client n'accède pas directement à PostgreSQL ; le serveur demeure seul responsable des décisions de sécurité.
+- **Clés SSH** pour l'**administration et le déploiement d'un serveur distant si l'infrastructure utilise SSH**, non pour la connexion des utilisateurs de Gestion+. Protéger les clés privées, privilégier phrase de passe, accès administratifs restreints, révocation/rotation et désactivation du mot de passe SSH si compatible avec la stratégie de récupération.
+- **Secrets et exploitation :** identifiants PostgreSQL, facteurs MFA, jetons, sauvegardes et autres secrets hors dépôt ; privilèges minimaux, journalisation de sécurité, sauvegardes/restaurations vérifiées, mises à jour et durcissement de l'hébergement. Préparer l'architecture pour installation locale ou hébergement distant sans supposer que les garanties opérationnelles seront identiques.
+- **Audit :** journaliser les opérations sensibles et refus pertinents, en évitant tout secret ; tenir compte des transactions annulées pour ne pas perdre silencieusement les événements d'échec nécessaires à la traçabilité.
+
+### Continuité hors ligne : `ADMIN_EMERGENCY` (futur uniquement)
+
+- Mode de secours réservé à **l'`ADMIN` de sa structure**, sur **poste préautorisé** ; il ne s'agit ni d'un nouveau rôle serveur ni d'une voie de contournement permanente des permissions.
+- Prévoir authentification locale renforcée, données et journaux locaux protégés, autorisations limitées dans le temps, périmètre minimal, synchronisation contrôlée et résolution des conflits au retour en ligne.
+- **Limite incontournable :** un poste déconnecté ne peut pas connaître immédiatement une révocation centrale. Définir explicitement la durée maximale de validité hors ligne et les conséquences d'un changement d'administrateur avant de déclarer le mécanisme sûr.
+
+### Vérifications à prévoir au moment pertinent
+
+- Tests unitaires et d'intégration des refus d'authentification, MFA, limitation des tentatives, sessions, permissions, isolation tenant/structure, transfert concurrent d'`ADMIN`, audit et révocation.
+- Tests de sécurité des API et scénarios de déploiement (TLS, secrets, SSH, sauvegardes, restauration), puis tests propres au mode hors ligne lorsqu'il sera développé.
+- **Organisation à préserver :** Swing = interface et échanges HTTPS ; Spring Boot = authentification, autorisations et règles métier ; PostgreSQL = stockage et contraintes ; infrastructure = SSH, TLS, secrets et protections d'exploitation. Concevoir chaque nouvelle étape en tenant compte de ces frontières, **sans implémenter maintenant des composants inutiles**.
+
+**État au 6 novembre :** ces exigences forment un horizon de conception. Elles ne prouvent ni activation de SSH/TLS/MFA, ni limitation des tentatives, ni sécurité du mode `ADMIN_EMERGENCY`. La migration V10 évoquée pendant la séance est préparée localement par l'utilisatrice mais n'est pas réputée appliquée ni publiée par cette documentation.
 
 ## Faire vivre ce document
 
