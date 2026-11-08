@@ -8,8 +8,8 @@ Gestion+ est un projet personnel de portfolio, développé progressivement pour 
 > Les sources sont proposées pour découvrir le travail en cours. Le serveur ne fournit pas encore une application utilisable de bout en bout et n'est pas prêt pour un usage en entreprise ou une exposition sur Internet.
 
 🚀 **[Télécharger et essayer la démo Windows](https://github.com/lisepinheiro2-lgtm/gestionplus-client/releases/tag/v0.1.0-demo)**
-
 *Démonstration du client Swing avec données fictives et stockage CSV local, sans connexion au serveur.*
+
 [Découvrir le client Swing](https://github.com/lisepinheiro2-lgtm/gestionplus-client) · [Avancement et feuille de route](docs/AVANCEMENT.md) · [Guide développeur](docs/DEVELOPPEMENT.md)
 
 ## Pourquoi un serveur ?
