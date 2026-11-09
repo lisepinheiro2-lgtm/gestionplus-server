@@ -30,29 +30,29 @@ public class UserAccount {
 
 		Objects.requireNonNull(roles, "Les rôles ne peuvent pas être null");
 
-		if (roles.isEmpty()) {
-			throw new IllegalArgumentException("Un compte doit posséder au moins un rôle");
-		}
-
 		this.roles = Set.copyOf(roles);
 	}
 
+	public static UserAccount pending(UUID userID) {
+		return new UserAccount(userID, null, UserAccountStatus.PENDING_ACTIVATION, Set.of(), null);
+	}
+
 	public boolean equals(Object obj) {
-		
+
 		if (!(obj instanceof UserAccount))
-		    return false;
-		
+			return false;
+
 		UserAccount other = (UserAccount) obj;
-		
+
 		if (this.userID.equals(other.userID))
 			return true;
-		
+
 		return false;
 	}
-	
+
 	@Override
 	public int hashCode() {
-	    return userID.hashCode();
+		return userID.hashCode();
 	}
 
 	public UUID getUserID() {

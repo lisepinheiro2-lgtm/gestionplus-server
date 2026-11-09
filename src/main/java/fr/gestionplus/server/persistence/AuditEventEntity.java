@@ -6,7 +6,11 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import fr.gestionplus.server.audit.AuditEvent;
+import fr.gestionplus.server.audit.AuditMetadata;
 import fr.gestionplus.server.audit.AuditTarget;
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
@@ -39,6 +43,10 @@ public class AuditEventEntity {
 	@Column(name = "ip_address", length = 45)
 	private String ipAddress;
 
+	@JdbcTypeCode(SqlTypes.JSON)
+	@Column(name = "metadata")
+	private AuditMetadata metadata;
+
 	@ElementCollection
 	@CollectionTable(name = "audit_targets", joinColumns = @JoinColumn(name = "event_id"))
 	private Set<AuditTargetEmbeddable> targets = new HashSet<>();
@@ -53,6 +61,8 @@ public class AuditEventEntity {
 		this.action = Objects.requireNonNull(event.getAction()).name();
 		this.result = Objects.requireNonNull(event.getResult()).name();
 		this.ipAddress = event.getIpAddress();
+		AuditMetadata eventMetadata = event.getMetadata();
+		this.metadata = AuditMetadata.empty().equals(eventMetadata) ? null : eventMetadata;
 
 		for (AuditTarget target : event.getTargets()) {
 
@@ -81,6 +91,10 @@ public class AuditEventEntity {
 
 	public String getIpAddress() {
 		return ipAddress;
+	}
+
+	public AuditMetadata getMetadata() {
+		return metadata == null ? AuditMetadata.empty() : metadata;
 	}
 
 	public Set<AuditTargetEmbeddable> getTargets() {

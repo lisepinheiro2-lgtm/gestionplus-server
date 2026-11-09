@@ -51,6 +51,11 @@ public class JpaStructureMembershipStore implements StructureMembershipStore {
 	}
 
 	@Override
+	public void saveAndFlush(StructureMembership structureMembership) {
+		repository.saveAndFlush(new StructureMembershipEntity(structureMembership));
+	}
+
+	@Override
 	@Transactional(readOnly = true)
 	public Optional<StructureMembership> findAdminByStructure(UUID structureID) {
 		return repository.findByStructureAndRole(structureID, UserRole.ADMIN).map(structure -> structure.toDomain());
@@ -62,7 +67,7 @@ public class JpaStructureMembershipStore implements StructureMembershipStore {
 
 		List<StructureMembershipEntity> membershipEntitys = repository.findByUserAndTenantAndRole(userID, tenantID,
 				UserRole.ADMIN);
-		
+
 		List<StructureMembership> structureMemberships = new ArrayList<>();
 
 		for (StructureMembershipEntity membershipEntity : membershipEntitys) {

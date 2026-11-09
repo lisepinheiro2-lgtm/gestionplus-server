@@ -49,7 +49,7 @@ public class RolePermissionPolicy {
 			switch (permission) {
 
 			// Comptes utilisateurs
-			case INVITE_USERS, MANAGE_USERS,
+			case INVITE_USERS, MANAGE_USERS, MANAGE_USER_ROLES,
 
 					// Contrats
 					CREATE_CONTRACT, EDIT_CONTRACT,
@@ -79,8 +79,8 @@ public class RolePermissionPolicy {
 		case SECRETARY:
 			switch (permission) {
 
-			// Invitations
-			case INVITE_USERS,
+			// Comptes utilisateurs
+			case INVITE_USERS, MANAGE_USERS, MANAGE_USER_ROLES,
 
 					// Contrats
 					CREATE_CONTRACT, EDIT_CONTRACT,

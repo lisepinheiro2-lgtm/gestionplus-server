@@ -16,13 +16,19 @@ public class AuditService {
 	}
 
 	public void record(AuditAction action, AuditResult result, Set<AuditTarget> targets) {
+		record(action, result, targets, AuditMetadata.empty());
+	}
+
+	public void record(AuditAction action, AuditResult result, Set<AuditTarget> targets, AuditMetadata metadata) {
 
 		UUID eventId = UUID.randomUUID();
 		Instant occurredAt = Instant.now();
 		UUID actorUserId = contextProvider.getActorUserId();
 		String actorUserIp = contextProvider.getIpAddress();
+
+		AuditEvent event = new AuditEvent(occurredAt, eventId, actorUserId, action, result, actorUserIp, targets,
+				metadata);
 		
-		AuditEvent event = new AuditEvent(occurredAt, eventId, actorUserId, action, result, actorUserIp, targets);
 		auditStore.save(event);
 	}
 }

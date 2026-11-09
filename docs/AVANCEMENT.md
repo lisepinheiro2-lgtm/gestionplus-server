@@ -1,5 +1,5 @@
 ---
-summary: "État serveur au 5 novembre 2026 : contrats d’autorisation locaux, tests adaptés non exécutés et garanties restant à vérifier."
+summary: "État serveur au 9 novembre 2026. Audit des rattachements, migrations locales V7 à V12 et résultats de tests."
 read_when:
   - "reprendre les comptes authentification rôles permissions sessions et audit"
   - "distinguer code présent tests écrits résultats disponibles et fonctions prévues"
@@ -10,6 +10,30 @@ read_when:
 # Avancement et feuille de route
 
 État initial relu le **27 octobre 2026 (Europe/Paris)**, complété par les décisions du 29 octobre et du 2 novembre. **Actualisation technique le 2 novembre 2026** : fichiers Java présents sur `main` et résultats JUnit ciblés montrés depuis Eclipse. **Complément au 3 novembre 2026** : avancement du code *local* signalé par captures Eclipse et validations JUnit ciblées ; les nouvelles classes et la migration V8 ne sont pas supposées déjà poussées sur GitHub. Les mises à jour documentaires ne lancent ni test, ni build, ni serveur, ni migration.
+
+<a id="inscription-et-rattachements-2026-11-09"></a>
+## Comptes et accès aux structures — 9 novembre 2026
+
+**Décisions validées.** Un compte global par salarié, avec des rôles propres aux rattachements dans la même entreprise cliente. Le `SUPER_ADMIN` conserve son compte en l’absence de rattachement à une structure. La création d’un rattachement exige `MANAGE_USERS` et `MANAGE_USER_ROLES`, la supériorité stricte sur chaque rôle demandé et les contrôles de périmètre. L’accès à ces permissions pour `MANAGER` et `SECRETARY` lors d’un nouveau rattachement actualise la règle historique du 5 novembre. La première invitation part après enregistrement de tous les accès validés. Sept jours après son envoi effectif, le serveur invalide l’invitation non utilisée et, si le compte est toujours en attente, le désactive et retire atomiquement tous les rattachements et rôles préparés pour cette inscription. Le parcours est audité et doit résister à une activation concurrente.
+
+| État | Constat |
+| --- | --- |
+| Services locaux | `StructureAccessService` ajoute et révoque les rattachements individuels. `StructureAdminTransferService` porte le transfert ADMIN et la consultation associée. `AccountManagementServiceTest` conserve son nom historique. |
+| Ajout de rattachement | `addStructureAccess()` vérifie la demande, les deux permissions, le compte et la structure cibles, l’appartenance du salarié à l’entreprise, le doublon et la hiérarchie de tous les rôles demandés. La méthode enregistre le rattachement et [audite les rôles attribués](#audit-rattachements-2026-11-09). |
+| Politique locale | `RolePermissionPolicy` accorde les deux permissions à `MANAGER` et `SECRETARY`, comme à `R_H`, `ADMIN` et `SUPER_ADMIN`. `TEAM_LEAD`, `EMPLOYEE` et `ACCOUNTANT` en sont dépourvus. L’attribution reste soumise à la hiérarchie et au périmètre de l’acteur. |
+| Résultats de tests | Suite annoncée verte après la séparation des services. Après le raccordement de l’audit, l’utilisatrice rapporte un nouveau lancement local avec **356/356 tests réussis**. |
+
+**À développer.** Les recherches et la reprise autorisée de fiches dans Swing, l’inscription, les invitations, l’activation, l’expiration et la réactivation restent à réaliser. Le cycle du compte relève d’une responsabilité distincte de `StructureAccessService`. La coordination et les invitations concurrentes, le sort de `TenantMembership`, le mécanisme d’expiration, le lien exact fiche-compte et les invitations pour un compte déjà actif restent ouverts.
+
+<a id="audit-rattachements-2026-11-09"></a>
+## Audit des rattachements aux structures — 9 novembre 2026
+
+- **Code serveur.** L’attribution et la révocation d’un rattachement enregistrent les rôles exacts dans un instantané immuable et typé. L’audit conserve les cibles compte et structure, ainsi que l’identité authentifiée, l’adresse IP et l’heure obtenues côté serveur. Les appels historiques à `record()` restent compatibles.
+- **Transaction et concurrence.** L’ajout prend le verrou de la structure avant la vérification du doublon. Le rattachement et l’audit de succès participent à la même transaction, avec propagation d’un échec d’écriture.
+- **Schéma local.** Flyway a appliqué les six migrations en attente, de V7 à V12, sur la base locale de développement. Le contrôle final a validé V1 à V12, la colonne nullable `audit_events.metadata` de type `JSONB` et les clés primaires composites des rattachements et de leurs rôles. Une ligne historique sans métadonnées se lit avec un instantané vide.
+- **Tests.** Quatre classes de tests ajoutées ou adaptées couvrent le contexte serveur, l’immuabilité, l’historique JPA, les refus et l’isolation, ainsi que le rollback et la concurrence sur PostgreSQL. L’utilisatrice rapporte **356/356 tests réussis** lors de son lancement local. Le contrôle Flyway est une vérification distincte du schéma.
+
+Le périmètre concerne les rattachements individuels. La révocation des sessions et le cycle de vie du compte après un retrait restent des chantiers distincts, ainsi que l’intégration Swing.
 
 <a id="tests-autorisations-2026-11-05"></a>
 ## Tests adaptés aux contrats locaux — 5 novembre 2026
@@ -77,7 +101,7 @@ Les services existaient avant cette adaptation : `AccountManagementService.revok
 
 ## État des blocs
 
-Les chemins ci-dessous sont relatifs à `src/main/java/fr/gestionplus/server/`. Ce tableau conserve les jalons techniques jusqu’au 3 novembre ; la [lecture locale et les tests adaptés du 5 novembre](#tests-autorisations-2026-11-05) précisent les évolutions et limites plus récentes.
+Les chemins ci-dessous sont relatifs à `src/main/java/fr/gestionplus/server/`. Le tableau conserve les jalons historiques. Le [bilan du 5 novembre](#tests-autorisations-2026-11-05) et la [mise à jour de l’audit du 9 novembre](#audit-rattachements-2026-11-09) détaillent les évolutions et leurs validations.
 
 | Bloc | Présent dans les sources | État et limite |
 | --- | --- | --- |
@@ -89,8 +113,8 @@ Les chemins ci-dessous sont relatifs à `src/main/java/fr/gestionplus/server/`. 
 | Rôles et permissions | `RolePermissionPolicy` et `AuthorizationService` ; comptes non actifs refusés ; cumul de rôles. | Première politique implémentée. Les rôles incluent `R_H`, mais sa politique dédiée et les contrôles hiérarchiques restent à définir et appliquer. |
 | Persistance des comptes | Entités, repositories, Lookups et `persistence/JpaAccountStore` ; en local le 3 novembre : `AccountStore.findById()`, `disableAccount()`, `UserAccountEntity.disable()`. | Désactivation et recherche par UUID vérifiées par 3 tests PostgreSQL ciblés. **`AccountManagementService` ne désactive pas encore réellement** ; périmètre, dernier administrateur, transaction et révocation associée restent à sécuriser. Création directe toujours désactivée. |
 | Salariés et unités | Modèles `Employee` et `OrganizationalUnit`, stores, entités JPA et référence d'un salarié vers une unité. | Socle implémenté ; trois tests de conversion vérifiés sur le périmètre décrit ci-dessous. Persistance complète à valider. |
-| Schéma | V1–V7 existantes dans le dépôt, dont audit V7 ; V8 `create_structures_and_memberships` préparée **localement** le 3 novembre. | V8 ajoute trois tables : `organizational_structures`, `structure_memberships`, `structure_membership_roles`. **5 tests PostgreSQL/Testcontainers ciblés réussis** sur V8 ; intégrité référentielle et doublons vérifiés. Cette preuve n'équivaut pas à une migration sur la base de développement. |
-| Audit | `AuditService`, `AuditStore`, `persistence/JpaAuditStore`, entités et repository d'audit. | Persistance JPA présente dans les sources ; raccordement des événements d'authentification, de modification des comptes et de révocation non réalisé. Pas de conclusion de sécurité globale tirée du seul stockage. |
+| Schéma | Migrations V1 à V12, dont V7 pour l’audit, V8 à V11 pour les structures et entreprises et V12 pour les métadonnées d’audit. | [V1 à V12 validées sur la base locale de développement](#audit-rattachements-2026-11-09). Les résultats ciblés antérieurs sur V8 figurent dans l’historique des tests. |
+| Audit | `AuditService`, `AuditMetadata`, `AuditStore`, `persistence/JpaAuditStore`, entités et repository d’audit. | L’ajout et la révocation d’un rattachement tracent leurs rôles dans [l’audit de succès](#audit-rattachements-2026-11-09). Le raccordement des autres événements suit leurs parcours métier. |
 | Client Swing connecté | Projet client distinct, actuellement autonome en CSV. | Intégration prévue ; aucun échange avec ce serveur dans le démarrage client examiné. |
 | Sessions HTTP et identité de compte | Contexte HTTP et identité stable par `userID` ; en local le 3 novembre : bean `SessionRegistry`, `maximumSessions(-1)`, stratégie d'expiration `401`, `SessionRevocationService`. | **5/5 tests HTTP/PostgreSQL ciblés** : deux sessions d'un même compte enregistrées dans le registre, révoquées via le service, puis refusées (`401`). Un test unitaire vérifie que les sessions d'un autre compte restent actives. **Pas de déclenchement métier automatique**, ni de garantie de révocation multi-serveur ou en cas de panne. |
 | Invitations, récupération, MFA et `ADMIN_EMERGENCY` | Objectifs de conception distincts. | Parcours complets à construire et vérifier ; aucune disponibilité annoncée. |
@@ -99,7 +123,7 @@ La configuration actuelle contient bien `spring.jpa.hibernate.ddl-auto: validate
 
 ## Tests : sources et résultats sont deux informations différentes
 
-Les campagnes ci-dessous restent historiques. Pour les dix classes adaptées le 5 novembre, voir le [bilan des tests écrits et non exécutés](#tests-autorisations-2026-11-05) ; aucune ancienne réussite n’est transférée à leur nouvelle version.
+Les campagnes ci-dessous restent historiques. Le [bilan du 5 novembre](#tests-autorisations-2026-11-05) décrit les tests adaptés à cette date. Le [bilan du 9 novembre](#audit-rattachements-2026-11-09) consigne séparément le lancement local de 356 tests réussi par l’utilisatrice.
 
 Inventaire du **27 octobre** : **15 classes et 59 méthodes annotées `@Test`** à cette date ; chiffre historique, **non présenté comme l'inventaire actuel**. De nouvelles classes de tests ont depuis été publiées. Un fichier présent sur GitHub et un résultat vert local sont deux preuves distinctes.
 
@@ -291,3 +315,4 @@ Journal public :
 | 2 novembre 2026 — réalisation et vérifications | Premier parcours HTTP Spring Security + CSRF + déconnexion, contrôleurs CSRF/session, égalité de compte par UUID ; captures locales : 9 tests MVC, 4 intégration PostgreSQL/Testcontainers et 1 registre d'identité réussis. **Révocation globale et intégration Swing non faites.** Mise à jour documentaire sur GitHub, sans test/build supplémentaire. |
 | 3 novembre 2026 | Registre HTTP et service de révocation testés ; persistance de désactivation et refus métier partiels ; choix du compte unique multi-structures ; modèles, migration V8, entité/repository de structure, clé composée et entité d'appartenance en local. **36 réussites ciblées** sur les classes listées, mais pas de suite complète, pas de révocation automatique, pas d'autorisation inter-structures. Prochaine étape : repository et intégration JPA des appartenances. |
 | 5 novembre 2026 — tests et documentation | Adaptation aux contrats locaux actuels : huit tests modifiés, deux ajoutés, 87 méthodes déclarées non compilées/non exécutées. Contrôles de périmètre, hiérarchie, audit et fixtures tenants ; problèmes de production signalés sans correction. Empreintes de src comparées, production inchangée ; aucune nouvelle réussite applicative ni publication. |
+| 9 novembre 2026 — audit des rattachements | Instantanés des rôles attribués ou révoqués, protection contre le doublon concurrent, V7 à V12 appliquées localement et 356/356 tests réussis selon le lancement de l’utilisatrice. |

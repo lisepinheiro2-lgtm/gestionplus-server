@@ -1,5 +1,6 @@
 package fr.gestionplus.server.auth;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -18,9 +19,8 @@ class RoleHierarchyPolicyTest {
 			new HttpSecurityConfig(mock(GestionAuthenticationProvider.class)).roleHierarchy());
 
 	@ParameterizedTest
-	@CsvSource({ "SUPER_ADMIN, ADMIN", "ADMIN, R_H", "ADMIN, ACCOUNTANT", "R_H, MANAGER",
-			"R_H, SECRETARY", "MANAGER, TEAM_LEAD", "SECRETARY, TEAM_LEAD", "TEAM_LEAD, EMPLOYEE",
-			"ADMIN, EMPLOYEE", "R_H, EMPLOYEE" })
+	@CsvSource({ "SUPER_ADMIN, ADMIN", "ADMIN, R_H", "ADMIN, ACCOUNTANT", "R_H, MANAGER", "R_H, SECRETARY",
+			"MANAGER, TEAM_LEAD", "SECRETARY, TEAM_LEAD", "TEAM_LEAD, EMPLOYEE", "ADMIN, EMPLOYEE", "R_H, EMPLOYEE" })
 	void acceptsStrictlyHigherRole(UserRole actorRole, UserRole targetRole) {
 		assertTrue(policy.isStrictlyHigher(Set.of(actorRole), Set.of(targetRole)));
 		assertFalse(policy.isStrictlyHigher(Set.of(targetRole), Set.of(actorRole)));
@@ -42,6 +42,43 @@ class RoleHierarchyPolicyTest {
 		assertTrue(policy.isStrictlyHigher(Set.of(UserRole.ADMIN), Set.of(UserRole.R_H, UserRole.ACCOUNTANT)));
 		assertTrue(policy.isStrictlyHigher(Set.of(UserRole.R_H, UserRole.EMPLOYEE),
 				Set.of(UserRole.MANAGER, UserRole.SECRETARY)));
+	}
+
+	@ParameterizedTest
+	@CsvSource({ "MANAGER, SECRETARY, true", "SECRETARY, MANAGER, false", "SECRETARY, TEAM_LEAD, true",
+			"TEAM_LEAD, EMPLOYEE, false", "EMPLOYEE, EMPLOYEE, false", "ACCOUNTANT, EMPLOYEE, false",
+			"R_H, ACCOUNTANT, false", "ADMIN, ACCOUNTANT, true", "SUPER_ADMIN, R_H, true" })
+	void checksOrdinaryRoleAssignment(UserRole actorRole, UserRole requestedRole, boolean allowed) {
+		assertEquals(allowed, policy.canAssignRoles(Set.of(actorRole), Set.of(requestedRole)));
+	}
+
+	@Test
+	void requiresEveryRequestedRoleToBeAssignable() {
+		Set<UserRole> managerRoles = Set.of(UserRole.MANAGER, UserRole.ACCOUNTANT);
+		Set<UserRole> superAdminRoles = Set.of(UserRole.SUPER_ADMIN);
+
+		assertTrue(policy.canAssignRoles(managerRoles, Set.of(UserRole.SECRETARY, UserRole.TEAM_LEAD)));
+		assertFalse(policy.canAssignRoles(managerRoles, Set.of(UserRole.SECRETARY, UserRole.MANAGER)));
+		assertFalse(policy.canAssignRoles(superAdminRoles, Set.of(UserRole.EMPLOYEE, UserRole.ADMIN)));
+		assertFalse(policy.canAssignRoles(superAdminRoles, Set.of(UserRole.EMPLOYEE, UserRole.SUPER_ADMIN)));
+	}
+
+	@Test
+	void rejectsMissingOrNullRolesForAssignment() {
+		Set<UserRole> managerRoles = Set.of(UserRole.MANAGER);
+		Set<UserRole> secretaryRoles = Set.of(UserRole.SECRETARY);
+		Set<UserRole> rolesWithNull = new HashSet<>(managerRoles);
+		rolesWithNull.add(null);
+
+		assertFalse(policy.canAssignRoles(null, secretaryRoles));
+		assertFalse(policy.canAssignRoles(managerRoles, null));
+		assertFalse(policy.canAssignRoles(Set.of(), secretaryRoles));
+		assertFalse(policy.canAssignRoles(managerRoles, Set.of()));
+		assertFalse(policy.canAssignRoles(rolesWithNull, secretaryRoles));
+
+		rolesWithNull.remove(UserRole.MANAGER);
+		rolesWithNull.add(UserRole.SECRETARY);
+		assertFalse(policy.canAssignRoles(managerRoles, rolesWithNull));
 	}
 
 	@Test

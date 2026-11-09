@@ -58,7 +58,14 @@ public class UserAccountEntity {
 	}
 
 	@PrePersist
-	protected void requireEmployeeForCreation() {
+	protected void validateCreation() {
+		if (statu == UserAccountStatus.PENDING_ACTIVATION) {
+			if (!roles.isEmpty())
+				throw new IllegalStateException("Un compte en attente doit être créé sans rôle global.");
+
+			return;
+		}
+
 		if (employeeID == null)
 			throw new IllegalStateException("Un nouveau compte doit être rattaché à un salarié.");
 	}

@@ -3,6 +3,7 @@ package fr.gestionplus.server.persistence;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -16,6 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
 
+import fr.gestionplus.server.account.AccountStore;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
 import fr.gestionplus.server.auth.UserRole;
@@ -32,19 +34,20 @@ class UserAccountJpaRepositoryTest {
 
 	@Autowired
 	private UserAccountJpaRepository repository;
-
 	@Autowired
 	private EmployeeJpaRepository employeeRepository;
+	@Autowired
+	private AccountStore accountStore;
 
-	
 	@PersistenceContext
 	private EntityManager entityManager;
-	
+
 	@Test
 	void savesAndFindsAccount() {
 
 		UUID userId = UUID.randomUUID();
-		Employee employee = new Employee(UUID.randomUUID(), "Test", "Employee", 35, "test@example.invalid", "0600000000", null);
+		Employee employee = new Employee(UUID.randomUUID(), "Test", "Employee", 35, "test@example.invalid",
+				"0600000000", null);
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userId, "test_" + userId, UserAccountStatus.ACTIVE,
@@ -66,6 +69,22 @@ class UserAccountJpaRepositoryTest {
 		assertEquals(account.getUserName(), restored.getUserName());
 		assertEquals(account.getRoles(), restored.getRoles());
 		assertEquals(account.getStatu(), restored.getStatu());
+	}
+
+	@Test
+	void persistsPendingAccountWithoutEmployeeOrGlobalRoles() {
+		UUID userID = UUID.randomUUID();
+
+		accountStore.createAccount(UserAccount.pending(userID));
+		entityManager.flush();
+		entityManager.clear();
+
+		UserAccount restored = accountStore.findById(userID).orElseThrow();
+		assertEquals(userID, restored.getUserID());
+		assertEquals(UserAccountStatus.PENDING_ACTIVATION, restored.getStatu());
+		assertNull(restored.getEmployeeID());
+		assertNull(restored.getUserName());
+		assertTrue(restored.getRoles().isEmpty());
 	}
 
 	@Test

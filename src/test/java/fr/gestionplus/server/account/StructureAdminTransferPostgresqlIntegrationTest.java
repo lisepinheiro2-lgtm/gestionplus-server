@@ -1,4 +1,4 @@
-
+﻿
 package fr.gestionplus.server.account;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -56,7 +56,7 @@ import fr.gestionplus.server.persistence.UserAccountJpaRepository;
 class StructureAdminTransferPostgresqlIntegrationTest {
 
 	@Autowired
-	private AccountManagementService service;
+	private StructureAdminTransferService service;
 	@Autowired
 	private EmployeeJpaRepository employeeRepository;
 	@Autowired
@@ -145,6 +145,19 @@ class StructureAdminTransferPostgresqlIntegrationTest {
 		assertEquals(Set.of(new AuditTarget(AuditTargetType.ACCOUNT, oldAdminUserID),
 				new AuditTarget(AuditTargetType.ACCOUNT, newAdminUserID),
 				new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID)), audit.getTargets());
+	}
+
+	@Test
+	void transfersOnlyAdminWhenBothUsersHaveOtherRoles() {
+		membershipRepository.saveAndFlush(new StructureMembershipEntity(
+				new StructureMembership(oldAdminUserID, structureID, Set.of(UserRole.ADMIN, UserRole.EMPLOYEE))));
+		membershipRepository.saveAndFlush(new StructureMembershipEntity(
+				new StructureMembership(newAdminUserID, structureID, Set.of(UserRole.R_H))));
+
+		service.transferStructureAdmin(structureID, newAdminUserID);
+
+		assertEquals(Set.of("EMPLOYEE"), rolesInStructure(oldAdminUserID));
+		assertEquals(Set.of("ADMIN", "R_H"), rolesInStructure(newAdminUserID));
 	}
 
 	@Test

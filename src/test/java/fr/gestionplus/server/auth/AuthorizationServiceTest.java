@@ -61,15 +61,14 @@ class AuthorizationServiceTest {
 
 	@Test
 	void rejectsNullDependencies() {
-		assertThrows(NullPointerException.class,
-				() -> new AuthorizationService(null, accountStore, organizationalStructureStore, tenantOrganizationStore));
-		assertThrows(NullPointerException.class,
-				() -> new AuthorizationService(structureMembershipStore, null, organizationalStructureStore,
-						tenantOrganizationStore));
+		assertThrows(NullPointerException.class, () -> new AuthorizationService(null, accountStore,
+				organizationalStructureStore, tenantOrganizationStore));
+		assertThrows(NullPointerException.class, () -> new AuthorizationService(structureMembershipStore, null,
+				organizationalStructureStore, tenantOrganizationStore));
 		assertThrows(NullPointerException.class,
 				() -> new AuthorizationService(structureMembershipStore, accountStore, null, tenantOrganizationStore));
-		assertThrows(NullPointerException.class,
-				() -> new AuthorizationService(structureMembershipStore, accountStore, organizationalStructureStore, null));
+		assertThrows(NullPointerException.class, () -> new AuthorizationService(structureMembershipStore, accountStore,
+				organizationalStructureStore, null));
 	}
 
 	@Test
@@ -77,7 +76,8 @@ class AuthorizationServiceTest {
 		assertFalse(service.canInStructure(null, structureID, Permission.MANAGE_USERS));
 		assertFalse(service.canInStructure(userID, null, Permission.MANAGE_USERS));
 		assertFalse(service.canInStructure(userID, structureID, null));
-		verifyNoInteractions(accountStore, organizationalStructureStore, tenantOrganizationStore, structureMembershipStore);
+		verifyNoInteractions(accountStore, organizationalStructureStore, tenantOrganizationStore,
+				structureMembershipStore);
 	}
 
 	@Test
@@ -161,7 +161,8 @@ class AuthorizationServiceTest {
 		account(UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE));
 		structure(structureID, tenantID, UUID.randomUUID());
 		UUID otherUserID = UUID.randomUUID();
-		membership(otherUserID, structureID, Set.of(UserRole.ADMIN));
+		when(structureMembershipStore.findByUserAndStructure(userID, structureID))
+				.thenReturn(Optional.of(new StructureMembership(otherUserID, structureID, Set.of(UserRole.ADMIN))));
 
 		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
 		verify(structureMembershipStore).findByUserAndStructure(userID, structureID);
@@ -173,7 +174,8 @@ class AuthorizationServiceTest {
 		account(UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE));
 		structure(structureID, tenantID, UUID.randomUUID());
 		UUID structureA = UUID.randomUUID();
-		membership(userID, structureA, Set.of(UserRole.ADMIN));
+		when(structureMembershipStore.findByUserAndStructure(userID, structureID))
+				.thenReturn(Optional.of(new StructureMembership(userID, structureA, Set.of(UserRole.ADMIN))));
 
 		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
 		verify(structureMembershipStore).findByUserAndStructure(userID, structureID);
@@ -181,14 +183,14 @@ class AuthorizationServiceTest {
 	}
 
 	@Test
-	void secretaryAccountantCanViewAccountingWithoutManagingUsersOrSensitiveDocuments() {
+	void secretaryAccountantCanManageUsersAndViewAccountingWithoutEditingSensitiveDocuments() {
 		account(UserAccountStatus.ACTIVE, Set.of(UserRole.ADMIN));
 		structure(structureID, tenantID, UUID.randomUUID());
 		membership(userID, structureID, Set.of(UserRole.SECRETARY, UserRole.ACCOUNTANT));
 
 		assertTrue(service.canInStructure(userID, structureID, Permission.VIEW_ACCOUNTING));
-		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
-		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USER_ROLES));
+		assertTrue(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+		assertTrue(service.canInStructure(userID, structureID, Permission.MANAGE_USER_ROLES));
 		assertFalse(service.canInStructure(userID, structureID, Permission.EDIT_SENSITIVE_DOCUMENT));
 		assertTrue(service.canInStructure(userID, structureID, Permission.INVITE_USERS));
 		assertTrue(service.canInStructure(userID, structureID, Permission.CREATE_CONTRACT));

@@ -3,6 +3,8 @@ package fr.gestionplus.server.persistence;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Set;
 import java.util.UUID;
@@ -19,7 +21,8 @@ public class UserAccountEntityTest {
 	@Test
 	void preservesAccountDuringConversion() {
 		UUID userId = UUID.randomUUID();
-		Employee employee = new Employee(UUID.randomUUID(), "Test", "Employee", 35, "test@example.invalid", "0600000000", null);
+		Employee employee = new Employee(UUID.randomUUID(), "Test", "Employee", 35, "test@example.invalid",
+				"0600000000", null);
 		String name = "userName";
 		UserAccount userAccount = new UserAccount(userId, name, UserAccountStatus.ACTIVE,
 				Set.of(UserRole.SECRETARY, UserRole.ACCOUNTANT), employee.getEmployeeID());
@@ -32,6 +35,29 @@ public class UserAccountEntityTest {
 		assertEquals(userAccount.getUserName(), restored.getUserName());
 		assertEquals(userAccount.getStatu(), restored.getStatu());
 		assertEquals(userAccount.getRoles(), restored.getRoles());
+	}
+
+	@Test
+	void preservesRolelessAccountWhenDisabled() {
+		UUID userID = UUID.randomUUID();
+		UserAccountEntity entity = new UserAccountEntity(UserAccount.pending(userID));
+
+		entity.disable();
+
+		UserAccount restored = entity.toDomain();
+		assertEquals(userID, restored.getUserID());
+		assertEquals(UserAccountStatus.DISABLED, restored.getStatu());
+		assertNull(restored.getUserName());
+		assertNull(restored.getEmployeeID());
+		assertTrue(restored.getRoles().isEmpty());
+	}
+
+	@Test
+	void rejectsGlobalRoleWhenCreatingPendingAccount() {
+		UserAccount account = new UserAccount(UUID.randomUUID(), null, UserAccountStatus.PENDING_ACTIVATION,
+				Set.of(UserRole.EMPLOYEE), null);
+
+		assertThrows(IllegalStateException.class, new UserAccountEntity(account)::validateCreation);
 	}
 
 	@Test

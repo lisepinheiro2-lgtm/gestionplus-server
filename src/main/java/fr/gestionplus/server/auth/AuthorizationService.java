@@ -71,10 +71,15 @@ public class AuthorizationService {
 		if (userAndStructure.isEmpty())
 			return false;
 
-		if (userAndStructure.get().getRoles().contains(UserRole.SUPER_ADMIN))
+		StructureMembership membership = userAndStructure.get();
+
+		if (!actorUserID.equals(membership.getUserID()) || !structureID.equals(membership.getStructureID()))
 			return false;
 
-		for (UserRole role : userAndStructure.get().getRoles()) {
+		if (membership.getRoles().contains(UserRole.SUPER_ADMIN))
+			return false;
+
+		for (UserRole role : membership.getRoles()) {
 
 			if (RolePermissionPolicy.allows(role, permission))
 				return true;

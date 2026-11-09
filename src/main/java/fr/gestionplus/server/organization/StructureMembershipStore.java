@@ -14,6 +14,8 @@ public interface StructureMembershipStore {
 
 	void save(StructureMembership structureMembership);
 
+	void saveAndFlush(StructureMembership structureMembership);
+
 	Optional<StructureMembership> findAdminByStructure(UUID structureID);
 
 	List<StructureMembership> findAdminMembershipsByUserAndTenant(UUID userID, UUID tenantID);

@@ -29,9 +29,11 @@ import org.springframework.jdbc.datasource.init.ScriptUtils;
 
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditEvent;
+import fr.gestionplus.server.audit.AuditMetadata;
 import fr.gestionplus.server.audit.AuditResult;
 import fr.gestionplus.server.audit.AuditTarget;
 import fr.gestionplus.server.audit.AuditTargetType;
+import fr.gestionplus.server.auth.UserRole;
 import jakarta.persistence.EntityManager;
 
 class AuditJpaPersistenceTest {
@@ -54,6 +56,9 @@ class AuditJpaPersistenceTest {
 		}
 
 		ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/migration/V7__create_audit_tables.sql"));
+
+		ScriptUtils.executeSqlScript(connection,
+				new ClassPathResource("db/migration/V12__add_audit_event_metadata.sql"));
 
 		registry = new StandardServiceRegistryBuilder().clearSettings()
 				.applySetting("hibernate.connection.datasource", new SingleConnectionDataSource(connection, true))
@@ -79,7 +84,7 @@ class AuditJpaPersistenceTest {
 
 		try {
 			if (entityManager != null && entityManager.isOpen()) {
-				
+
 				try {
 					if (entityManager.getTransaction().isActive()) {
 						entityManager.getTransaction().rollback();
@@ -148,6 +153,44 @@ class AuditJpaPersistenceTest {
 	}
 
 	@Test
+	void restoresRoleSnapshotsSeparatelyForEventsWithTheSameTargets() {
+
+		Set<AuditTarget> targets = Set.of(new AuditTarget(AuditTargetType.ACCOUNT, UUID.randomUUID()),
+				new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, UUID.randomUUID()));
+		Set<UserRole> roles = Set.of(UserRole.TEAM_LEAD, UserRole.EMPLOYEE);
+		UUID actorId = UUID.randomUUID();
+		Instant occurredAt = Instant.parse("2026-11-09T10:00:00Z");
+
+		AuditEvent grant = new AuditEvent(occurredAt, UUID.randomUUID(), actorId, AuditAction.STRUCTURE_ACCESS_GRANT,
+				AuditResult.SUCCESS, "192.0.2.10", targets, AuditMetadata.rolesGranted(roles));
+		AuditEvent revoke = new AuditEvent(occurredAt.plusSeconds(1), UUID.randomUUID(), actorId,
+				AuditAction.STRUCTURE_ACCESS_REVOKE, AuditResult.SUCCESS, "192.0.2.10", targets,
+				AuditMetadata.rolesRevoked(roles));
+
+		auditStore.save(grant);
+		auditStore.save(revoke);
+		flushAndClear();
+
+		assertEventEquals(grant, auditStore.findById(grant.getEventId()).orElseThrow());
+		assertEventEquals(revoke, auditStore.findById(revoke.getEventId()).orElseThrow());
+	}
+
+	@Test
+	void readsAnExistingRowWithoutMetadata() {
+
+		UUID eventId = UUID.randomUUID();
+		entityManager.createNativeQuery("""
+				INSERT INTO audit_events (event_id, occurred_at, action, result)
+				VALUES (:eventId, CURRENT_TIMESTAMP, 'STRUCTURE_ACCESS_GRANT', 'SUCCESS')
+				""").setParameter("eventId", eventId).executeUpdate();
+		flushAndClear();
+
+		AuditEvent event = auditStore.findById(eventId).orElseThrow();
+		assertEquals(AuditAction.STRUCTURE_ACCESS_GRANT, event.getAction());
+		assertEquals(AuditMetadata.empty(), event.getMetadata());
+	}
+
+	@Test
 	void returnsEmptyForUnknownEvent() {
 
 		assertTrue(auditStore.findById(UUID.randomUUID()).isEmpty());
@@ -211,5 +254,6 @@ class AuditJpaPersistenceTest {
 		assertEquals(expected.getResult(), actual.getResult());
 		assertEquals(expected.getIpAddress(), actual.getIpAddress());
 		assertEquals(expected.getTargets(), actual.getTargets());
+		assertEquals(expected.getMetadata(), actual.getMetadata());
 	}
 }

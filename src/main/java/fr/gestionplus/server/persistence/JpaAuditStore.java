@@ -53,7 +53,8 @@ public class JpaAuditStore implements AuditStore {
 		}
 
 		AuditEvent event = new AuditEvent(eventEntity.getOccurredAt(), eventEntity.getEventId(),
-				eventEntity.getActorUserId(), action, result, eventEntity.getIpAddress(), targets);
+				eventEntity.getActorUserId(), action, result, eventEntity.getIpAddress(), targets,
+				eventEntity.getMetadata());
 
 		return Optional.of(event);
 	}

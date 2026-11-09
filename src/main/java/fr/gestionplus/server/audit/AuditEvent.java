@@ -14,9 +14,16 @@ public class AuditEvent {
 	private final AuditResult result;
 	private final String ipAddress;
 	private final Set<AuditTarget> targets;
+	private final AuditMetadata metadata;
 
 	public AuditEvent(Instant occurredAt, UUID eventId, UUID actorUserId, AuditAction action, AuditResult result,
 			String ipAddress, Set<AuditTarget> targets) {
+
+		this(occurredAt, eventId, actorUserId, action, result, ipAddress, targets, AuditMetadata.empty());
+	}
+
+	public AuditEvent(Instant occurredAt, UUID eventId, UUID actorUserId, AuditAction action, AuditResult result,
+			String ipAddress, Set<AuditTarget> targets, AuditMetadata metadata) {
 
 		this.eventId = Objects.requireNonNull(eventId);
 		this.occurredAt = Objects.requireNonNull(occurredAt);
@@ -25,6 +32,7 @@ public class AuditEvent {
 		this.actorUserId = actorUserId;
 		this.ipAddress = ipAddress;
 		this.targets = Set.copyOf(targets);
+		this.metadata = Objects.requireNonNull(metadata);
 	}
 
 	public UUID getEventId() {
@@ -53,5 +61,9 @@ public class AuditEvent {
 
 	public Set<AuditTarget> getTargets() {
 		return targets;
+	}
+
+	public AuditMetadata getMetadata() {
+		return metadata;
 	}
 }

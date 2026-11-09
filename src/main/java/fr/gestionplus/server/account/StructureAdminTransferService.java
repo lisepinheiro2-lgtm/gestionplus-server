@@ -1,7 +1,7 @@
-
 package fr.gestionplus.server.account;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -20,7 +20,6 @@ import fr.gestionplus.server.audit.AuditTargetType;
 import fr.gestionplus.server.auth.AuthenticatedUserProvider;
 import fr.gestionplus.server.auth.AuthorizationService;
 import fr.gestionplus.server.auth.Permission;
-import fr.gestionplus.server.auth.RoleHierarchyPolicy;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
 import fr.gestionplus.server.auth.UserRole;
@@ -31,94 +30,28 @@ import fr.gestionplus.server.organization.StructureMembershipStore;
 import fr.gestionplus.server.organization.TenantMembershipStore;
 
 @Service
-public class AccountManagementService {
+public class StructureAdminTransferService {
 
 	private final AccountStore store;
 	private final AuthorizationService authorizationService;
 	private final StructureMembershipStore structureMembershipStore;
 	private final AuthenticatedUserProvider authenticatedUserProvider;
-	private final RoleHierarchyPolicy roleHierarchyPolicy;
 	private final AuditService auditService;
 	private final OrganizationalStructureStore organizationalStructureStore;
 	private final TenantMembershipStore tenantMembershipStore;
 
-	public AccountManagementService(AuthorizationService authorizationService, AccountStore store,
+	public StructureAdminTransferService(AuthorizationService authorizationService, AccountStore store,
 			StructureMembershipStore structureMembershipStore, AuthenticatedUserProvider authenticatedUserProvider,
-			AuditService auditService, RoleHierarchyPolicy roleHierarchyPolicy,
-			OrganizationalStructureStore organizationalStructureStore, TenantMembershipStore tenantMembershipStore) {
+			AuditService auditService, OrganizationalStructureStore organizationalStructureStore,
+			TenantMembershipStore tenantMembershipStore) {
 
 		this.authorizationService = Objects.requireNonNull(authorizationService);
 		this.store = Objects.requireNonNull(store);
 		this.structureMembershipStore = Objects.requireNonNull(structureMembershipStore);
 		this.authenticatedUserProvider = Objects.requireNonNull(authenticatedUserProvider);
-		this.roleHierarchyPolicy = Objects.requireNonNull(roleHierarchyPolicy);
 		this.auditService = Objects.requireNonNull(auditService);
 		this.organizationalStructureStore = Objects.requireNonNull(organizationalStructureStore);
 		this.tenantMembershipStore = Objects.requireNonNull(tenantMembershipStore);
-	}
-
-	@Transactional
-	public void revokeStructureAccess(UUID targetUserId, UUID structureID) {
-
-		UUID actorUserId = authenticatedUserProvider.getCurrentUserID();
-
-		if (actorUserId == null || targetUserId == null || structureID == null)
-			throw new NullPointerException();
-
-		if (actorUserId.equals(targetUserId))
-			throw new AccessDeniedException("Vous ne paserez paaaaas !!!");
-
-		Optional<OrganizationalStructure> structure = organizationalStructureStore.findByIdForUpdate(structureID);
-
-		if (structure.isEmpty())
-			throw new AccessDeniedException("Vous ne paserez paaaaas !!!");
-
-		if (!authorizationService.canInStructure(actorUserId, structureID, Permission.MANAGE_USERS))
-			throw new AccessDeniedException("Vous ne paserez paaaaas !!!");
-
-		Optional<StructureMembership> targetStructureMembership = structureMembershipStore
-				.findByUserAndStructure(targetUserId, structureID);
-
-		if (targetStructureMembership.isEmpty())
-			throw new AccessDeniedException("Vous ne paserez paaaaas !!!");
-
-		Optional<UserAccount> targetAccount = store.findById(targetUserId);
-
-		if (targetAccount.isEmpty())
-			throw new AccessDeniedException("Vous ne paserez paaaaas !!!");
-
-		if (targetStructureMembership.get().getRoles().contains(UserRole.ADMIN)
-				|| targetAccount.get().getRoles().contains(UserRole.SUPER_ADMIN))
-			throw new AccessDeniedException("Vous ne paserez paaaaas !!!");
-
-		Optional<UserAccount> actorAccount = store.findById(actorUserId);
-
-		if (actorAccount.isEmpty())
-			throw new AccessDeniedException("Vous ne paserez paaaaas !!!");
-
-		Optional<StructureMembership> actorStructureMembership = structureMembershipStore
-				.findByUserAndStructure(actorUserId, structureID);
-
-		if (actorStructureMembership.isEmpty() && !actorAccount.get().getRoles().contains(UserRole.SUPER_ADMIN))
-			throw new AccessDeniedException("Vous ne paserez paaaaas !!!");
-
-		if (!actorAccount.get().getRoles().contains(UserRole.SUPER_ADMIN)) {
-
-			boolean allow = roleHierarchyPolicy.isStrictlyHigher(actorStructureMembership.get().getRoles(),
-					targetStructureMembership.get().getRoles());
-
-			if (!allow)
-				throw new AccessDeniedException("Vous ne paserez paaaaas !!!");
-		}
-
-		structureMembershipStore.deleteByUserAndStructure(targetUserId, structureID);
-
-		AuditTarget userTarget = new AuditTarget(AuditTargetType.ACCOUNT, targetUserId);
-		AuditTarget structureTarget = new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID);
-
-		Set<AuditTarget> targets = Set.of(userTarget, structureTarget);
-
-		auditService.record(AuditAction.STRUCTURE_ACCESS_REVOKE, AuditResult.SUCCESS, targets);
 	}
 
 	@Transactional
@@ -142,23 +75,31 @@ public class AccountManagementService {
 		if (oldAdminMembership.isEmpty())
 			throw new AccessDeniedException("Aucun administrateur actuel trouvé pour cette structure.");
 
+		UUID tenantID = targetedStructure.get().getTenantID();
+		requireTenantMembership(newAdminUserID, tenantID);
 		requireActiveAccount(newAdminUserID);
 
-		if (newAdminUserID.equals(oldAdminMembership.get().getUserID()))
+		UUID oldAdminUserID = oldAdminMembership.get().getUserID();
+
+		if (newAdminUserID.equals(oldAdminUserID))
 			throw new AccessDeniedException("Cette personne est déjà l'administrateur de cette structure.");
 
-		UUID tenantID = targetedStructure.get().getTenantID();
+		Set<UserRole> remainingRoles = new HashSet<>(oldAdminMembership.get().getRoles());
+		remainingRoles.remove(UserRole.ADMIN);
 
-		requireTenantMembership(newAdminUserID, tenantID);
+		if (remainingRoles.isEmpty()) {
+			structureMembershipStore.deleteByUserAndStructure(oldAdminUserID, structureID);
+		} else {
+			structureMembershipStore.saveAndFlush(new StructureMembership(oldAdminUserID, structureID, remainingRoles));
+		}
 
-		structureMembershipStore.deleteByUserAndStructure(oldAdminMembership.get().getUserID(), structureID);
+		Set<UserRole> newAdminRoles = new HashSet<>(
+				structureMembershipStore.findByUserAndStructure(newAdminUserID, structureID)
+						.map(StructureMembership::getRoles).orElse(Set.of()));
+		newAdminRoles.add(UserRole.ADMIN);
+		structureMembershipStore.save(new StructureMembership(newAdminUserID, structureID, newAdminRoles));
 
-		StructureMembership newMembership = new StructureMembership(newAdminUserID, structureID,
-				Set.of(UserRole.ADMIN));
-
-		structureMembershipStore.save(newMembership);
-
-		AuditTarget oldAdminTarget = new AuditTarget(AuditTargetType.ACCOUNT, oldAdminMembership.get().getUserID());
+		AuditTarget oldAdminTarget = new AuditTarget(AuditTargetType.ACCOUNT, oldAdminUserID);
 		AuditTarget newAdminTarget = new AuditTarget(AuditTargetType.ACCOUNT, newAdminUserID);
 		AuditTarget structureTarget = new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID);
 
