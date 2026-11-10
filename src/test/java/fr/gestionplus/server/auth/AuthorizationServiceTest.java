@@ -42,7 +42,8 @@ class AuthorizationServiceTest {
 	}
 
 	private UserAccount account(UserAccountStatus statu, Set<UserRole> roles) {
-		UserAccount account = new UserAccount(userID, "alice", statu, roles, UUID.randomUUID());
+		UserAccount account = new UserAccount(userID, "alice", statu, roles, UUID.randomUUID(),
+				"Exemple", "Alice", "alice@example.invalid", "0600000000");
 		when(accountStore.findById(userID)).thenReturn(Optional.of(account));
 		return account;
 	}

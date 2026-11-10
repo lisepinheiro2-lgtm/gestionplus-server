@@ -12,9 +12,15 @@ public class Employee {
 	private String email;
 	private String phoneNumber;
 	private UUID unitId;
+	private final UUID structureID;
 
 	public Employee(UUID employeeID, String firstName, String lastName, double contractHours, String email,
 			String phoneNumber, UUID unitId) {
+		this(employeeID, firstName, lastName, contractHours, email, phoneNumber, unitId, null);
+	}
+
+	public Employee(UUID employeeID, String firstName, String lastName, double contractHours, String email,
+			String phoneNumber, UUID unitId, UUID structureID) {
 
 		this.employeeID = Objects.requireNonNull(employeeID);
 
@@ -37,6 +43,7 @@ public class Employee {
 		this.email = email;
 		this.phoneNumber = phoneNumber;
 		this.unitId = unitId;
+		this.structureID = structureID;
 	}
 
 	public UUID getEmployeeID() {
@@ -65,5 +72,9 @@ public class Employee {
 
 	public UUID getUnitId() {
 		return unitId;
+	}
+
+	public UUID getStructureID() {
+		return structureID;
 	}
 }

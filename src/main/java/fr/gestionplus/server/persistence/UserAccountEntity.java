@@ -36,6 +36,18 @@ public class UserAccountEntity {
 	@Column(name = "status", nullable = false)
 	private UserAccountStatus statu;
 
+	@Column(name = "user_last_name", nullable = false)
+	private String lastName;
+
+	@Column(name = "user_first_name", nullable = false)
+	private String firstName;
+
+	@Column(name = "user_email", nullable = false)
+	private String email;
+
+	@Column(name = "user_phone_number", nullable = false)
+	private String phoneNumber;
+
 	@ElementCollection
 	@CollectionTable(name = "user_account_roles", joinColumns = @JoinColumn(name = "user_id"))
 	@Enumerated(EnumType.STRING)
@@ -55,6 +67,10 @@ public class UserAccountEntity {
 		userName = account.getUserName();
 		statu = account.getStatu();
 		roles = new HashSet<>(account.getRoles());
+		this.lastName = account.getLastName();
+		this.firstName = account.getFirstName();
+		this.email = account.getEmail();
+		this.phoneNumber = account.getPhoneNumber();
 	}
 
 	@PrePersist
@@ -71,7 +87,7 @@ public class UserAccountEntity {
 	}
 
 	public UserAccount toDomain() {
-		return new UserAccount(userId, userName, statu, roles, employeeID);
+		return new UserAccount(userId, userName, statu, roles, employeeID, lastName, firstName, email, phoneNumber);
 	}
 
 	void disable() {

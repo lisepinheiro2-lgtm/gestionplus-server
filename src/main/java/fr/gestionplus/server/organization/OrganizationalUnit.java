@@ -7,9 +7,15 @@ public class OrganizationalUnit {
 
 	private final UUID unitId;
 	private String name;
+	private final UUID structureID;
 
 	public OrganizationalUnit(UUID unitId, String name) {
+		this(unitId, name, null);
+	}
+
+	public OrganizationalUnit(UUID unitId, String name, UUID structureID) {
 		this.unitId = Objects.requireNonNull(unitId);
+		this.structureID = structureID;
 
 		if (name == null || name.isBlank())
 			throw new IllegalArgumentException("Le nom du secteur est obligatoire.");
@@ -23,5 +29,9 @@ public class OrganizationalUnit {
 
 	public String getName() {
 		return name;
+	}
+
+	public UUID getStructureID() {
+		return structureID;
 	}
 }

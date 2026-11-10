@@ -20,6 +20,9 @@ public class OrganizationalUnitEntity {
 	@Column(name = "unit_name", nullable = false)
 	private String name;
 
+	@Column(name = "structure_id")
+	private UUID structureID;
+
 	protected OrganizationalUnitEntity() {
 	}
 
@@ -28,10 +31,11 @@ public class OrganizationalUnitEntity {
 		Objects.requireNonNull(unit);
 		this.unitId = unit.getUnitId();
 		this.name = unit.getName();
+		this.structureID = unit.getStructureID();
 	}
 
 	public OrganizationalUnit toDomain() {
-		return new OrganizationalUnit(unitId, name);
+		return new OrganizationalUnit(unitId, name, structureID);
 	}
 
 }

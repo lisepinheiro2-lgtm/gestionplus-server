@@ -58,7 +58,8 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userID, "alice_" + userID, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID());
+				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID(),
+				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
 
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 
@@ -95,7 +96,8 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userID, "alice_" + userID, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID());
+				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID(),
+				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
 
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 
@@ -180,7 +182,8 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userID, "super_" + userID, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.SUPER_ADMIN), employee.getEmployeeID());
+				Set.of(UserRole.SUPER_ADMIN), employee.getEmployeeID(),
+				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 
 		UUID tenantID = UUID.randomUUID();
@@ -198,7 +201,8 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userID, "alice_" + userID, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID());
+				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID(),
+				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 
 		return userID;

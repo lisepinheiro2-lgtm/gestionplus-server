@@ -185,7 +185,8 @@ class StructureAdminTransferPostgresqlIntegrationTest {
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userID, "test_" + userID, UserAccountStatus.ACTIVE, Set.of(role),
-				employee.getEmployeeID());
+				employee.getEmployeeID(),
+				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
 
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 

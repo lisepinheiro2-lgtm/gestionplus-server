@@ -51,7 +51,8 @@ class UserAccountJpaRepositoryTest {
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userId, "test_" + userId, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID());
+				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID(),
+				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
 		UserAccountEntity entity = new UserAccountEntity(account);
 
 		repository.saveAndFlush(entity);
@@ -68,6 +69,10 @@ class UserAccountJpaRepositoryTest {
 		assertNotEquals(restored.getUserID(), restored.getEmployeeID());
 		assertEquals(account.getUserName(), restored.getUserName());
 		assertEquals(account.getRoles(), restored.getRoles());
+		assertEquals(account.getLastName(), restored.getLastName());
+		assertEquals(account.getFirstName(), restored.getFirstName());
+		assertEquals(account.getEmail(), restored.getEmail());
+		assertEquals(account.getPhoneNumber(), restored.getPhoneNumber());
 		assertEquals(account.getStatu(), restored.getStatu());
 	}
 
@@ -75,13 +80,18 @@ class UserAccountJpaRepositoryTest {
 	void persistsPendingAccountWithoutEmployeeOrGlobalRoles() {
 		UUID userID = UUID.randomUUID();
 
-		accountStore.createAccount(UserAccount.pending(userID));
+		UserAccount pending = UserAccount.pending(userID, "Exemple", "Test", "test@example.invalid", "0600000000");
+		accountStore.createAccount(pending);
 		entityManager.flush();
 		entityManager.clear();
 
 		UserAccount restored = accountStore.findById(userID).orElseThrow();
 		assertEquals(userID, restored.getUserID());
 		assertEquals(UserAccountStatus.PENDING_ACTIVATION, restored.getStatu());
+		assertEquals(pending.getLastName(), restored.getLastName());
+		assertEquals(pending.getFirstName(), restored.getFirstName());
+		assertEquals(pending.getEmail(), restored.getEmail());
+		assertEquals(pending.getPhoneNumber(), restored.getPhoneNumber());
 		assertNull(restored.getEmployeeID());
 		assertNull(restored.getUserName());
 		assertTrue(restored.getRoles().isEmpty());
@@ -92,7 +102,7 @@ class UserAccountJpaRepositoryTest {
 		JpaAccountStore accountStore = new JpaAccountStore(repository, employeeRepository);
 		UUID userId = UUID.randomUUID();
 		UserAccount account = new UserAccount(userId, "test_" + userId, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), null);
+				Set.of(UserRole.EMPLOYEE), null, "Exemple", "Test", "test@example.invalid", "0600000000");
 
 		assertThrows(IllegalArgumentException.class, () -> accountStore.createAccount(account));
 		assertFalse(repository.existsById(userId));
@@ -106,7 +116,7 @@ class UserAccountJpaRepositoryTest {
 		assertFalse(employeeRepository.existsById(employeeID));
 
 		UserAccount account = new UserAccount(userId, "test_" + userId, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), employeeID);
+				Set.of(UserRole.EMPLOYEE), employeeID, "Exemple", "Test", "test@example.invalid", "0600000000");
 
 		assertThrows(IllegalArgumentException.class, () -> accountStore.createAccount(account));
 		assertFalse(repository.existsById(userId));
@@ -116,7 +126,7 @@ class UserAccountJpaRepositoryTest {
 	void rejectsNewJpaAccountWithoutEmployee() {
 		UUID userId = UUID.randomUUID();
 		UserAccount account = new UserAccount(userId, "test_" + userId, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), null);
+				Set.of(UserRole.EMPLOYEE), null, "Exemple", "Test", "test@example.invalid", "0600000000");
 
 		assertThrows(IllegalStateException.class, () -> entityManager.persist(new UserAccountEntity(account)));
 	}
@@ -128,7 +138,7 @@ class UserAccountJpaRepositoryTest {
 		assertFalse(employeeRepository.existsById(employeeID));
 
 		UserAccount account = new UserAccount(userId, "test_" + userId, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), employeeID);
+				Set.of(UserRole.EMPLOYEE), employeeID, "Exemple", "Test", "test@example.invalid", "0600000000");
 
 		assertThrows(DataIntegrityViolationException.class,
 				() -> repository.saveAndFlush(new UserAccountEntity(account)));

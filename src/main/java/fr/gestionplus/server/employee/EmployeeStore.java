@@ -8,4 +8,6 @@ public interface EmployeeStore {
 	void createEmployee(Employee employee);
 
 	Optional<Employee> findById(UUID employeeID);
+
+	Optional<Employee> findByIdForUpdate(UUID employeeID);
 }

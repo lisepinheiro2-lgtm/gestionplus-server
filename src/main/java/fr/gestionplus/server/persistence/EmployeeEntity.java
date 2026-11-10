@@ -33,6 +33,9 @@ public class EmployeeEntity {
 	@Column(name = "unit_id")
 	private UUID unitId;
 
+	@Column(name = "structure_id")
+	private UUID structureID;
+
 	protected EmployeeEntity() {
 	}
 
@@ -44,9 +47,10 @@ public class EmployeeEntity {
 		this.email = employee.getEmail();
 		this.phoneNumber = employee.getPhoneNumber();
 		this.unitId = employee.getUnitId();
+		this.structureID = employee.getStructureID();
 	}
 
 	public Employee toEmployee() {
-		return new Employee(employeeID, firstName, lastName, contractHours, email, phoneNumber, unitId);
+		return new Employee(employeeID, firstName, lastName, contractHours, email, phoneNumber, unitId, structureID);
 	}
 }

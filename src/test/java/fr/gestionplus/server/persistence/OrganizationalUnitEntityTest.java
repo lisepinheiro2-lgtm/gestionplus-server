@@ -13,11 +13,13 @@ class OrganizationalUnitEntityTest {
 	@Test
 	void preservesUnitDuringConversion() {
 		UUID unitId = UUID.randomUUID();
-		OrganizationalUnit unit = new OrganizationalUnit(unitId, "Secteur de test");
+		UUID structureID = UUID.randomUUID();
+		OrganizationalUnit unit = new OrganizationalUnit(unitId, "Secteur de test", structureID);
 
 		OrganizationalUnit restored = new OrganizationalUnitEntity(unit).toDomain();
 
 		assertEquals(unitId, restored.getUnitId());
 		assertEquals(unit.getName(), restored.getName());
+		assertEquals(structureID, restored.getStructureID());
 	}
 }

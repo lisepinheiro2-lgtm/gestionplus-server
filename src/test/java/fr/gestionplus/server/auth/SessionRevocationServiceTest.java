@@ -17,11 +17,12 @@ class SessionRevocationServiceTest {
 		UUID aliceID = UUID.randomUUID();
 
 		UserAccount alice1 = new UserAccount(aliceID, "alice", UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE),
-				UUID.randomUUID());
+				UUID.randomUUID(), "Exemple", "Alice", "alice@example.invalid", "0600000000");
 		UserAccount alice2 = new UserAccount(aliceID, "alice", UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE),
-				alice1.getEmployeeID());
+				alice1.getEmployeeID(),
+				alice1.getLastName(), alice1.getFirstName(), alice1.getEmail(), alice1.getPhoneNumber());
 		UserAccount bob = new UserAccount(UUID.randomUUID(), "bob", UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE),
-				UUID.randomUUID());
+				UUID.randomUUID(), "Exemple", "Bob", "bob@example.invalid", "0600000001");
 
 		SessionRegistryImpl registry = new SessionRegistryImpl();
 

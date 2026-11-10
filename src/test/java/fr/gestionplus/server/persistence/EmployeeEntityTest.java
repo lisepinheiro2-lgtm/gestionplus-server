@@ -16,13 +16,15 @@ class EmployeeEntityTest {
 	void preservesEmployeeWithUnitDuringConversion() {
 		UUID employeeID = UUID.fromString("00000000-0000-0000-0000-000000000001");
 		UUID unitId = UUID.fromString("00000000-0000-0000-0000-000000000002");
+		UUID structureID = UUID.fromString("00000000-0000-0000-0000-000000000003");
 		Employee employee = new Employee(employeeID, "Camille", "Exemple", 28.5,
-				"camille@example.invalid", "0600000000", unitId);
+				"camille@example.invalid", "0600000000", unitId, structureID);
 
 		Employee restored = new EmployeeEntity(employee).toEmployee();
 
 		assertEquals(employeeID, restored.getEmployeeID());
 		assertEquals(unitId, restored.getUnitId());
+		assertEquals(structureID, restored.getStructureID());
 		assertNotEquals(restored.getEmployeeID(), restored.getUnitId());
 		assertEquals(employee.getFirstName(), restored.getFirstName());
 		assertEquals(employee.getLastName(), restored.getLastName());
@@ -45,5 +47,6 @@ class EmployeeEntityTest {
 		assertNull(restored.getEmail());
 		assertNull(restored.getPhoneNumber());
 		assertNull(restored.getUnitId());
+		assertNull(restored.getStructureID());
 	}
 }

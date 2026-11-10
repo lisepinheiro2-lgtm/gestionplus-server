@@ -66,7 +66,8 @@ public class LoginHttpPostgresqlIntegrationTest {
 
 		UserAccount account = new UserAccount(userId, "test_" + userId,
 				active ? UserAccountStatus.ACTIVE : UserAccountStatus.DISABLED, Set.of(UserRole.EMPLOYEE),
-				employee.getEmployeeID());
+				employee.getEmployeeID(),
+				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
 
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 

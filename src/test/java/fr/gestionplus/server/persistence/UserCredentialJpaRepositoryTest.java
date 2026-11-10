@@ -51,7 +51,8 @@ class UserCredentialJpaRepositoryTest {
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userId, "test_" + userId, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID());
+				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID(),
+				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
 
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 

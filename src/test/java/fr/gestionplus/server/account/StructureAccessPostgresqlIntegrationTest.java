@@ -201,7 +201,8 @@ class StructureAccessPostgresqlIntegrationTest {
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userId, "test_" + userId, UserAccountStatus.ACTIVE, Set.of(role),
-				employee.getEmployeeID());
+				employee.getEmployeeID(),
+				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 
 		return account;

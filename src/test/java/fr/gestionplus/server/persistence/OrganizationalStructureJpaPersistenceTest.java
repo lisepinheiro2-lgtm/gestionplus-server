@@ -53,7 +53,8 @@ class OrganizationalStructureJpaPersistenceTest {
 
 		UUID userID = UUID.randomUUID();
 		UserAccount account = new UserAccount(userID, "super_" + userID, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.SUPER_ADMIN), employee.getEmployeeID());
+				Set.of(UserRole.SUPER_ADMIN), employee.getEmployeeID(),
+				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 		TenantOrganization tenant = new TenantOrganization(tenantID, "Entreprise", userID);
 		tenantRepository.saveAndFlush(new TenantOrganizationEntity(tenant));

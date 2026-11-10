@@ -18,9 +18,9 @@ class SessionRegistryIdentityTest {
 		UUID employeeID = UUID.randomUUID();
 
 		UserAccount account1 = new UserAccount(userID, "alice", UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE),
-				employeeID);
+				employeeID, "Exemple", "Alice", "alice@example.invalid", "0600000000");
 		UserAccount account2 = new UserAccount(userID, "alice", UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE),
-				employeeID);
+				employeeID, "Exemple", "Alice", "alice@example.invalid", "0600000000");
 
 		SessionRegistryImpl registry = new SessionRegistryImpl();
 

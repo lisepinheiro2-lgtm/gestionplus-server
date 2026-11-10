@@ -9,6 +9,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.sql.Connection;
 import java.sql.Driver;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
 import java.util.Properties;
 import java.util.UUID;
 
@@ -39,9 +41,11 @@ class EmployeeOrganizationJpaPersistenceTest {
 	private OrganizationalUnitJpaRepository unitRepository;
 	private JpaEmployeeStore employeeStore;
 	private JpaOrganizationalUnitStore unitStore;
+	private UUID structureID;
 
 	@BeforeEach
 	void opensIsolatedInMemoryDatabase() throws Exception {
+		
 		Class<?> driverClass;
 
 		try {
@@ -55,12 +59,8 @@ class EmployeeOrganizationJpaPersistenceTest {
 		connection = driver.connect("jdbc:h2:mem:gestionplus_mechanical_" + UUID.randomUUID()
 				+ ";MODE=PostgreSQL", new Properties());
 
-		ScriptUtils.executeSqlScript(connection,
-				new ClassPathResource("db/migration/V3__create_employees_table.sql"));
-		ScriptUtils.executeSqlScript(connection,
-				new ClassPathResource("db/migration/V5__create_organizational_units_table.sql"));
-		ScriptUtils.executeSqlScript(connection,
-				new ClassPathResource("db/migration/V6__employee_organizational_unit.sql"));
+		ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/employee-organization-h2.sql"));
+		structureID = insertStructure();
 
 		registry = new StandardServiceRegistryBuilder().clearSettings()
 				.applySetting("hibernate.connection.datasource", new SingleConnectionDataSource(connection, true))
@@ -85,6 +85,7 @@ class EmployeeOrganizationJpaPersistenceTest {
 
 	@AfterEach
 	void closesIsolatedDatabase() throws Exception {
+		
 		try {
 			if (entityManager != null && entityManager.isOpen()) {
 				try {
@@ -112,7 +113,7 @@ class EmployeeOrganizationJpaPersistenceTest {
 
 	@Test
 	void savesAndFindsUnitThroughStore() {
-		OrganizationalUnit unit = new OrganizationalUnit(UUID.randomUUID(), "Secteur de test");
+		OrganizationalUnit unit = new OrganizationalUnit(UUID.randomUUID(), "Secteur de test", structureID);
 		unitStore.createUnit(unit);
 		flushAndClear();
 
@@ -120,27 +121,29 @@ class EmployeeOrganizationJpaPersistenceTest {
 
 		assertEquals(unit.getUnitId(), restored.getUnitId());
 		assertEquals(unit.getName(), restored.getName());
+		assertEquals(structureID, restored.getStructureID());
 		assertEquals(1, unitRepository.count());
 	}
 
 	@Test
 	void updatesUnitWithoutChangingUuid() {
 		UUID unitId = UUID.randomUUID();
-		unitRepository.saveAndFlush(new OrganizationalUnitEntity(new OrganizationalUnit(unitId, "Initial")));
+		unitRepository.saveAndFlush(new OrganizationalUnitEntity(new OrganizationalUnit(unitId, "Initial", structureID)));
 		entityManager.clear();
 
-		unitRepository.saveAndFlush(new OrganizationalUnitEntity(new OrganizationalUnit(unitId, "Modifie")));
+		unitRepository.saveAndFlush(new OrganizationalUnitEntity(new OrganizationalUnit(unitId, "Modifie", structureID)));
 		entityManager.clear();
 
 		OrganizationalUnit restored = unitRepository.findById(unitId).orElseThrow().toDomain();
 
 		assertEquals(unitId, restored.getUnitId());
 		assertEquals("Modifie", restored.getName());
+		assertEquals(structureID, restored.getStructureID());
 		assertEquals(1, unitRepository.count());
 	}
 
 	@Test
-	void savesAndFindsEmployeeWithoutUnit() {
+	void savesAndFindsEmployeeWithoutUnitOrStructure() {
 		Employee employee = new Employee(UUID.randomUUID(), "Alex", "Exemple", 0, null, null, null);
 		employeeStore.createEmployee(employee);
 		flushAndClear();
@@ -154,11 +157,11 @@ class EmployeeOrganizationJpaPersistenceTest {
 
 	@Test
 	void savesAndFindsEmployeeWithUnit() {
-		OrganizationalUnit unit = new OrganizationalUnit(UUID.randomUUID(), "Secteur de test");
+		OrganizationalUnit unit = new OrganizationalUnit(UUID.randomUUID(), "Secteur de test", structureID);
 		unitStore.createUnit(unit);
 		entityManager.flush();
 
-		Employee employee = employeeForUnit(unit.getUnitId());
+		Employee employee = employeeForUnit(unit.getUnitId(), structureID);
 		employeeStore.createEmployee(employee);
 		flushAndClear();
 
@@ -170,22 +173,22 @@ class EmployeeOrganizationJpaPersistenceTest {
 	@Test
 	void updatesEmployeeAndUnitReferenceWithoutChangingUuid() {
 		UUID employeeID = UUID.randomUUID();
-		OrganizationalUnit unit = new OrganizationalUnit(UUID.randomUUID(), "Secteur de test");
+		OrganizationalUnit unit = new OrganizationalUnit(UUID.randomUUID(), "Secteur de test", structureID);
 		unitStore.createUnit(unit);
 		entityManager.flush();
 		employeeRepository.saveAndFlush(new EmployeeEntity(
-				new Employee(employeeID, "Alex", "Initial", 0, null, null, null)));
+				new Employee(employeeID, "Alex", "Initial", 0, null, null, null, structureID)));
 		entityManager.clear();
 
 		Employee updated = new Employee(employeeID, "Camille", "Modifie", 28.5,
-				"camille@example.invalid", "0600000000", unit.getUnitId());
+				"camille@example.invalid", "0600000000", unit.getUnitId(), structureID);
 		employeeRepository.saveAndFlush(new EmployeeEntity(updated));
 		entityManager.clear();
 
 		assertEmployeeEquals(updated, employeeStore.findById(employeeID).orElseThrow());
 
 		Employee detached = new Employee(employeeID, "Camille", "Modifie", 28.5,
-				"camille@example.invalid", "0600000000", null);
+				"camille@example.invalid", "0600000000", null, structureID);
 		employeeRepository.saveAndFlush(new EmployeeEntity(detached));
 		entityManager.clear();
 
@@ -206,16 +209,47 @@ class EmployeeOrganizationJpaPersistenceTest {
 		assertFalse(unitRepository.existsById(unitId));
 
 		assertThrows(ConstraintViolationException.class,
-				() -> employeeRepository.saveAndFlush(new EmployeeEntity(employeeForUnit(unitId))));
+				() -> employeeRepository.saveAndFlush(new EmployeeEntity(employeeForUnit(unitId, structureID))));
+	}
+
+	@Test
+	void rejectsUnitWithoutStructure() {
+		OrganizationalUnit unit = new OrganizationalUnit(UUID.randomUUID(), "Secteur de test");
+
+		assertThrows(ConstraintViolationException.class,
+				() -> unitRepository.saveAndFlush(new OrganizationalUnitEntity(unit)));
+	}
+
+	@Test
+	void rejectsEmployeeWithUnitButWithoutStructure() {
+		OrganizationalUnit unit = new OrganizationalUnit(UUID.randomUUID(), "Secteur de test", structureID);
+		unitStore.createUnit(unit);
+		entityManager.flush();
+
+		Employee employee = employeeForUnit(unit.getUnitId(), null);
+		assertThrows(ConstraintViolationException.class,
+				() -> employeeRepository.saveAndFlush(new EmployeeEntity(employee)));
+	}
+
+	@Test
+	void rejectsEmployeeWithUnitFromAnotherStructure() throws SQLException {
+		UUID otherStructureID = insertStructure();
+		OrganizationalUnit unit = new OrganizationalUnit(UUID.randomUUID(), "Secteur de test", otherStructureID);
+		unitStore.createUnit(unit);
+		entityManager.flush();
+
+		Employee employee = employeeForUnit(unit.getUnitId(), structureID);
+		assertThrows(ConstraintViolationException.class,
+				() -> employeeRepository.saveAndFlush(new EmployeeEntity(employee)));
 	}
 
 	@Test
 	void refusesDeletingReferencedUnitWithoutCascading() {
-		OrganizationalUnit unit = new OrganizationalUnit(UUID.randomUUID(), "Secteur de test");
+		OrganizationalUnit unit = new OrganizationalUnit(UUID.randomUUID(), "Secteur de test", structureID);
 		unitStore.createUnit(unit);
 		entityManager.flush();
 
-		Employee employee = employeeForUnit(unit.getUnitId());
+		Employee employee = employeeForUnit(unit.getUnitId(), structureID);
 		employeeStore.createEmployee(employee);
 		entityManager.getTransaction().commit();
 		entityManager.clear();
@@ -236,12 +270,12 @@ class EmployeeOrganizationJpaPersistenceTest {
 
 	@Test
 	void deletingEmployeeKeepsUnitAndOtherEmployees() {
-		OrganizationalUnit unit = new OrganizationalUnit(UUID.randomUUID(), "Secteur de test");
+		OrganizationalUnit unit = new OrganizationalUnit(UUID.randomUUID(), "Secteur de test", structureID);
 		unitStore.createUnit(unit);
 		entityManager.flush();
 
-		Employee employee = employeeForUnit(unit.getUnitId());
-		Employee other = employeeForUnit(unit.getUnitId());
+		Employee employee = employeeForUnit(unit.getUnitId(), structureID);
+		Employee other = employeeForUnit(unit.getUnitId(), structureID);
 		employeeStore.createEmployee(employee);
 		employeeStore.createEmployee(other);
 		flushAndClear();
@@ -257,7 +291,7 @@ class EmployeeOrganizationJpaPersistenceTest {
 
 	@Test
 	void deletesUnreferencedUnit() {
-		OrganizationalUnit unit = new OrganizationalUnit(UUID.randomUUID(), "Secteur de test");
+		OrganizationalUnit unit = new OrganizationalUnit(UUID.randomUUID(), "Secteur de test", structureID);
 		unitStore.createUnit(unit);
 		flushAndClear();
 
@@ -268,9 +302,19 @@ class EmployeeOrganizationJpaPersistenceTest {
 		assertEquals(0, unitRepository.count());
 	}
 
-	private Employee employeeForUnit(UUID unitId) {
+	private UUID insertStructure() throws SQLException {
+		UUID id = UUID.randomUUID();
+		try (PreparedStatement statement = connection.prepareStatement(
+				"INSERT INTO organizational_structures (structure_id) VALUES (?)")) {
+			statement.setObject(1, id);
+			statement.executeUpdate();
+		}
+		return id;
+	}
+
+	private Employee employeeForUnit(UUID unitId, UUID structureID) {
 		return new Employee(UUID.randomUUID(), "Camille", "Exemple", 28.5,
-				"camille@example.invalid", "0600000000", unitId);
+				"camille@example.invalid", "0600000000", unitId, structureID);
 	}
 
 	private void flushAndClear() {
@@ -286,5 +330,6 @@ class EmployeeOrganizationJpaPersistenceTest {
 		assertEquals(expected.getEmail(), restored.getEmail());
 		assertEquals(expected.getPhoneNumber(), restored.getPhoneNumber());
 		assertEquals(expected.getUnitId(), restored.getUnitId());
+		assertEquals(expected.getStructureID(), restored.getStructureID());
 	}
 }

@@ -8,6 +8,8 @@ import fr.gestionplus.server.auth.UserAccount;
 public interface AccountStore {
 
 	Optional<UserAccount> findById(UUID userID);
+
+	Optional<UserAccount> findByEmployeeID(UUID employeeID);
 	
 	void createAccount(UserAccount account);
 

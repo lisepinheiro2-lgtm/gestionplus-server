@@ -25,7 +25,8 @@ public class UserAccountEntityTest {
 				"0600000000", null);
 		String name = "userName";
 		UserAccount userAccount = new UserAccount(userId, name, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.SECRETARY, UserRole.ACCOUNTANT), employee.getEmployeeID());
+				Set.of(UserRole.SECRETARY, UserRole.ACCOUNTANT), employee.getEmployeeID(),
+				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
 		UserAccountEntity accountEntity = new UserAccountEntity(userAccount);
 		UserAccount restored = accountEntity.toDomain();
 
@@ -35,12 +36,17 @@ public class UserAccountEntityTest {
 		assertEquals(userAccount.getUserName(), restored.getUserName());
 		assertEquals(userAccount.getStatu(), restored.getStatu());
 		assertEquals(userAccount.getRoles(), restored.getRoles());
+		assertEquals(userAccount.getLastName(), restored.getLastName());
+		assertEquals(userAccount.getFirstName(), restored.getFirstName());
+		assertEquals(userAccount.getEmail(), restored.getEmail());
+		assertEquals(userAccount.getPhoneNumber(), restored.getPhoneNumber());
 	}
 
 	@Test
 	void preservesRolelessAccountWhenDisabled() {
 		UUID userID = UUID.randomUUID();
-		UserAccountEntity entity = new UserAccountEntity(UserAccount.pending(userID));
+		UserAccount pending = UserAccount.pending(userID, "Exemple", "Test", "test@example.invalid", "0600000000");
+		UserAccountEntity entity = new UserAccountEntity(pending);
 
 		entity.disable();
 
@@ -55,7 +61,7 @@ public class UserAccountEntityTest {
 	@Test
 	void rejectsGlobalRoleWhenCreatingPendingAccount() {
 		UserAccount account = new UserAccount(UUID.randomUUID(), null, UserAccountStatus.PENDING_ACTIVATION,
-				Set.of(UserRole.EMPLOYEE), null);
+				Set.of(UserRole.EMPLOYEE), null, "Exemple", "Test", "test@example.invalid", "0600000000");
 
 		assertThrows(IllegalStateException.class, new UserAccountEntity(account)::validateCreation);
 	}
@@ -64,7 +70,7 @@ public class UserAccountEntityTest {
 	void preservesHistoricalAccountWithoutEmployeeDuringConversion() {
 		UUID userId = UUID.randomUUID();
 		UserAccount userAccount = new UserAccount(userId, "historicalUser", UserAccountStatus.ACTIVE,
-				Set.of(UserRole.ADMIN), null);
+				Set.of(UserRole.ADMIN), null, "Exemple", "Test", "test@example.invalid", "0600000000");
 
 		UserAccount restored = new UserAccountEntity(userAccount).toDomain();
 

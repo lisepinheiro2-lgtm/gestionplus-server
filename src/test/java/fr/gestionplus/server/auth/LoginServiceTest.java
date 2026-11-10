@@ -36,7 +36,8 @@ public class LoginServiceTest {
 		credential = service.createCredential(userId, "jekel-test-password");
 		name = "userName";
 		userAccount = new UserAccount(userId, name, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID());
+				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID(),
+				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
 
 		userAccountLookup = name -> {
 			if (name.equals(userAccount.getUserName())) {
@@ -73,7 +74,8 @@ public class LoginServiceTest {
 	@Test
 	void rejectsInactiveUser() {
 		userAccount = new UserAccount(userId, name, UserAccountStatus.DISABLED,
-				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID());
+				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID(),
+				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
 
 		assertFalse(loginService.authenticate(name, "jekel-test-password").isPresent());
 	}

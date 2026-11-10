@@ -26,8 +26,12 @@ class StructureSchemaPostgresqlIntegrationTest {
 	private UUID createAccount() {
 		
 		UUID userID = UUID.randomUUID();
-		jdbcTemplate.update("INSERT INTO user_accounts (user_id, user_name, status) VALUES (?, ?, ?)", userID,
-				"test_" + userID, "ACTIVE");
+		jdbcTemplate.update("""
+				INSERT INTO user_accounts (
+				    user_id, user_name, status, user_last_name, user_first_name, user_email, user_phone_number
+				)
+				VALUES (?, ?, ?, ?, ?, ?, ?)
+				""", userID, "test_" + userID, "ACTIVE", "Exemple", "Test", "test@example.invalid", "0600000000");
 
 		return userID;
 	}

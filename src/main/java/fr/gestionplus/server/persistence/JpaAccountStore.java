@@ -51,6 +51,12 @@ public class JpaAccountStore implements AccountStore {
 
 	@Override
 	@Transactional(readOnly = true)
+	public Optional<UserAccount> findByEmployeeID(UUID employeeID) {
+		return accountJpaRepository.findByEmployeeID(employeeID).map(account -> account.toDomain());
+	}
+
+	@Override
+	@Transactional(readOnly = true)
 	public Optional<UserAccount> findById(UUID userID) {
 
 		Optional<UserAccountEntity> entity = accountJpaRepository.findById(userID);

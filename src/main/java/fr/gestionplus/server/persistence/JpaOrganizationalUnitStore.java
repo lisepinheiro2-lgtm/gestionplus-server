@@ -20,6 +20,8 @@ public class JpaOrganizationalUnitStore implements OrganizationalUnitStore {
 
 	@Override
 	public void createUnit(OrganizationalUnit unit) {
+		Objects.requireNonNull(unit);
+		Objects.requireNonNull(unit.getStructureID(), "Un secteur doit appartenir à une structure.");
 		OrganizationalUnitEntity entity = new OrganizationalUnitEntity(unit);
 		repository.save(entity);
 	}

@@ -44,7 +44,7 @@ class AuditServiceTest {
 		UUID actorId = UUID.randomUUID();
 		UUID targetId = UUID.randomUUID();
 		UserAccount actor = new UserAccount(actorId, "audit_test", UserAccountStatus.ACTIVE, Set.of(UserRole.ADMIN),
-				UUID.randomUUID());
+				UUID.randomUUID(), "Exemple", "Test", "test@example.invalid", "0600000000");
 		SecurityContextHolder.getContext()
 				.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(actor, null, List.of()));
 
