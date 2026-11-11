@@ -25,6 +25,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.InOrder;
 import org.springframework.security.access.AccessDeniedException;
@@ -501,7 +502,11 @@ class AccountManagementServiceTest {
 		prepare(Set.of(UserRole.ADMIN), Set.of(UserRole.EMPLOYEE));
 		UUID structureB = UUID.randomUUID();
 		when(structureMembershipStore.findByUserAndStructure(targetUserId, structureB))
-				.thenReturn(Optional.of(new StructureMembership(targetUserId, structureB, Set.of(UserRole.ADMIN))));
+				.thenReturn(Optional.of(new StructureMembership(targetUserId, structureB, Set.of(UserRole.TEAM_LEAD))));
+
+		when(structureMembershipStore.findByUserAndTenant(targetUserId, tenantID))
+				.thenReturn(List.of(new StructureMembership(targetUserId, structureID, Set.of(UserRole.EMPLOYEE)),
+						new StructureMembership(targetUserId, structureB, Set.of(UserRole.TEAM_LEAD))));
 
 		accessService.revokeStructureAccess(targetUserId, structureID);
 
@@ -578,13 +583,68 @@ class AccountManagementServiceTest {
 		assertNoRevocation();
 	}
 
-	@Test
-	void secretaryCannotModifyAccessWithoutAnEstablishedScope() {
-		prepare(Set.of(UserRole.SECRETARY, UserRole.ACCOUNTANT), Set.of(UserRole.EMPLOYEE));
+	@ParameterizedTest
+	@EnumSource(value = UserRole.class, names = { "EMPLOYEE", "TEAM_LEAD" })
+	void secretaryCanRevokeOrdinaryAccountsInTheirStructure(UserRole role) {
+		prepare(Set.of(UserRole.SECRETARY, UserRole.ACCOUNTANT), Set.of(role));
+		when(responsibilityStore.isResponsibleFor(any(), any(), any())).thenReturn(false);
 
-		assertThrows(AccessDeniedException.class, () -> accessService.revokeStructureAccess(targetUserId, structureID));
+		accessService.revokeStructureAccess(targetUserId, structureID);
+
+		assertSuccessfulRevocation(Set.of(role));
+		verifyNoInteractions(responsibilityStore);
+	}
+
+	@Test
+	void secretaryCanGrantAndChangeOnlyOrdinaryRoles() {
+		prepare(Set.of(UserRole.SECRETARY), Set.of(UserRole.EMPLOYEE));
+		accessService.changeStructureRoles(targetUserId, structureID, Set.of(UserRole.TEAM_LEAD));
+		verify(structureMembershipStore)
+				.save(argThat(membership -> membership.getRoles().equals(Set.of(UserRole.TEAM_LEAD))));
+
+		prepareNewGrant();
+		accessService.addStructureAccess(targetUserId, structureID, Set.of(UserRole.EMPLOYEE));
+		verify(structureMembershipStore)
+				.save(argThat(membership -> membership.getRoles().equals(Set.of(UserRole.EMPLOYEE))));
+		verifyNoInteractions(responsibilityStore);
+	}
+
+	@ParameterizedTest
+	@EnumSource(value = UserRole.class, names = { "MANAGER", "SECRETARY", "ACCOUNTANT", "R_H", "ADMIN",
+			"SUPER_ADMIN" })
+	void secretaryCannotManageAPrivilegedAccountEvenInAnotherStructure(UserRole role) {
+		prepare(Set.of(UserRole.SECRETARY), Set.of(UserRole.EMPLOYEE));
+		when(structureMembershipStore.findByUserAndTenant(targetUserId, tenantID)).thenReturn(
+				List.of(new StructureMembership(targetUserId, UUID.randomUUID(), Set.of(role))));
+
 		assertThrows(AccessDeniedException.class,
 				() -> accessService.changeStructureRoles(targetUserId, structureID, Set.of(UserRole.TEAM_LEAD)));
+		assertNoRevocation();
+		verify(structureMembershipStore, never()).save(any());
+	}
+
+	@ParameterizedTest
+	@EnumSource(value = UserRole.class, names = { "MANAGER", "SECRETARY", "ACCOUNTANT", "R_H", "ADMIN",
+			"SUPER_ADMIN" })
+	void secretaryCannotGrantPrivilegedRoles(UserRole role) {
+		prepare(Set.of(UserRole.SECRETARY), Set.of());
+		prepareNewGrant();
+
+		assertGrantDenied(Set.of(role));
+	}
+
+	@Test
+	void secretaryCannotBypassTenantStructureOrSelfRestrictions() {
+		prepare(Set.of(UserRole.SECRETARY), Set.of(UserRole.EMPLOYEE));
+		assertThrows(AccessDeniedException.class,
+				() -> accessService.revokeStructureAccess(actorUserId, structureID));
+		when(tenantMembershipStore.findByUserAndTenant(targetUserId, tenantID)).thenReturn(Optional.empty());
+		assertThrows(AccessDeniedException.class,
+				() -> accessService.revokeStructureAccess(targetUserId, structureID));
+		prepare(Set.of(UserRole.SECRETARY), Set.of(UserRole.EMPLOYEE));
+		when(structureMembershipStore.findByUserAndStructure(actorUserId, structureID)).thenReturn(Optional.empty());
+		assertThrows(AccessDeniedException.class,
+				() -> accessService.revokeStructureAccess(targetUserId, structureID));
 		assertNoRevocation();
 	}
 
@@ -610,6 +670,106 @@ class AccountManagementServiceTest {
 				Set.of(new AuditTarget(AuditTargetType.ACCOUNT, targetUserId),
 						new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID)),
 				new AuditMetadata(Set.of(UserRole.TEAM_LEAD), Set.of(UserRole.EMPLOYEE)));
+	}
+
+	@ParameterizedTest
+	@CsvSource({ "R_H,R_H", "R_H,ACCOUNTANT", "R_H,ADMIN", "ADMIN,ADMIN",
+			"ADMIN,SECURITY_OFFICER", "SUPER_ADMIN,ADMIN", "SUPER_ADMIN,SECURITY_OFFICER" })
+	void everyOperatorMustBeAllowedToManageEveryRoleOnTheTarget(UserRole operatorRole, UserRole protectedRole) {
+		prepareOperator(operatorRole);
+		StructureMembership otherMembership = new StructureMembership(targetUserId, UUID.randomUUID(),
+				Set.of(protectedRole));
+		when(structureMembershipStore.findByUserAndTenant(targetUserId, tenantID))
+				.thenReturn(List.of(new StructureMembership(targetUserId, structureID, Set.of(UserRole.EMPLOYEE)),
+						otherMembership));
+
+		assertThrows(AccessDeniedException.class,
+				() -> accessService.changeStructureRoles(targetUserId, structureID, Set.of(UserRole.TEAM_LEAD)));
+		assertThrows(AccessDeniedException.class,
+				() -> accessService.revokeStructureAccess(targetUserId, structureID));
+
+		prepareNewGrant();
+		when(structureMembershipStore.findByUserAndTenant(targetUserId, tenantID))
+				.thenReturn(List.of(otherMembership));
+
+		assertGrantDenied(Set.of(UserRole.EMPLOYEE));
+		verify(structureMembershipStore, never()).save(any());
+		verifyNoInteractions(accountAccessLifecycle);
+		assertNoRevocation();
+	}
+
+	@ParameterizedTest
+	@EnumSource(value = UserRole.class, names = { "R_H", "ADMIN", "SUPER_ADMIN" })
+	void elevatedOperatorsCanStillManageAccountsWhoseOtherRolesAreAuthorized(UserRole operatorRole) {
+		prepareOperator(operatorRole);
+		when(structureMembershipStore.findByUserAndTenant(targetUserId, tenantID))
+				.thenReturn(List.of(new StructureMembership(targetUserId, structureID, Set.of(UserRole.EMPLOYEE)),
+						new StructureMembership(targetUserId, UUID.randomUUID(), Set.of(UserRole.TEAM_LEAD))));
+
+		UserAccount target = store.findById(targetUserId).orElseThrow();
+
+		accessService.changeStructureRoles(targetUserId, structureID, Set.of(UserRole.TEAM_LEAD));
+
+		verify(structureMembershipStore).save(argThat(membership -> targetUserId.equals(membership.getUserID())
+				&& structureID.equals(membership.getStructureID())
+				&& membership.getRoles().equals(Set.of(UserRole.TEAM_LEAD))));
+		verify(accountAccessLifecycle).invalidateSessions(target,
+				new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID));
+	}
+
+	@ParameterizedTest
+	@EnumSource(value = UserAccountStatus.class, names = { "ACTIVE", "PENDING_ACTIVATION" })
+	void anOrdinaryGrantInvalidatesOnlyActiveAccountSessions(UserAccountStatus status) {
+		prepare(Set.of(UserRole.ADMIN), Set.of());
+		prepareNewGrant();
+		UserAccount target = account(targetUserId, status, Set.of());
+
+		accessService.addStructureAccess(targetUserId, structureID, Set.of(UserRole.EMPLOYEE));
+
+		if (status == UserAccountStatus.ACTIVE) {
+			verify(accountAccessLifecycle).invalidateSessions(target,
+					new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID));
+		} else {
+			verifyNoInteractions(accountAccessLifecycle);
+		}
+
+	}
+
+	@ParameterizedTest
+	@EnumSource(value = UserAccountStatus.class, names = { "ACTIVE", "PENDING_ACTIVATION" })
+	void anOrdinaryRoleChangeInvalidatesOnlyActiveAccountSessions(UserAccountStatus status) {
+		prepare(Set.of(UserRole.ADMIN), Set.of(UserRole.EMPLOYEE));
+		UserAccount target = account(targetUserId, status, Set.of());
+
+		accessService.changeStructureRoles(targetUserId, structureID, Set.of(UserRole.TEAM_LEAD));
+
+		if (status == UserAccountStatus.ACTIVE) {
+			verify(accountAccessLifecycle).invalidateSessions(target,
+					new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID));
+		} else {
+			verifyNoInteractions(accountAccessLifecycle);
+		}
+
+	}
+
+	@Test
+	void keepingTheSameRolesDoesNotInvalidateSessionsOrWriteAnAudit() {
+		prepare(Set.of(UserRole.ADMIN), Set.of(UserRole.EMPLOYEE));
+
+		accessService.changeStructureRoles(targetUserId, structureID, Set.of(UserRole.EMPLOYEE));
+
+		verify(structureMembershipStore, never()).save(any());
+		verifyNoInteractions(auditService, accountAccessLifecycle);
+	}
+
+	private void prepareOperator(UserRole operatorRole) {
+
+		if (operatorRole == UserRole.SUPER_ADMIN) {
+			prepareSuperAdmin(Set.of(UserRole.EMPLOYEE));
+		} else {
+			prepare(Set.of(operatorRole), Set.of(UserRole.EMPLOYEE));
+		}
+
 	}
 
 	@Test

@@ -16,6 +16,7 @@ import fr.gestionplus.server.auth.Permission;
 import fr.gestionplus.server.auth.RoleHierarchyPolicy;
 import fr.gestionplus.server.auth.RolePermissionPolicy;
 import fr.gestionplus.server.auth.UserAccount;
+import fr.gestionplus.server.auth.UserAccountStatus;
 import fr.gestionplus.server.auth.UserRole;
 import fr.gestionplus.server.employee.Employee;
 import fr.gestionplus.server.employee.EmployeeStore;
@@ -53,7 +54,12 @@ class AccountInvitationScope {
 	UserAccount lockAndAuthorize(UUID userID, UUID structureID, Map<UUID, Set<UserRole>> preparedRoles) {
 
 		UserAccount principal = authenticatedUserProvider.getCurrentAccount();
-		UUID actorID = principal.getUserID();
+		return lockAndAuthorize(principal.getUserID(), principal.getSessionVersion(), userID, structureID,
+				preparedRoles);
+	}
+
+	UserAccount lockAndAuthorize(UUID actorID, long actorVersion, UUID userID, UUID structureID,
+			Map<UUID, Set<UserRole>> preparedRoles) {
 
 		if (userID == null || structureID == null || userID.equals(actorID)) {
 			throw denied();
@@ -71,7 +77,12 @@ class AccountInvitationScope {
 
 		Map<UUID, UserAccount> locked = AccountLocks.lock(accountStore, AccountInvitationScope::denied, actorID,
 				userID);
-		AccountLocks.requireCurrentSession(locked.get(actorID), principal);
+		UserAccount principal = locked.get(actorID);
+
+		if (principal.getStatu() != UserAccountStatus.ACTIVE || principal.getSessionVersion() != actorVersion) {
+			throw denied();
+		}
+
 		UserAccount account = locked.get(userID);
 		UUID tenantID = structures.get(structureID).getTenantID();
 

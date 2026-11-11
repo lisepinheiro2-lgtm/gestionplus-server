@@ -22,7 +22,6 @@ import fr.gestionplus.server.audit.AuditedOperation;
 import fr.gestionplus.server.auth.AuthenticatedUserProvider;
 import fr.gestionplus.server.auth.AuthorizationService;
 import fr.gestionplus.server.auth.RoleHierarchyPolicy;
-import fr.gestionplus.server.auth.RoleMfaPolicy;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
 import fr.gestionplus.server.auth.UserRole;
@@ -127,15 +126,13 @@ public class StructureAccessService {
 			throw new AccessDeniedException("Cet employé est déjà rattaché à cette structure.");
 		}
 
-		boolean mfaNewlyRequired = targetAccount.getStatu() == UserAccountStatus.ACTIVE
-				&& RoleMfaPolicy.requiresAny(requestedRoles) && !authorizationService.requiresMfa(targetUserId);
 		structureMembershipStore.save(new StructureMembership(targetUserId, structureID, requestedRoles));
 
 		auditService.record(AuditAction.STRUCTURE_ACCESS_GRANT, AuditResult.SUCCESS,
 				auditTargets(targetUserId, structureID),
 				AuditMetadata.rolesGranted(requestedRoles));
 
-		if (mfaNewlyRequired) {
+		if (targetAccount.getStatu() == UserAccountStatus.ACTIVE) {
 			accountAccessLifecycle.invalidateSessions(targetAccount,
 					new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID));
 		}
@@ -175,14 +172,12 @@ public class StructureAccessService {
 		Set<UserRole> revokedRoles = new HashSet<>(membership.getRoles());
 		revokedRoles.removeAll(requestedRoles);
 
-		boolean mfaNewlyRequired = targetAccount.getStatu() == UserAccountStatus.ACTIVE
-				&& RoleMfaPolicy.requiresAny(requestedRoles) && !authorizationService.requiresMfa(targetUserId);
 		structureMembershipStore.save(new StructureMembership(targetUserId, structureID, requestedRoles));
 		auditService.record(AuditAction.STRUCTURE_ROLES_CHANGE, AuditResult.SUCCESS,
 				auditTargets(targetUserId, structureID),
 				new AuditMetadata(grantedRoles, revokedRoles));
 
-		if (mfaNewlyRequired) {
+		if (targetAccount.getStatu() == UserAccountStatus.ACTIVE) {
 			accountAccessLifecycle.invalidateSessions(targetAccount,
 					new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID));
 		}
@@ -225,14 +220,10 @@ public class StructureAccessService {
 			throw denied(AuditReason.OUTSIDE_STRUCTURE);
 		}
 
-		boolean manager = actorRoles.contains(UserRole.MANAGER);
-		boolean secretary = actorRoles.contains(UserRole.SECRETARY);
 		boolean elevated = actorRoles.contains(UserRole.ADMIN) || actorRoles.contains(UserRole.R_H)
 				|| actorRoles.contains(UserRole.SUPER_ADMIN);
 
-		if (manager || secretary) {
-			requireManageableAccount(actorUserId, actorRoles, targetAccount, structure, elevated);
-		}
+		requireManageableAccount(actorUserId, actorRoles, targetAccount, structure, elevated);
 
 	}
 
@@ -241,8 +232,10 @@ public class StructureAccessService {
 
 		UUID employeeID = targetAccount.getEmployeeID();
 
-		if (!elevated && (!actorRoles.contains(UserRole.MANAGER) || employeeID == null
-				|| !responsibilityStore.isResponsibleFor(actorUserId, employeeID, structure.getStructureID()))) {
+		if (actorRoles.contains(UserRole.MANAGER) && !elevated && !actorRoles.contains(UserRole.SECRETARY)
+				&& (employeeID == null
+						|| !responsibilityStore.isResponsibleFor(actorUserId, employeeID,
+								structure.getStructureID()))) {
 			throw denied();
 		}
 

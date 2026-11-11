@@ -19,7 +19,6 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -38,7 +37,6 @@ import fr.gestionplus.server.audit.AuditTargetType;
 
 @Component
 @EnableScheduling
-@ConditionalOnProperty(prefix = "gestionplus.audit.fallback", name = { "key", "directory" })
 public class PostgresqlAuditFallback implements AuditFallback {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger(PostgresqlAuditFallback.class);
@@ -53,6 +51,11 @@ public class PostgresqlAuditFallback implements AuditFallback {
 			@Value("${gestionplus.audit.fallback.key}") String key,
 			@Value("${gestionplus.audit.fallback.directory}") String directory,
 			@Value("${gestionplus.audit.fallback.max-events:10000}") int maxEvents) {
+
+		if (directory.isBlank()) {
+			throw new IllegalArgumentException("Le répertoire du journal d’audit est obligatoire.");
+		}
+
 		this.jdbc = jdbc;
 		this.maxEvents = maxEvents;
 		codec = new EncryptedAuditCodec(key);

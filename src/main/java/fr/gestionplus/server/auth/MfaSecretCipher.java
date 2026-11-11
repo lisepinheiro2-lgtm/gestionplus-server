@@ -26,7 +26,13 @@ class MfaSecretCipher {
 	private final SecureRandom random = new SecureRandom();
 
 	MfaSecretCipher(@Value("${gestionplus.mfa.key:}") String configuredKey) {
-		byte[] decoded = configuredKey.isBlank() ? null : Base64.getDecoder().decode(configuredKey);
+		byte[] decoded;
+
+		try {
+			decoded = configuredKey.isBlank() ? null : Base64.getDecoder().decode(configuredKey);
+		} catch (IllegalArgumentException failure) {
+			throw new IllegalArgumentException("La clé MFA doit être une valeur Base64 valide de 256 bits.");
+		}
 
 		if (decoded != null && decoded.length != 32) {
 			throw new IllegalArgumentException("La clé MFA doit contenir 256 bits.");

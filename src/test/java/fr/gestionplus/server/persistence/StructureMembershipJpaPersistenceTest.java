@@ -19,6 +19,7 @@ import fr.gestionplus.server.organization.OrganizationalStructure;
 import fr.gestionplus.server.organization.StructureMembership;
 import fr.gestionplus.server.organization.TenantMembership;
 import fr.gestionplus.server.organization.TenantOrganization;
+import fr.gestionplus.server.support.AuditStorageIntegrationTest;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 
@@ -27,7 +28,7 @@ import jakarta.persistence.PersistenceContext;
 		"spring.datasource.username=test", "spring.datasource.password=test", "spring.jpa.hibernate.ddl-auto=validate",
 		"spring.flyway.enabled=true" })
 @Transactional
-class StructureMembershipJpaPersistenceTest {
+class StructureMembershipJpaPersistenceTest extends AuditStorageIntegrationTest {
 
 	@Autowired
 	private StructureMembershipJpaRepository membershipRepository;

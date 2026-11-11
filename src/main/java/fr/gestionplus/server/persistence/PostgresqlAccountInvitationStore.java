@@ -11,6 +11,7 @@ import java.util.UUID;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import fr.gestionplus.server.account.AccountInvitationStore;
 
@@ -63,7 +64,12 @@ public class PostgresqlAccountInvitationStore implements AccountInvitationStore 
 	}
 
 	@Override
+	@Transactional
 	public void removeForAccount(UUID userID) {
+		jdbcTemplate.update("""
+				UPDATE account_invitation_deliveries SET state = 'CANCELLED'
+				WHERE user_id = ? AND state = 'PENDING'
+				""", userID);
 		jdbcTemplate.update("DELETE FROM account_invitations WHERE user_id = ?", userID);
 	}
 

@@ -15,6 +15,10 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,6 +29,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -38,6 +43,7 @@ import fr.gestionplus.server.audit.AuditResult;
 import fr.gestionplus.server.audit.AuditStore;
 import fr.gestionplus.server.audit.AuditTarget;
 import fr.gestionplus.server.audit.AuditTargetType;
+import fr.gestionplus.server.support.AuditStorageIntegrationTest;
 
 @SpringBootTest(properties = {
 		"spring.datasource.url=jdbc:tc:postgresql:16-alpine:///gestionplus_audit_fallback_test",
@@ -45,7 +51,7 @@ import fr.gestionplus.server.audit.AuditTargetType;
 		"spring.datasource.username=test", "spring.datasource.password=test", "spring.jpa.hibernate.ddl-auto=validate",
 		"spring.jpa.open-in-view=false", "spring.flyway.enabled=true", "gestionplus.audit.fallback.key=false",
 		"gestionplus.activation.expiry-enabled=false", "gestionplus.notifications.from=false" })
-class PostgresqlAuditFallbackIntegrationTest {
+class PostgresqlAuditFallbackIntegrationTest extends AuditStorageIntegrationTest {
 
 	private static final String TEST_KEY = Base64.getEncoder().encodeToString(new byte[32]);
 
@@ -58,6 +64,9 @@ class PostgresqlAuditFallbackIntegrationTest {
 	private PlatformTransactionManager transactionManager;
 	@Autowired
 	private AuditStore auditStore;
+
+	@MockitoBean
+	private PostgresqlAuditFallback configuredFallback;
 
 	private PostgresqlAuditFallback fallback;
 	private TransactionTemplate transaction;
@@ -213,6 +222,85 @@ class PostgresqlAuditFallbackIntegrationTest {
 				beans.getBeanProvider(AuditFallback.class), transactionManager);
 
 		assertThrows(IllegalStateException.class, () -> persistence.write(event(AuditResult.SUCCESS)));
+	}
+
+	@Test
+	void retainsAnIndependentEventWhilePostgresqlStillCannotStartATransaction() {
+		PlatformTransactionManager unavailable = mock(PlatformTransactionManager.class);
+		org.mockito.Mockito.when(unavailable.getTransaction(any())).thenThrow(
+				new org.springframework.transaction.CannotCreateTransactionException("Panne simulée"));
+		StaticListableBeanFactory beans = new StaticListableBeanFactory();
+		beans.addBean("auditFallback", fallback);
+		AuditEvent denied = event(AuditResult.DENIED);
+		AuditPersistence persistence = new AuditPersistence(auditStore, beans.getBeanProvider(AuditFallback.class),
+				unavailable);
+
+		persistence.write(denied);
+		PostgresqlAuditFallback restarted = new PostgresqlAuditFallback(jdbc, unavailable, TEST_KEY,
+				journalDirectory.toString(), 100);
+		restarted.reconcile();
+
+		assertTrue(Files.exists(fileFor(denied)));
+		assertTrue(auditStore.findById(denied.getEventId()).isEmpty());
+		openJournal(100).reconcile();
+		assertFalse(Files.exists(fileFor(denied)));
+		assertSameEvent(denied, auditStore.findById(denied.getEventId()).orElseThrow());
+	}
+
+	@Test
+	void journalFailureCannotAuthorizeADeniedOperationAndBlocksRequiredSuccess() {
+		PlatformTransactionManager unavailable = mock(PlatformTransactionManager.class);
+		org.mockito.Mockito.when(unavailable.getTransaction(any())).thenThrow(
+				new org.springframework.transaction.CannotCreateTransactionException("Panne simulée"));
+		PostgresqlAuditFallback saturated = openJournal(1);
+		AuditEvent retained = event(AuditResult.DENIED);
+		saturated.writeIndependent(retained);
+		StaticListableBeanFactory beans = new StaticListableBeanFactory();
+		beans.addBean("auditFallback", saturated);
+		AuditPersistence persistence = new AuditPersistence(auditStore, beans.getBeanProvider(AuditFallback.class),
+				unavailable);
+
+		persistence.write(event(AuditResult.DENIED));
+		assertThrows(IllegalStateException.class, () -> persistence.write(event(AuditResult.SUCCESS)));
+		assertTrue(Files.exists(fileFor(retained)));
+		assertEquals(1, saturatedEntries());
+	}
+
+	private long saturatedEntries() {
+
+		try (var entries = Files.list(journalDirectory)) {
+			return entries.filter(path -> path.toString().endsWith(".audit")).count();
+		} catch (java.io.IOException failure) {
+			throw new java.io.UncheckedIOException(failure);
+		}
+
+	}
+
+	@Test
+	void concurrentReplaysKeepOneCopyOfTheSameDurableEvent() throws Exception {
+		AuditEvent event = event(AuditResult.DENIED);
+		fallback.writeIndependent(event);
+		PostgresqlAuditFallback restarted = openJournal(100);
+		CyclicBarrier start = new CyclicBarrier(2);
+
+		try (ExecutorService workers = Executors.newFixedThreadPool(2)) {
+			var first = workers.submit(() -> {
+				start.await(5, TimeUnit.SECONDS);
+				fallback.reconcile();
+				return null;
+			});
+			var second = workers.submit(() -> {
+				start.await(5, TimeUnit.SECONDS);
+				restarted.reconcile();
+				return null;
+			});
+			first.get(15, TimeUnit.SECONDS);
+			second.get(15, TimeUnit.SECONDS);
+		}
+
+		assertEquals(1, primaryCount(event));
+		assertFalse(Files.exists(fileFor(event)));
+		assertSameEvent(event, auditStore.findById(event.getEventId()).orElseThrow());
 	}
 
 	private AuditStore unavailableStore() {

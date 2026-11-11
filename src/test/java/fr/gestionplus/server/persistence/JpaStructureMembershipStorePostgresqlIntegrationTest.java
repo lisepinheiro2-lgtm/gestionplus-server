@@ -24,13 +24,14 @@ import fr.gestionplus.server.organization.OrganizationalStructure;
 import fr.gestionplus.server.organization.StructureMembership;
 import fr.gestionplus.server.organization.StructureMembershipStore;
 import fr.gestionplus.server.organization.TenantOrganization;
+import fr.gestionplus.server.support.AuditStorageIntegrationTest;
 
 @SpringBootTest(properties = {
 		"spring.datasource.url=jdbc:tc:postgresql:16-alpine:///gestionplus_membership_store_test",
 		"spring.datasource.driver-class-name=org.testcontainers.jdbc.ContainerDatabaseDriver",
 		"spring.datasource.username=test", "spring.datasource.password=test", "spring.jpa.hibernate.ddl-auto=validate",
 		"spring.flyway.enabled=true" })
-class JpaStructureMembershipStorePostgresqlIntegrationTest {
+class JpaStructureMembershipStorePostgresqlIntegrationTest extends AuditStorageIntegrationTest {
 
 	@Autowired
 	private StructureMembershipStore store;

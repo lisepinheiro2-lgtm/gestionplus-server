@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -29,6 +30,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -36,6 +38,9 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import com.jayway.jsonpath.JsonPath;
 
 import fr.gestionplus.server.account.AccountStore;
+import fr.gestionplus.server.audit.AuditAction;
+import fr.gestionplus.server.audit.AuditFallback;
+import fr.gestionplus.server.audit.AuditResult;
 import fr.gestionplus.server.auth.AccountMfaService.Verification;
 import fr.gestionplus.server.employee.Employee;
 import fr.gestionplus.server.organization.TenantOrganization;
@@ -47,13 +52,14 @@ import fr.gestionplus.server.persistence.UserAccountEntity;
 import fr.gestionplus.server.persistence.UserAccountJpaRepository;
 import fr.gestionplus.server.persistence.UserCredentialEntity;
 import fr.gestionplus.server.persistence.UserCredentialJpaRepository;
+import fr.gestionplus.server.support.AuditStorageIntegrationTest;
 
 @SpringBootTest(properties = { "spring.datasource.url=jdbc:tc:postgresql:16-alpine:///gestionplus_auth_http_test",
 		"spring.datasource.driver-class-name=org.testcontainers.jdbc.ContainerDatabaseDriver",
 		"spring.datasource.username=test", "spring.datasource.password=test", "spring.jpa.hibernate.ddl-auto=validate",
 		"spring.flyway.enabled=true", "gestionplus.mfa.key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" })
 @AutoConfigureMockMvc
-public class LoginHttpPostgresqlIntegrationTest {
+public class LoginHttpPostgresqlIntegrationTest extends AuditStorageIntegrationTest {
 
 	@Autowired
 	private MockMvc mockMvc;
@@ -84,6 +90,9 @@ public class LoginHttpPostgresqlIntegrationTest {
 	private PasswordChangeService passwordChange;
 	@Autowired
 	private JdbcTemplate jdbc;
+
+	@MockitoSpyBean
+	private AuditFallback auditFallback;
 
 	@MockitoBean(enforceOverride = true)
 	private CompromisedPasswordChecker checker;
@@ -335,6 +344,40 @@ public class LoginHttpPostgresqlIntegrationTest {
 		assertEquals(UserAccountStatus.DISABLED, accountStore.findById(account.getUserID()).orElseThrow().getStatu());
 		UserCredential stored = credentialRepository.findById(account.getUserID()).orElseThrow().toDomain();
 		assertTrue(credentialService.verifyPassword(stored, password));
+	}
+
+	@Test
+	void aFailedMandatoryAuditRollsBackThePasswordAndSessionVersion() {
+		UserAccount account = createTestAccount(true);
+		String oldPassword = "old-test-password";
+		String replacement = "replacement-test-password";
+		saveTestCredential(account, oldPassword);
+		String oldHash = credentialRepository.findById(account.getUserID()).orElseThrow().toDomain().getPasswordHash();
+		String sessionID = "rollback-" + account.getUserID();
+		sessionRegistry.registerNewSession(sessionID, account);
+		IllegalStateException failure = new IllegalStateException("Audit obligatoire indisponible.");
+		Mockito.doThrow(failure).when(auditFallback).writeInBusinessTransaction(
+				Mockito.argThat(event -> event.getAction() == AuditAction.AUTH_SESSION_REVOKE
+						&& event.getResult() == AuditResult.SUCCESS));
+
+		try {
+			SecurityContextHolder.getContext().setAuthentication(
+					UsernamePasswordAuthenticationToken.authenticated(account, null, List.of()));
+			assertSame(failure, assertThrows(IllegalStateException.class,
+					() -> passwordChange.changePassword(oldPassword, replacement, null)));
+		} finally {
+			SecurityContextHolder.clearContext();
+		}
+
+		assertEquals(oldHash, credentialRepository.findById(account.getUserID()).orElseThrow()
+				.toDomain().getPasswordHash());
+		assertEquals(account.getSessionVersion(), accountStore.findById(account.getUserID()).orElseThrow()
+				.getSessionVersion());
+		assertFalse(sessionRegistry.getSessionInformation(sessionID).isExpired());
+		assertEquals(0, jdbc.queryForObject("""
+				SELECT COUNT(*) FROM audit_events
+				WHERE actor_user_id = ? AND action = 'ACCOUNT_PASSWORD_CHANGE' AND result = 'SUCCESS'
+				""", Integer.class, account.getUserID()));
 	}
 
 	private String enrollmentCode(UUID userID) {

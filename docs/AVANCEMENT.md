@@ -9,6 +9,22 @@ read_when:
 
 # Avancement et feuille de route
 
+<a id="contrats-code-2026-11-11"></a>
+
+## Contrats consolidés et code local — 11 novembre 2026
+
+Revue statique demandée après les développements locaux, y compris les modifications non commitées. Les [décisions consolidées](https://github.com/lisepinheiro2-lgtm/gestionplus-client/blob/main/docs/vision-ensemble.md#decisions-consolidees-2026-11-11) priment sur les formulations historiques incompatibles ci-dessous. [Le README courant](../README.md) détaille les accès HTTP, les protections et leurs limites.
+
+- Les contrôles SECRETARY, demandes d’invitations durables, corps HTTP non annoncés bornés, clé MFA obligatoire en prod et traduction ciblée des collisions de noms figurent dans les sources. Les dernières corrections et leurs tests restent sans nouvelle preuve d’exécution.
+- Deux écarts subsistent : vérification de tous les rôles de la cible limitée aux acteurs MANAGER/SECRETARY ; révocation non systématique après changement sensible des droits lorsqu’un autre accès subsiste.
+- SECURITY_OFFICER : nomination par SUPER_ADMIN et consultation bornée avec deux permissions d’audit sont décidées, mais non implémentées. Conservation par entreprise/catégorie, échéances initiales et gel ciblé ne sont pas réalisés.
+- Panne HIBP : blocage décidé et déjà effectif par exception ; réponse temporaire adaptée et message Swing manquent. Rotation MFA transparente et procédure de compromission décidées, mécanismes absents.
+- Appareils de confiance, consultation ordinaire hors ligne, ADMIN_EMERGENCY, synchronisation/quarantaine et accusés de lecture restent à construire. L’absence de durée fixe concerne seulement ADMIN_EMERGENCY ; elle remplace son ancienne formulation imposant une expiration locale.
+- Migrations V1–V25 présentes. V24 vérifie les rattachements historiques puis valide les contraintes ; V25 ajoute les demandes de livraison d’invitations. Présence des scripts et état d’application de la base sont deux preuves différentes.
+- Dernière capture rapportée : 530 tests, 0 erreur, 1 échec ; test de rollback ensuite corrigé et nouveaux scénarios ajoutés, sans nouvelle suite verte démontrée. Cette revue ajoute uniquement de la documentation : aucun test/build/serveur/migration lancé, aucune opération Git modifiante.
+
+Les détails datés précédents restent historiques. Ils ne réouvrent pas les durées de confiance, la règle HIBP ou les objectifs de rotation MFA désormais décidés.
+
 <a id="securite-p1-2026-11-11"></a>
 
 ## Sécurité P1.01 à P1.12 — état local du 11 novembre 2026

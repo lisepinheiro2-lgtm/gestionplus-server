@@ -18,6 +18,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import fr.gestionplus.server.account.AccountActivationConflictException;
+import fr.gestionplus.server.account.InvitationDeliveryPendingException;
 import fr.gestionplus.server.audit.AuditReason;
 import fr.gestionplus.server.audit.AuditService;
 import fr.gestionplus.server.audit.AuditedAccessDeniedException;
@@ -62,12 +64,13 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 		return response(HttpApiError.INVALID_REQUEST);
 	}
 
-	@ExceptionHandler(ConcurrencyFailureException.class)
+	@ExceptionHandler({ ConcurrencyFailureException.class, AccountActivationConflictException.class })
 	ResponseEntity<Object> conflict() {
 		return response(HttpApiError.CONFLICT);
 	}
 
-	@ExceptionHandler({ DataAccessResourceFailureException.class, CannotCreateTransactionException.class })
+	@ExceptionHandler({ DataAccessResourceFailureException.class, CannotCreateTransactionException.class,
+			InvitationDeliveryPendingException.class })
 	ResponseEntity<Object> unavailable(Exception failure) {
 		LOGGER.warn("Dépendance HTTP indisponible ({})", failure.getClass().getSimpleName());
 		return response(HttpApiError.SERVICE_UNAVAILABLE);

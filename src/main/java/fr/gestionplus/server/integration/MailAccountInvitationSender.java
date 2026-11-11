@@ -31,6 +31,12 @@ public class MailAccountInvitationSender implements AccountInvitationSender {
 
 	@Override
 	public boolean send(String email, UUID invitationID, String token) {
+
+		if (email == null || invitationID == null || token == null || !token.matches("[A-Za-z0-9_-]{43}")
+				|| email.indexOf('\r') >= 0 || email.indexOf('\n') >= 0) {
+			return false;
+		}
+
 		JavaMailSender sender = senders.getIfAvailable();
 
 		if (sender == null || from.isBlank() || activationLink.isBlank()) {
@@ -50,7 +56,7 @@ public class MailAccountInvitationSender implements AccountInvitationSender {
 			InternetAddress recipient = new InternetAddress(email, true);
 			recipient.validate();
 
-			if (recipient.isGroup() || !email.equals(recipient.getAddress())) {
+			if (senderAddress.isGroup() || recipient.isGroup() || !email.equals(recipient.getAddress())) {
 				return false;
 			}
 

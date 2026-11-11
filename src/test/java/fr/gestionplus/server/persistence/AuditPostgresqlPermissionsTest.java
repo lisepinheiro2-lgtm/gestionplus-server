@@ -26,10 +26,12 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import fr.gestionplus.server.support.AuditStorageIntegrationTest;
+
 @SpringBootTest(properties = { "spring.jpa.hibernate.ddl-auto=validate", "spring.jpa.open-in-view=false",
 		"spring.flyway.enabled=true" })
 @Testcontainers
-public class AuditPostgresqlPermissionsTest {
+public class AuditPostgresqlPermissionsTest extends AuditStorageIntegrationTest {
 
 	@Container
 	static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:16-alpine")

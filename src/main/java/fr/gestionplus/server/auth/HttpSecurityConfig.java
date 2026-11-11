@@ -17,7 +17,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
 import org.springframework.security.web.csrf.CsrfException;
-import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
 
 import fr.gestionplus.server.account.AccountStore;
@@ -47,9 +46,7 @@ public class HttpSecurityConfig {
 	@Bean
 	public SecurityFilterChain securityFilterChain(HttpSecurity http, SessionRegistry registry,
 			AccountStore accountStore,
-			AuditService auditService, SessionLifetime lifetime, AccountMfaService mfa,
-			@Value("${gestionplus.http.require-https:false}") boolean requireHttps,
-			@Value("${gestionplus.http.max-body-bytes:16384}") long maxBodyBytes) throws Exception {
+			AuditService auditService, SessionLifetime lifetime, AccountMfaService mfa) throws Exception {
 
 		HttpSecurityAudit audit = new HttpSecurityAudit(auditService);
 		SecurityContextLogoutHandler logoutHandler = new SecurityContextLogoutHandler();
@@ -110,10 +107,17 @@ public class HttpSecurityConfig {
 					HttpApiError.AUTHENTICATION_REQUIRED.write(event.getResponse());
 				}));
 
-		http.addFilterBefore(new HttpRequestPolicyFilter(audit, requireHttps, maxBodyBytes), CsrfFilter.class);
 		http.addFilterBefore(new CurrentAccountSessionFilter(accountStore, audit, lifetime, mfa),
 				AuthorizationFilter.class);
 		return http.build();
+	}
+
+	@Bean
+	HttpRequestPolicyFilter httpRequestPolicyFilter(AuditService audit,
+			@Value("${gestionplus.http.require-https:false}") boolean requireHttps,
+			@Value("${gestionplus.http.max-body-bytes:16384}") long maxBodyBytes,
+			@Value("${server.tomcat.max-parameter-count:32}") int maxParameters) {
+		return new HttpRequestPolicyFilter(new HttpSecurityAudit(audit), requireHttps, maxBodyBytes, maxParameters);
 	}
 
 	private Object currentPrincipal() {

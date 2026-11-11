@@ -29,7 +29,8 @@ final class AuditFileJournal {
 		try {
 
 			if (!Files.isDirectory(this.directory, LinkOption.NOFOLLOW_LINKS)
-					|| !this.directory.equals(this.directory.toRealPath()) || maxEvents < 1) {
+					|| !this.directory.equals(this.directory.toRealPath()) || !Files.isWritable(this.directory)
+					|| maxEvents < 1) {
 				throw new IllegalArgumentException("Répertoire ou capacité du journal d’audit invalide.");
 			}
 

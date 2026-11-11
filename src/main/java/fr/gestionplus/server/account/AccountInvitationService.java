@@ -2,14 +2,11 @@ package fr.gestionplus.server.account;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
-import java.time.Duration;
+import java.time.Clock;
 import java.time.Instant;
-import java.util.Base64;
 import java.util.HashMap;
-import java.util.HexFormat;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -19,6 +16,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import fr.gestionplus.server.account.AccountInvitationStore.Invitation;
@@ -30,45 +29,49 @@ import fr.gestionplus.server.audit.AuditService;
 import fr.gestionplus.server.audit.AuditTarget;
 import fr.gestionplus.server.audit.AuditTargetType;
 import fr.gestionplus.server.audit.AuditedOperation;
+import fr.gestionplus.server.auth.AuthenticatedUserProvider;
 import fr.gestionplus.server.auth.CredentialService;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
 import fr.gestionplus.server.auth.UserCredential;
 import fr.gestionplus.server.auth.UserRole;
-import fr.gestionplus.server.organization.StructureMembership;
-import fr.gestionplus.server.organization.StructureMembershipStore;
 
 @Service
 public class AccountInvitationService {
 
-	private static final Duration INVITATION_VALIDITY = Duration.ofDays(7);
-
-	private final SecureRandom random = new SecureRandom();
 	private final AccountStore accountStore;
 	private final AccountInvitationStore invitationStore;
-	private final AccountInvitationSender sender;
+	private final AccountInvitationDeliveryStore deliveries;
+	private final AccountInvitationDelivery deliveryWorker;
+	private final InvitationTokenIssuer tokens;
+	private final AuthenticatedUserProvider authenticatedUserProvider;
 	private final AccountInvitationScope scope;
-	private final StructureMembershipStore membershipStore;
 	private final AccountAccessLifecycle lifecycle;
 	private final AuditService auditService;
 	private final CredentialService credentialService;
 	private final ObjectProvider<ActivationIdentityVerifier> identityVerifiers;
+	private final Clock clock;
 	private final TransactionTemplate replacementTransaction;
 
 	AccountInvitationService(AccountStore accountStore, AccountInvitationStore invitationStore,
-			AccountInvitationSender sender, AccountInvitationScope scope, StructureMembershipStore membershipStore,
+			AccountInvitationDeliveryStore deliveries, AccountInvitationDelivery deliveryWorker,
+			InvitationTokenIssuer tokens, AuthenticatedUserProvider authenticatedUserProvider,
+			AccountInvitationScope scope,
 			AccountAccessLifecycle lifecycle, AuditService auditService, CredentialService credentialService,
 			ObjectProvider<ActivationIdentityVerifier> identityVerifiers,
-			PlatformTransactionManager transactionManager) {
+			PlatformTransactionManager transactionManager, ObjectProvider<Clock> clocks) {
 		this.accountStore = accountStore;
 		this.invitationStore = invitationStore;
-		this.sender = sender;
+		this.deliveries = deliveries;
+		this.deliveryWorker = deliveryWorker;
+		this.tokens = tokens;
+		this.authenticatedUserProvider = authenticatedUserProvider;
 		this.scope = scope;
-		this.membershipStore = membershipStore;
 		this.lifecycle = lifecycle;
 		this.auditService = auditService;
 		this.credentialService = credentialService;
 		this.identityVerifiers = identityVerifiers;
+		clock = clocks.getIfAvailable(Clock::systemUTC);
 		replacementTransaction = new TransactionTemplate(transactionManager);
 		replacementTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
 	}
@@ -84,7 +87,8 @@ public class AccountInvitationService {
 		}
 
 		requireReady(account, structureID);
-		return deliver(account, newInvitation(userID, structureID, false), AuditAction.INVITATION_CREATE);
+		return enqueue(account, newInvitation(userID, structureID, false), null, AuditAction.INVITATION_CREATE,
+				Map.of());
 	}
 
 	@AuditedOperation(value = AuditAction.INVITATION_CREATE, account = 0, structure = 1)
@@ -112,20 +116,8 @@ public class AccountInvitationService {
 			updateEmail(account, correctedEmail, structureID);
 		}
 
-		Delivery delivery = deliver(account, newInvitation(userID, structureID, true), AuditAction.INVITATION_CREATE);
-
-		if (!delivery.sent()) {
-			return delivery;
-		}
-
-		for (Map.Entry<UUID, Set<UserRole>> entry : roles.entrySet()) {
-			membershipStore.save(new StructureMembership(userID, entry.getKey(), entry.getValue()));
-			auditService.record(AuditAction.STRUCTURE_ACCESS_GRANT, AuditResult.SUCCESS,
-					accountTargets(userID, entry.getKey()), AuditMetadata.rolesGranted(entry.getValue()));
-		}
-
-		accountStore.setPendingActivation(userID);
-		return delivery;
+		return enqueue(accountStore.findById(userID).orElseThrow(), newInvitation(userID, structureID, true),
+				null, AuditAction.INVITATION_CREATE, roles);
 	}
 
 	@AuditedOperation(value = AuditAction.INVITATION_RESEND, account = 0, structure = 1)
@@ -135,13 +127,13 @@ public class AccountInvitationService {
 		UserAccount account = lockPendingAccount(userID, structureID);
 		Invitation current = requireInvitation(userID, structureID);
 
-		if (!isUsable(current, Instant.now())) {
+		if (!isUsable(current, clock.instant())) {
 			throw AccountInvitationScope.denied();
 		}
 
 		requireReady(account, structureID);
-		return deliver(account, newInvitation(userID, structureID, current.reintegration()),
-				AuditAction.INVITATION_RESEND);
+		return enqueue(account, newInvitation(userID, structureID, current.reintegration()),
+				current.invitationID(), AuditAction.INVITATION_RESEND, Map.of());
 	}
 
 	@AuditedOperation(value = AuditAction.INVITATION_REPLACE, account = 0, structure = 1)
@@ -152,10 +144,11 @@ public class AccountInvitationService {
 			UserAccount account = lockPendingAccount(userID, structureID);
 			Invitation current = requireInvitation(userID, structureID);
 
-			if (current.completedAt() != null || (current.expiresAt() != null && !isUsable(current, Instant.now()))) {
+			if (current.completedAt() != null || (current.expiresAt() != null && !isUsable(current, clock.instant()))) {
 				throw AccountInvitationScope.denied();
 			}
 
+			deliveries.findPending(userID).ifPresent(request -> deliveries.cancel(request.requestID()));
 			updateEmail(account, correctedEmail, structureID);
 			Invitation replacement = newInvitation(userID, structureID, current.reintegration());
 			invitationStore.save(replacement);
@@ -172,7 +165,7 @@ public class AccountInvitationService {
 			}
 
 			requireReady(account, structureID);
-			return deliver(account, replacement, AuditAction.INVITATION_REPLACE);
+			return enqueue(account, replacement, replacement.invitationID(), AuditAction.INVITATION_REPLACE, Map.of());
 		});
 	}
 
@@ -180,9 +173,24 @@ public class AccountInvitationService {
 	@Transactional
 	public void cancelInvitation(UUID userID, UUID structureID) {
 
-		UserAccount account = lockPendingAccount(userID, structureID);
-		Invitation invitation = requireInvitation(userID, structureID);
+		AccountInvitationDeliveryStore.Request pending = deliveries.findPending(userID).orElse(null);
+		UserAccount account = scope.lockAndAuthorize(userID, structureID,
+				pending == null ? Map.of() : pending.roles());
 
+		if (account.getStatu() != UserAccountStatus.PENDING_ACTIVATION
+				&& (account.getStatu() != UserAccountStatus.DISABLED || pending == null
+						|| pending.roles().isEmpty())) {
+			throw AccountInvitationScope.denied();
+		}
+
+		Invitation invitation = invitationStore.findByAccount(userID)
+				.filter(current -> structureID.equals(current.structureID()))
+				.orElseGet(() -> deliveries.findPending(userID).filter(current -> pending != null
+						&& current.requestID().equals(pending.requestID())
+						&& structureID.equals(current.structureID()))
+						.map(current -> new Invitation(current.invitationID(), userID, structureID,
+								null, null, null, current.reintegration()))
+						.orElseThrow(AccountInvitationScope::denied));
 		lifecycle.disable(account, structureID);
 		record(AuditAction.INVITATION_REVOKE, AuditResult.SUCCESS, invitation);
 	}
@@ -213,7 +221,7 @@ public class AccountInvitationService {
 			invitationStore.findByID(invitationID)
 					.filter(invitation -> account.getStatu() == UserAccountStatus.PENDING_ACTIVATION)
 					.filter(invitation -> invitation.expiresAt() != null
-							&& !Instant.now().isBefore(invitation.expiresAt()))
+							&& !clock.instant().isBefore(invitation.expiresAt()))
 					.ifPresent(invitation -> {
 						lifecycle.disable(account, invitation.structureID());
 						record(AuditAction.INVITATION_EXPIRE, AuditResult.SUCCESS, invitation);
@@ -230,13 +238,15 @@ public class AccountInvitationService {
 			throw AccountInvitationScope.denied();
 		}
 
-		Invitation candidate = invitationStore.findByID(invitationID).orElseThrow(AccountInvitationScope::denied);
+		Invitation candidate = invitationStore.findByID(invitationID)
+				.filter(current -> current.tokenDigest() != null || current.completedAt() != null)
+				.orElseThrow(() -> activationUnavailable(invitationID, token));
 		UserAccount account = accountStore.findByIdForUpdate(candidate.userID())
 				.orElseThrow(AccountInvitationScope::denied);
 		Invitation invitation = invitationStore.findByID(invitationID).orElseThrow(AccountInvitationScope::denied);
 
-		if (account.getStatu() != UserAccountStatus.PENDING_ACTIVATION || !isUsable(invitation, Instant.now())
-				|| !MessageDigest.isEqual(digest(token).getBytes(StandardCharsets.US_ASCII),
+		if (account.getStatu() != UserAccountStatus.PENDING_ACTIVATION || !isUsable(invitation, clock.instant())
+				|| !MessageDigest.isEqual(InvitationTokenIssuer.digest(token).getBytes(StandardCharsets.US_ASCII),
 						invitation.tokenDigest().getBytes(StandardCharsets.US_ASCII))) {
 			throw AccountInvitationScope.denied();
 		}
@@ -250,16 +260,31 @@ public class AccountInvitationService {
 
 		UserCredential credential = credentialService.createCredential(account.getUserID(), rawPassword);
 
-		if (!isUsable(invitation, Instant.now())) {
+		if (!isUsable(invitation, clock.instant())) {
 			throw AccountInvitationScope.denied();
 		}
 
 		accountStore.activateAccount(account.getUserID(), userName, credential);
+		deliveries.findPending(account.getUserID()).ifPresent(request -> deliveries.cancel(request.requestID()));
 		invitationStore.save(new Invitation(invitationID, account.getUserID(), invitation.structureID(), null, null,
-				Instant.now(), invitation.reintegration()));
+				clock.instant(), invitation.reintegration()));
 		record(AuditAction.INVITATION_TOKEN_USE, AuditResult.SUCCESS, invitation);
 		record(invitation.reintegration() ? AuditAction.ACCOUNT_REACTIVATE : AuditAction.ACCOUNT_ACTIVATE,
 				AuditResult.SUCCESS, invitation);
+	}
+
+	private RuntimeException activationUnavailable(UUID invitationID, String token) {
+		boolean pending = deliveries.findByInvitation(invitationID)
+				.filter(request -> MessageDigest.isEqual(
+						InvitationTokenIssuer.digest(token).getBytes(StandardCharsets.US_ASCII),
+						request.tokenDigest().getBytes(StandardCharsets.US_ASCII)))
+				.isPresent();
+
+		if (pending) {
+			return new InvitationDeliveryPendingException();
+		}
+
+		return AccountInvitationScope.denied();
 	}
 
 	private UserAccount lockPendingAccount(UUID userID, UUID structureID) {
@@ -287,21 +312,47 @@ public class AccountInvitationService {
 		return new Invitation(UUID.randomUUID(), userID, structureID, null, null, null, reintegration);
 	}
 
-	private Delivery deliver(UserAccount account, Invitation invitation, AuditAction action) {
+	private Delivery enqueue(UserAccount account, Invitation invitation, UUID previousInvitationID, AuditAction action,
+			Map<UUID, Set<UserRole>> roles) {
 
-		byte[] bytes = new byte[32];
-		random.nextBytes(bytes);
-		String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-
-		if (!sender.send(account.getEmail(), invitation.invitationID(), token)) {
-			record(action, AuditResult.FAILURE, invitation);
-			return new Delivery(false);
+		if (!TransactionSynchronizationManager.isActualTransactionActive()
+				|| !TransactionSynchronizationManager.isSynchronizationActive()) {
+			throw new IllegalStateException("L’envoi exige une transaction métier.");
 		}
 
-		invitationStore.save(new Invitation(invitation.invitationID(), account.getUserID(), invitation.structureID(),
-				digest(token), Instant.now().plus(INVITATION_VALIDITY), null, invitation.reintegration()));
-		record(action, AuditResult.SUCCESS, invitation);
-		return new Delivery(true);
+		UserAccount actor = authenticatedUserProvider.getCurrentAccount();
+		AccountInvitationDeliveryStore.Request pending = deliveries.findPending(account.getUserID()).orElse(null);
+
+		if (pending != null && (!pending.email().equals(account.getEmail())
+				|| !pending.structureID().equals(invitation.structureID())
+				|| pending.reintegration() != invitation.reintegration()
+				|| pending.actorVersion() != actor.getSessionVersion()
+				|| !pending.actorID().equals(actor.getUserID())
+				|| pending.targetVersion() != account.getSessionVersion()
+				|| !Objects.equals(pending.previousInvitationID(), previousInvitationID)
+				|| pending.action() != action || !pending.roles().equals(roles))) {
+			deliveries.cancel(pending.requestID());
+			pending = null;
+		}
+
+		if (pending == null) {
+			UUID requestID = UUID.randomUUID();
+			String tokenDigest = InvitationTokenIssuer.digest(tokens.token(requestID, invitation.invitationID()));
+			pending = new AccountInvitationDeliveryStore.Request(requestID, invitation.invitationID(),
+					previousInvitationID, account.getUserID(), invitation.structureID(), actor.getUserID(),
+					actor.getSessionVersion(), account.getSessionVersion(), account.getEmail(), action,
+					invitation.reintegration(), tokenDigest, roles);
+			deliveries.enqueue(pending);
+		}
+
+		Delivery delivery = new Delivery(pending.requestID());
+		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override
+			public void afterCommit() {
+				delivery.status = deliveryWorker.deliver(delivery.requestID);
+			}
+		});
+		return delivery;
 	}
 
 	private boolean isUsable(Invitation invitation, Instant now) {
@@ -326,17 +377,6 @@ public class AccountInvitationService {
 
 	}
 
-	private String digest(String token) {
-
-		try {
-			return HexFormat.of()
-					.formatHex(MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.US_ASCII)));
-		} catch (NoSuchAlgorithmException exception) {
-			throw new IllegalStateException("SHA-256 indisponible.", exception);
-		}
-
-	}
-
 	private Set<AuditTarget> accountTargets(UUID userID, UUID structureID) {
 		return Set.of(new AuditTarget(AuditTargetType.ACCOUNT, userID),
 				new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID));
@@ -351,6 +391,24 @@ public class AccountInvitationService {
 						: AuditMetadata.empty());
 	}
 
-	public record Delivery(boolean sent) {
+	public static final class Delivery {
+		private final UUID requestID;
+		private volatile AccountInvitationDelivery.Status status = AccountInvitationDelivery.Status.PENDING;
+
+		private Delivery(UUID requestID) {
+			this.requestID = requestID;
+		}
+
+		public UUID requestID() {
+			return requestID;
+		}
+
+		public boolean sent() {
+			return status == AccountInvitationDelivery.Status.SENT;
+		}
+
+		public boolean queued() {
+			return status == AccountInvitationDelivery.Status.PENDING;
+		}
 	}
 }

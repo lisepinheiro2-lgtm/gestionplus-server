@@ -23,12 +23,13 @@ import fr.gestionplus.server.audit.AuditService;
 import fr.gestionplus.server.audit.AuditStore;
 import fr.gestionplus.server.audit.AuditTarget;
 import fr.gestionplus.server.audit.AuditTargetType;
+import fr.gestionplus.server.support.AuditStorageIntegrationTest;
 
 @SpringBootTest(properties = { "spring.datasource.url=jdbc:tc:postgresql:16-alpine:///gestionplus_audit_test",
 		"spring.datasource.driver-class-name=org.testcontainers.jdbc.ContainerDatabaseDriver",
 		"spring.datasource.username=test", "spring.datasource.password=test", "spring.jpa.hibernate.ddl-auto=validate",
 		"spring.jpa.open-in-view=false", "spring.flyway.enabled=true" })
-class AuditPostgresqlIntegrationTest {
+class AuditPostgresqlIntegrationTest extends AuditStorageIntegrationTest {
 
 	@Autowired
 	private Flyway flyway;

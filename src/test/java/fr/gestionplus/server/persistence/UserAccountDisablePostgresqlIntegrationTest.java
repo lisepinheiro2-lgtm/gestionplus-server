@@ -17,6 +17,7 @@ import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
 import fr.gestionplus.server.auth.UserRole;
 import fr.gestionplus.server.employee.Employee;
+import fr.gestionplus.server.support.AuditStorageIntegrationTest;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 
@@ -25,7 +26,7 @@ import jakarta.persistence.PersistenceContext;
 		"spring.datasource.username=test", "spring.datasource.password=test", "spring.jpa.hibernate.ddl-auto=validate",
 		"spring.flyway.enabled=true" })
 @Transactional
-class UserAccountDisablePostgresqlIntegrationTest {
+class UserAccountDisablePostgresqlIntegrationTest extends AuditStorageIntegrationTest {
 
 	@Autowired
 	private UserAccountJpaRepository accountRepository;

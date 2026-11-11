@@ -52,6 +52,12 @@ public class AccountAccessLifecycle {
 		}
 
 		if (hasValidAccessOutside(account, null)) {
+
+			if (account.getStatu() == UserAccountStatus.ACTIVE) {
+				invalidateSessions(account,
+						new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID));
+			}
+
 			return;
 		}
 

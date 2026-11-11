@@ -3,8 +3,11 @@ package fr.gestionplus.server.account;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doThrow;
 
 import java.sql.SQLException;
 import java.time.Instant;
@@ -20,6 +23,9 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -29,6 +35,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.session.SessionRegistry;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
@@ -36,6 +43,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditEvent;
+import fr.gestionplus.server.audit.AuditFallback;
 import fr.gestionplus.server.audit.AuditMetadata;
 import fr.gestionplus.server.audit.AuditReason;
 import fr.gestionplus.server.audit.AuditResult;
@@ -55,18 +63,21 @@ import fr.gestionplus.server.persistence.EmployeeEntity;
 import fr.gestionplus.server.persistence.EmployeeJpaRepository;
 import fr.gestionplus.server.persistence.UserAccountEntity;
 import fr.gestionplus.server.persistence.UserAccountJpaRepository;
+import fr.gestionplus.server.support.AuditStorageIntegrationTest;
 
 @SpringBootTest(properties = {
 		"spring.datasource.url=jdbc:tc:postgresql:16-alpine:///gestionplus_structure_access_test",
 		"spring.datasource.driver-class-name=org.testcontainers.jdbc.ContainerDatabaseDriver",
 		"spring.datasource.username=test", "spring.datasource.password=test", "spring.jpa.hibernate.ddl-auto=validate",
 		"spring.jpa.open-in-view=false", "spring.flyway.enabled=true", "gestionplus.notifications.from=false" })
-class StructureAccessPostgresqlIntegrationTest {
+class StructureAccessPostgresqlIntegrationTest extends AuditStorageIntegrationTest {
 
 	@Autowired
 	private StructureAccessService service;
 	@Autowired
 	private AuditStore auditStore;
+	@MockitoSpyBean
+	private AuditFallback auditFallback;
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
 	@Autowired
@@ -125,6 +136,7 @@ class StructureAccessPostgresqlIntegrationTest {
 
 		UUID otherStructureId = createStructure("Structure B");
 		service.addStructureAccess(targetId, otherStructureId, Set.of(UserRole.ACCOUNTANT));
+		target = accountStore.findById(targetId).orElseThrow();
 		String sessionID = UUID.randomUUID().toString();
 		sessionRegistry.registerNewSession(sessionID, target);
 
@@ -163,7 +175,7 @@ class StructureAccessPostgresqlIntegrationTest {
 		assertEquals(Set.of(UserRole.ACCOUNTANT), storedRoles(otherStructureId));
 		assertFalse(authorizationService.canInStructure(targetId, structureId, Permission.VIEW_OWN_SCHEDULE));
 		assertTrue(authorizationService.canInStructure(targetId, otherStructureId, Permission.VIEW_ACCOUNTING));
-		assertFalse(sessionRegistry.getSessionInformation(sessionID).isExpired());
+		assertTrue(sessionRegistry.getSessionInformation(sessionID).isExpired());
 		assertEquals(UserAccountStatus.ACTIVE, accountStore.findById(targetId).orElseThrow().getStatu());
 	}
 
@@ -214,6 +226,7 @@ class StructureAccessPostgresqlIntegrationTest {
 	@Test
 	void disablesTheAccountAndExpiresAllSessionsAfterTheLastRevocation() {
 		service.addStructureAccess(targetId, structureId, Set.of(UserRole.EMPLOYEE));
+		target = accountStore.findById(targetId).orElseThrow();
 		String firstSession = UUID.randomUUID().toString();
 		String secondSession = UUID.randomUUID().toString();
 		sessionRegistry.registerNewSession(firstSession, target);
@@ -238,6 +251,8 @@ class StructureAccessPostgresqlIntegrationTest {
 		UUID otherStructureID = createStructure("Structure B");
 		service.addStructureAccess(targetId, structureId, Set.of(UserRole.EMPLOYEE));
 		service.addStructureAccess(targetId, otherStructureID, Set.of(UserRole.EMPLOYEE));
+		target = accountStore.findById(targetId).orElseThrow();
+		int priorRevocations = auditIds(AuditAction.AUTH_SESSION_REVOKE).size();
 		String sessionID = UUID.randomUUID().toString();
 		sessionRegistry.registerNewSession(sessionID, target);
 		CyclicBarrier start = new CyclicBarrier(2);
@@ -254,10 +269,10 @@ class StructureAccessPostgresqlIntegrationTest {
 		assertEquals(UserAccountStatus.DISABLED, accountStore.findById(targetId).orElseThrow().getStatu());
 		assertEquals(2, auditIds(AuditAction.STRUCTURE_ACCESS_REVOKE).size());
 		assertEquals(1, auditIds(AuditAction.ACCOUNT_DISABLE).size());
-		assertEquals(1, auditIds(AuditAction.AUTH_SESSION_REVOKE).size());
+		assertEquals(priorRevocations + 2, auditIds(AuditAction.AUTH_SESSION_REVOKE).size());
 		UserAccount disabled = accountStore.findById(targetId).orElseThrow();
 		assertTrue(disabled.getRoles().isEmpty());
-		assertEquals(target.getSessionVersion() + 1, disabled.getSessionVersion());
+		assertEquals(target.getSessionVersion() + 2, disabled.getSessionVersion());
 		assertTrue(authorizationService.hasTenantMembership(targetId, tenantId));
 		assertTrue(sessionRegistry.getSessionInformation(sessionID).isExpired());
 	}
@@ -265,6 +280,7 @@ class StructureAccessPostgresqlIntegrationTest {
 	@Test
 	void aConcurrentGrantCannotBypassDisablingTheLastAccess() throws Exception {
 		service.addStructureAccess(targetId, structureId, Set.of(UserRole.EMPLOYEE));
+		target = accountStore.findById(targetId).orElseThrow();
 		UUID otherStructureID = createStructure("Structure B");
 		String sessionID = UUID.randomUUID().toString();
 		sessionRegistry.registerNewSession(sessionID, target);
@@ -296,7 +312,9 @@ class StructureAccessPostgresqlIntegrationTest {
 		assertEquals(granted ? 1L : 0L, membershipCount(targetId, otherStructureID));
 		assertEquals(granted ? UserAccountStatus.ACTIVE : UserAccountStatus.DISABLED,
 				accountStore.findById(targetId).orElseThrow().getStatu());
-		assertEquals(!granted, sessionRegistry.getSessionInformation(sessionID).isExpired());
+		assertTrue(sessionRegistry.getSessionInformation(sessionID).isExpired());
+		assertEquals(target.getSessionVersion() + (granted ? 2 : 1),
+				accountStore.findById(targetId).orElseThrow().getSessionVersion());
 		assertEquals(1, auditIds(AuditAction.STRUCTURE_ACCESS_REVOKE).size());
 		assertEquals(granted ? 2 : 1, auditIds(AuditAction.STRUCTURE_ACCESS_GRANT).size());
 		assertEquals(granted ? 0 : 1, auditIds(AuditAction.ACCOUNT_DISABLE).size());
@@ -327,30 +345,7 @@ class StructureAccessPostgresqlIntegrationTest {
 
 				});
 
-				Instant deadline = Instant.now().plusSeconds(3);
-				boolean waiting = false;
-
-				while (!waiting && !pending.isDone() && Instant.now().isBefore(deadline)) {
-					waiting = Boolean.TRUE.equals(jdbcTemplate.queryForObject("""
-							SELECT EXISTS (
-								SELECT 1 FROM pg_locks WHERE NOT granted AND ? = ANY(pg_blocking_pids(pid))
-							)
-							""", Boolean.class, blockingPid));
-
-					if (!waiting) {
-
-						try {
-							Thread.sleep(20);
-						} catch (InterruptedException interrupted) {
-							Thread.currentThread().interrupt();
-							throw new IllegalStateException(interrupted);
-						}
-
-					}
-
-				}
-
-				assertTrue(waiting, "La demande doit attendre le verrou du compte de l'acteur.");
+				awaitBlockedBy(blockingPid, pending);
 				return pending;
 			});
 
@@ -366,7 +361,7 @@ class StructureAccessPostgresqlIntegrationTest {
 	}
 
 	@Test
-	void oppositeAccountOperationsInDifferentStructuresUseAConsistentLockOrder() throws Exception {
+	void oppositeAccountOperationsRefuseProtectedAccountsWithoutDeadlocking() throws Exception {
 		UserAccount firstAdmin = createAccount(UserRole.EMPLOYEE);
 		UserAccount secondAdmin = createAccount(UserRole.EMPLOYEE);
 		UUID otherStructureID = createStructure("Structure B");
@@ -375,22 +370,24 @@ class StructureAccessPostgresqlIntegrationTest {
 		membershipStore.save(new StructureMembership(firstAdmin.getUserID(), structureId, Set.of(UserRole.ADMIN)));
 		membershipStore
 				.save(new StructureMembership(secondAdmin.getUserID(), otherStructureID, Set.of(UserRole.ADMIN)));
-		service.addStructureAccess(secondAdmin.getUserID(), structureId, Set.of(UserRole.EMPLOYEE));
-		service.addStructureAccess(firstAdmin.getUserID(), otherStructureID, Set.of(UserRole.EMPLOYEE));
+		membershipStore.save(
+				new StructureMembership(secondAdmin.getUserID(), structureId, Set.of(UserRole.EMPLOYEE)));
+		membershipStore.save(
+				new StructureMembership(firstAdmin.getUserID(), otherStructureID, Set.of(UserRole.EMPLOYEE)));
 		CyclicBarrier start = new CyclicBarrier(2);
 
 		try (ExecutorService workers = Executors.newFixedThreadPool(2)) {
-			Future<Void> first = workers.submit(() -> changeRolesConcurrently(start, firstAdmin,
+			Future<Boolean> first = workers.submit(() -> changeRolesConcurrently(start, firstAdmin,
 					secondAdmin.getUserID(), structureId));
-			Future<Void> second = workers.submit(() -> changeRolesConcurrently(start, secondAdmin,
+			Future<Boolean> second = workers.submit(() -> changeRolesConcurrently(start, secondAdmin,
 					firstAdmin.getUserID(), otherStructureID));
-			first.get(15, TimeUnit.SECONDS);
-			second.get(15, TimeUnit.SECONDS);
+			assertFalse(first.get(15, TimeUnit.SECONDS));
+			assertFalse(second.get(15, TimeUnit.SECONDS));
 		}
 
-		assertEquals(Set.of(UserRole.TEAM_LEAD),
+		assertEquals(Set.of(UserRole.EMPLOYEE),
 				membershipStore.findByUserAndStructure(secondAdmin.getUserID(), structureId).orElseThrow().getRoles());
-		assertEquals(Set.of(UserRole.TEAM_LEAD),
+		assertEquals(Set.of(UserRole.EMPLOYEE),
 				membershipStore.findByUserAndStructure(firstAdmin.getUserID(), otherStructureID).orElseThrow()
 						.getRoles());
 		assertEquals(Set.of(UserRole.ADMIN),
@@ -400,14 +397,16 @@ class StructureAccessPostgresqlIntegrationTest {
 						.getRoles());
 	}
 
-	private Void changeRolesConcurrently(CyclicBarrier start, UserAccount principal, UUID userID, UUID structureID)
+	private Boolean changeRolesConcurrently(CyclicBarrier start, UserAccount principal, UUID userID, UUID structureID)
 			throws Exception {
 		authenticate(principal);
 
 		try {
 			start.await(5, TimeUnit.SECONDS);
 			withLockTimeout(() -> service.changeStructureRoles(userID, structureID, Set.of(UserRole.TEAM_LEAD)));
-			return null;
+			return true;
+		} catch (AccessDeniedException denied) {
+			return false;
 		} finally {
 			SecurityContextHolder.clearContext();
 		}
@@ -417,6 +416,7 @@ class StructureAccessPostgresqlIntegrationTest {
 	@Test
 	void rollsBackTheLastRevocationWithoutExpiringSessionsWhenAuditFails() {
 		service.addStructureAccess(targetId, structureId, Set.of(UserRole.EMPLOYEE));
+		target = accountStore.findById(targetId).orElseThrow();
 		String sessionID = UUID.randomUUID().toString();
 		sessionRegistry.registerNewSession(sessionID, target);
 		MockHttpServletRequest request = new MockHttpServletRequest();
@@ -514,6 +514,318 @@ class StructureAccessPostgresqlIntegrationTest {
 		assertEquals(UserAccountStatus.PENDING_ACTIVATION, accountStore.findById(pendingID).orElseThrow().getStatu());
 		assertEquals(1L, membershipCount(pendingID, structureId));
 		assertFalse(authorizationService.canInStructure(pendingID, structureId, Permission.VIEW_OWN_SCHEDULE));
+	}
+
+	@Test
+	void secretaryCanPrepareAnExistingLocalEmployeeButCannotCreateAnUnscopedAccount() {
+		UserAccount secretary = createAccount(UserRole.EMPLOYEE);
+		joinTenant(secretary.getUserID());
+		service.addStructureAccess(secretary.getUserID(), structureId, Set.of(UserRole.SECRETARY));
+		Employee employee = new Employee(UUID.randomUUID(), "Test", "Attente", 35, "pending@example.invalid",
+				"0600000000", null, structureId);
+		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
+		authenticate(accountStore.findById(secretary.getUserID()).orElseThrow());
+
+		UUID pendingID = provisioningService.createPendingAccount(structureId, employee.getEmployeeID(),
+				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
+		service.addStructureAccess(pendingID, structureId, Set.of(UserRole.TEAM_LEAD));
+
+		assertEquals(UserAccountStatus.PENDING_ACTIVATION, accountStore.findById(pendingID).orElseThrow().getStatu());
+		assertThrows(AccessDeniedException.class, () -> provisioningService.createPendingAccount(structureId,
+				"Exemple", "Test", "other@example.invalid", "0600000000"));
+		assertThrows(AccessDeniedException.class,
+				() -> service.addStructureAccess(pendingID, createStructure("Autre"), Set.of(UserRole.EMPLOYEE)));
+	}
+
+	@Test
+	void secretaryManagesOrdinaryAccountsAndPreservesOtherStructures() {
+		UserAccount secretary = createAccount(UserRole.EMPLOYEE);
+		joinTenant(secretary.getUserID());
+		service.addStructureAccess(secretary.getUserID(), structureId, Set.of(UserRole.SECRETARY));
+		service.addStructureAccess(targetId, structureId, Set.of(UserRole.EMPLOYEE));
+		UUID other = createStructure("Autre structure");
+		service.addStructureAccess(targetId, other, Set.of(UserRole.EMPLOYEE));
+		authenticate(accountStore.findById(secretary.getUserID()).orElseThrow());
+
+		service.changeStructureRoles(targetId, structureId, Set.of(UserRole.TEAM_LEAD));
+		assertEquals(Set.of(UserRole.TEAM_LEAD), storedRoles(structureId));
+		assertThrows(AccessDeniedException.class,
+				() -> service.changeStructureRoles(targetId, other, Set.of(UserRole.TEAM_LEAD)));
+		service.revokeStructureAccess(targetId, structureId);
+
+		assertEquals(Set.of(UserRole.EMPLOYEE), storedRoles(other));
+		assertEquals(UserAccountStatus.ACTIVE, accountStore.findById(targetId).orElseThrow().getStatu());
+	}
+
+	@Test
+	void secretaryCannotModifyAStaffAccountWithAPrivilegedRoleElsewhere() {
+		UserAccount secretary = createAccount(UserRole.EMPLOYEE);
+		joinTenant(secretary.getUserID());
+		service.addStructureAccess(secretary.getUserID(), structureId, Set.of(UserRole.SECRETARY));
+		service.addStructureAccess(targetId, structureId, Set.of(UserRole.EMPLOYEE));
+		UUID other = createStructure("Autre structure");
+		service.addStructureAccess(targetId, other, Set.of(UserRole.MANAGER));
+		authenticate(accountStore.findById(secretary.getUserID()).orElseThrow());
+
+		assertThrows(AccessDeniedException.class,
+				() -> service.changeStructureRoles(targetId, structureId, Set.of(UserRole.TEAM_LEAD)));
+
+		assertEquals(Set.of(UserRole.EMPLOYEE), storedRoles(structureId));
+		assertEquals(Set.of(UserRole.MANAGER), storedRoles(other));
+	}
+
+	@ParameterizedTest
+	@EnumSource(AccessChange.class)
+	void everyEffectiveAccessChangeExpiresExistingSessionsOnlyAfterCommit(AccessChange change) {
+		UUID preservedStructure = prepareAccessChange(change);
+		UserAccount previous = accountStore.findById(targetId).orElseThrow();
+		String firstSession = UUID.randomUUID().toString();
+		String secondSession = UUID.randomUUID().toString();
+		String actorSession = UUID.randomUUID().toString();
+		sessionRegistry.registerNewSession(firstSession, previous);
+		sessionRegistry.registerNewSession(secondSession, previous);
+		sessionRegistry.registerNewSession(actorSession, actor);
+		int priorRevocations = auditIds(AuditAction.AUTH_SESSION_REVOKE).size();
+
+		new TransactionTemplate(transactionManager).executeWithoutResult(transaction -> {
+			changeAccess(change);
+
+			assertFalse(sessionRegistry.getSessionInformation(firstSession).isExpired());
+			assertFalse(sessionRegistry.getSessionInformation(secondSession).isExpired());
+		});
+
+		UserAccount current = accountStore.findById(targetId).orElseThrow();
+		assertEquals(UserAccountStatus.ACTIVE, current.getStatu());
+		assertEquals(previous.getSessionVersion() + 1, current.getSessionVersion());
+		assertTrue(sessionRegistry.getSessionInformation(firstSession).isExpired());
+		assertTrue(sessionRegistry.getSessionInformation(secondSession).isExpired());
+		assertFalse(sessionRegistry.getSessionInformation(actorSession).isExpired());
+		assertEquals(actor.getSessionVersion(),
+				accountStore.findById(actor.getUserID()).orElseThrow().getSessionVersion());
+		assertEquals(Set.of(UserRole.EMPLOYEE), storedRoles(preservedStructure));
+		assertTrue(authorizationService.rolesInStructureForSession(previous, preservedStructure).isEmpty());
+		assertEquals(Set.of(UserRole.EMPLOYEE),
+				authorizationService.rolesInStructureForSession(current, preservedStructure));
+		assertEquals(priorRevocations + 1, auditIds(AuditAction.AUTH_SESSION_REVOKE).size());
+		assertTrue(auditIds(AuditAction.ACCOUNT_DISABLE).isEmpty());
+		assertEquals(change == AccessChange.REVOKE ? Set.of() : Set.of(UserRole.TEAM_LEAD),
+				storedRoles(structureId));
+
+	}
+
+	@ParameterizedTest
+	@EnumSource(AccessChange.class)
+	void aCallerRollbackPreservesRolesSessionVersionAndSessions(AccessChange change) {
+		UUID preservedStructure = prepareAccessChange(change);
+		UserAccount previous = accountStore.findById(targetId).orElseThrow();
+		Set<UserRole> previousRoles = storedRoles(structureId);
+		String sessionID = UUID.randomUUID().toString();
+		sessionRegistry.registerNewSession(sessionID, previous);
+		int priorRevocations = auditIds(AuditAction.AUTH_SESSION_REVOKE).size();
+
+		new TransactionTemplate(transactionManager).executeWithoutResult(transaction -> {
+			changeAccess(change);
+			assertFalse(sessionRegistry.getSessionInformation(sessionID).isExpired());
+			transaction.setRollbackOnly();
+		});
+
+		assertEquals(previousRoles, storedRoles(structureId));
+		assertEquals(Set.of(UserRole.EMPLOYEE), storedRoles(preservedStructure));
+		assertEquals(previous.getSessionVersion(), accountStore.findById(targetId).orElseThrow().getSessionVersion());
+		assertEquals(UserAccountStatus.ACTIVE, accountStore.findById(targetId).orElseThrow().getStatu());
+		assertFalse(sessionRegistry.getSessionInformation(sessionID).isExpired());
+		assertEquals(priorRevocations, auditIds(AuditAction.AUTH_SESSION_REVOKE).size());
+	}
+
+	@ParameterizedTest
+	@EnumSource(AccessChange.class)
+	void aFailedSessionRevocationAuditRollsBackTheWholeAccessChange(AccessChange change) {
+		UUID preservedStructure = prepareAccessChange(change);
+		UserAccount previous = accountStore.findById(targetId).orElseThrow();
+		Set<UserRole> previousRoles = storedRoles(structureId);
+		String sessionID = UUID.randomUUID().toString();
+		sessionRegistry.registerNewSession(sessionID, previous);
+		int priorRevocations = auditIds(AuditAction.AUTH_SESSION_REVOKE).size();
+		int priorGrants = auditIds(AuditAction.STRUCTURE_ACCESS_GRANT).size();
+		IllegalStateException failure = new IllegalStateException("Échec d’audit simulé");
+
+		doThrow(failure).when(auditFallback)
+				.writeInBusinessTransaction(argThat(event -> event.getAction() == AuditAction.AUTH_SESSION_REVOKE
+						&& event.getResult() == AuditResult.SUCCESS));
+
+		assertSame(failure, assertThrows(IllegalStateException.class, () -> changeAccess(change)));
+		assertEquals(previousRoles, storedRoles(structureId));
+		assertEquals(Set.of(UserRole.EMPLOYEE), storedRoles(preservedStructure));
+		assertEquals(previous.getSessionVersion(), accountStore.findById(targetId).orElseThrow().getSessionVersion());
+		assertEquals(UserAccountStatus.ACTIVE, accountStore.findById(targetId).orElseThrow().getStatu());
+		assertFalse(sessionRegistry.getSessionInformation(sessionID).isExpired());
+		assertEquals(priorRevocations, auditIds(AuditAction.AUTH_SESSION_REVOKE).size());
+		assertEquals(priorGrants, auditIds(AuditAction.STRUCTURE_ACCESS_GRANT).size());
+		assertTrue(auditIds(AuditAction.STRUCTURE_ACCESS_REVOKE).isEmpty());
+		assertTrue(auditIds(AuditAction.STRUCTURE_ROLES_CHANGE).isEmpty());
+	}
+
+	@Test
+	void unchangedRolesKeepTheSessionVersionAndExistingSessions() {
+		service.addStructureAccess(targetId, structureId, Set.of(UserRole.EMPLOYEE));
+		UserAccount previous = accountStore.findById(targetId).orElseThrow();
+		String sessionID = UUID.randomUUID().toString();
+		sessionRegistry.registerNewSession(sessionID, previous);
+		int priorRevocations = auditIds(AuditAction.AUTH_SESSION_REVOKE).size();
+
+		service.changeStructureRoles(targetId, structureId, Set.of(UserRole.EMPLOYEE));
+
+		assertEquals(previous.getSessionVersion(), accountStore.findById(targetId).orElseThrow().getSessionVersion());
+		assertFalse(sessionRegistry.getSessionInformation(sessionID).isExpired());
+		assertEquals(priorRevocations, auditIds(AuditAction.AUTH_SESSION_REVOKE).size());
+		assertTrue(auditIds(AuditAction.STRUCTURE_ROLES_CHANGE).isEmpty());
+	}
+
+	@ParameterizedTest
+	@CsvSource({ "R_H,R_H", "R_H,ACCOUNTANT", "ADMIN,ADMIN", "SUPER_ADMIN,ADMIN" })
+	void protectedRolesElsewherePreventEveryOrdinaryAdministrativeChange(
+			UserRole operatorRole, UserRole protectedRole) {
+		service.addStructureAccess(targetId, structureId, Set.of(UserRole.EMPLOYEE));
+		UUID protectedStructure = createStructure("Structure protégée");
+		UUID destination = createStructure("Structure de destination");
+		membershipStore.save(new StructureMembership(targetId, protectedStructure, Set.of(protectedRole)));
+		UserAccount operator = actor;
+
+		if (operatorRole != UserRole.SUPER_ADMIN) {
+			operator = createAccount(UserRole.EMPLOYEE);
+			joinTenant(operator.getUserID());
+			membershipStore.save(new StructureMembership(operator.getUserID(), structureId, Set.of(operatorRole)));
+			membershipStore.save(new StructureMembership(operator.getUserID(), destination, Set.of(operatorRole)));
+		}
+
+		authenticate(operator);
+		UserAccount previous = accountStore.findById(targetId).orElseThrow();
+		String targetSession = UUID.randomUUID().toString();
+		String operatorSession = UUID.randomUUID().toString();
+		sessionRegistry.registerNewSession(targetSession, previous);
+		sessionRegistry.registerNewSession(operatorSession, operator);
+
+		assertThrows(AccessDeniedException.class,
+				() -> service.changeStructureRoles(targetId, structureId, Set.of(UserRole.TEAM_LEAD)));
+		assertThrows(AccessDeniedException.class, () -> service.revokeStructureAccess(targetId, structureId));
+		assertThrows(AccessDeniedException.class,
+				() -> service.addStructureAccess(targetId, destination, Set.of(UserRole.EMPLOYEE)));
+
+		assertEquals(Set.of(UserRole.EMPLOYEE), storedRoles(structureId));
+		assertEquals(Set.of(protectedRole), storedRoles(protectedStructure));
+		assertEquals(0L, membershipCount(targetId, destination));
+		assertEquals(previous.getSessionVersion(), accountStore.findById(targetId).orElseThrow().getSessionVersion());
+		assertFalse(sessionRegistry.getSessionInformation(targetSession).isExpired());
+		assertFalse(sessionRegistry.getSessionInformation(operatorSession).isExpired());
+		assertEquals(3L, jdbcTemplate.queryForObject("""
+				SELECT COUNT(*) FROM audit_events
+				WHERE actor_user_id = ? AND result = 'DENIED'
+				  AND action IN ('STRUCTURE_ACCESS_GRANT', 'STRUCTURE_ACCESS_REVOKE', 'STRUCTURE_ROLES_CHANGE')
+				""", Long.class, operator.getUserID()));
+	}
+
+	@Test
+	void aConcurrentPromotionProtectsTheWholeAccountAfterWaitingForItsLock() throws Exception {
+		service.addStructureAccess(targetId, structureId, Set.of(UserRole.EMPLOYEE));
+		UUID otherStructure = createStructure("Autre structure");
+		service.addStructureAccess(targetId, otherStructure, Set.of(UserRole.EMPLOYEE));
+		UserAccount operator = createAccount(UserRole.EMPLOYEE);
+		joinTenant(operator.getUserID());
+		service.addStructureAccess(operator.getUserID(), structureId, Set.of(UserRole.R_H));
+		UserAccount operatorSession = accountStore.findById(operator.getUserID()).orElseThrow();
+		long previousVersion = accountStore.findById(targetId).orElseThrow().getSessionVersion();
+
+		try (ExecutorService worker = Executors.newSingleThreadExecutor()) {
+			Future<Boolean> attempt = new TransactionTemplate(transactionManager).execute(transaction -> {
+				service.changeStructureRoles(targetId, otherStructure, Set.of(UserRole.R_H));
+				int blockingPid = jdbcTemplate.queryForObject("SELECT pg_backend_pid()", Integer.class);
+				Future<Boolean> pending = worker.submit(() -> {
+					authenticate(operatorSession);
+
+					try {
+						withLockTimeout(
+								() -> service.changeStructureRoles(targetId, structureId, Set.of(UserRole.TEAM_LEAD)));
+						return true;
+					} catch (AccessDeniedException denied) {
+						return false;
+					} finally {
+						SecurityContextHolder.clearContext();
+					}
+
+				});
+
+				awaitBlockedBy(blockingPid, pending);
+				return pending;
+			});
+
+			assertFalse(attempt.get(15, TimeUnit.SECONDS));
+		}
+
+		assertEquals(Set.of(UserRole.EMPLOYEE), storedRoles(structureId));
+		assertEquals(Set.of(UserRole.R_H), storedRoles(otherStructure));
+		assertEquals(previousVersion + 1, accountStore.findById(targetId).orElseThrow().getSessionVersion());
+		assertEquals(1L, jdbcTemplate.queryForObject("""
+				SELECT COUNT(*) FROM audit_events
+				WHERE actor_user_id = ? AND action = 'STRUCTURE_ROLES_CHANGE' AND result = 'DENIED'
+				""", Long.class, operator.getUserID()));
+	}
+
+	private UUID prepareAccessChange(AccessChange change) {
+		UUID preservedStructure = createStructure("Structure conservée");
+		service.addStructureAccess(targetId, preservedStructure, Set.of(UserRole.EMPLOYEE));
+
+		if (change != AccessChange.GRANT) {
+			service.addStructureAccess(targetId, structureId, Set.of(UserRole.EMPLOYEE));
+		}
+
+		return preservedStructure;
+	}
+
+	private void changeAccess(AccessChange change) {
+
+		switch (change) {
+		case GRANT -> {
+			service.addStructureAccess(targetId, structureId, Set.of(UserRole.TEAM_LEAD));
+		}
+		case CHANGE -> {
+			service.changeStructureRoles(targetId, structureId, Set.of(UserRole.TEAM_LEAD));
+		}
+		case REVOKE -> {
+			service.revokeStructureAccess(targetId, structureId);
+		}
+		}
+
+	}
+
+	private void awaitBlockedBy(int blockingPid, Future<?> pending) {
+		Instant deadline = Instant.now().plusSeconds(3);
+		boolean waiting = false;
+
+		while (!waiting && !pending.isDone() && Instant.now().isBefore(deadline)) {
+			waiting = Boolean.TRUE.equals(jdbcTemplate.queryForObject("""
+					SELECT EXISTS (
+						SELECT 1 FROM pg_locks WHERE NOT granted AND ? = ANY(pg_blocking_pids(pid))
+					)
+					""", Boolean.class, blockingPid));
+
+			if (!waiting) {
+
+				try {
+					Thread.sleep(20);
+				} catch (InterruptedException interrupted) {
+					Thread.currentThread().interrupt();
+					throw new IllegalStateException(interrupted);
+				}
+
+			}
+
+		}
+
+		assertTrue(waiting, "La demande doit attendre le verrou PostgreSQL avant la relecture des droits.");
+	}
+
+	private enum AccessChange {
+		GRANT, CHANGE, REVOKE
 	}
 
 	private void withLockTimeout(Runnable operation) {

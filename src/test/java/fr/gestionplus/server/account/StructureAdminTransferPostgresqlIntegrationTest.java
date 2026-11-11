@@ -3,11 +3,13 @@ package fr.gestionplus.server.account;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
@@ -39,6 +41,7 @@ import fr.gestionplus.server.account.StructureAdminTransferService.TransferPrevi
 import fr.gestionplus.server.account.SuperAdminSuccessionService.SuccessionPreview;
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditEvent;
+import fr.gestionplus.server.audit.AuditFallback;
 import fr.gestionplus.server.audit.AuditResult;
 import fr.gestionplus.server.audit.AuditStore;
 import fr.gestionplus.server.audit.AuditTarget;
@@ -65,13 +68,14 @@ import fr.gestionplus.server.persistence.TenantOrganizationEntity;
 import fr.gestionplus.server.persistence.TenantOrganizationJpaRepository;
 import fr.gestionplus.server.persistence.UserAccountEntity;
 import fr.gestionplus.server.persistence.UserAccountJpaRepository;
+import fr.gestionplus.server.support.AuditStorageIntegrationTest;
 
 @SpringBootTest(properties = { "spring.datasource.url=jdbc:tc:postgresql:16-alpine:///gestionplus_admin_transfer_test",
 		"spring.datasource.driver-class-name=org.testcontainers.jdbc.ContainerDatabaseDriver",
 		"spring.datasource.username=test", "spring.datasource.password=test", "spring.jpa.hibernate.ddl-auto=validate",
 		"spring.jpa.open-in-view=false", "spring.flyway.enabled=true", "gestionplus.notifications.from=false",
 		"gestionplus.activation.expiry-enabled=false" })
-class StructureAdminTransferPostgresqlIntegrationTest {
+class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegrationTest {
 
 	@Autowired
 	private StructureAdminTransferService service;
@@ -101,8 +105,11 @@ class StructureAdminTransferPostgresqlIntegrationTest {
 	@MockitoBean
 	private PrivilegedConfirmationVerifier verifier;
 
-	@MockitoSpyBean
+	@Autowired
 	private AuditStore auditStore;
+
+	@MockitoSpyBean
+	private AuditFallback auditFallback;
 
 	private UUID actorID;
 	private UUID oldAdminUserID;
@@ -213,20 +220,23 @@ class StructureAdminTransferPostgresqlIntegrationTest {
 
 	@Test
 	void rollsBackTransferWhenAuditFails() {
+		TransferPreview preview = service.previewTransfer(structureID, newAdminUserID);
+		IllegalStateException failure = new IllegalStateException("Échec d'audit simulé");
 
-		doThrow(new IllegalStateException("Échec d'audit simulé")).when(auditStore).save(any(AuditEvent.class));
+		doThrow(failure).when(auditFallback)
+				.writeInBusinessTransaction(argThat(event -> event.getAction() == AuditAction.STRUCTURE_ADMIN_TRANSFER
+						&& event.getResult() == AuditResult.SUCCESS));
 
-		assertThrows(InvalidDataAccessApiUsageException.class, () -> service
-				.transferStructureAdmin(service.previewTransfer(structureID, newAdminUserID), "verified-proof"));
+		assertSame(failure, assertThrows(IllegalStateException.class,
+				() -> service.transferStructureAdmin(preview, "verified-proof")));
 		assertEquals(1L, membershipCount(oldAdminUserID));
 		assertEquals(Set.of("ADMIN"), rolesInStructure(oldAdminUserID));
 		assertEquals(0L, membershipCount(newAdminUserID));
 		assertTrue(rolesInStructure(newAdminUserID).isEmpty());
-		assertEquals(0L,
-				jdbcTemplate.queryForObject(
-						"SELECT COUNT(*) FROM audit_events "
-								+ "WHERE actor_user_id = ? AND action = ? AND result = 'SUCCESS'",
-						Long.class, actorID, "STRUCTURE_ADMIN_TRANSFER"));
+		assertEquals(0L, jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM audit_events "
+						+ "WHERE actor_user_id = ? AND action = ? AND result = 'SUCCESS'",
+				Long.class, actorID, "STRUCTURE_ADMIN_TRANSFER"));
 	}
 
 	@Test
@@ -385,6 +395,44 @@ class StructureAdminTransferPostgresqlIntegrationTest {
 
 		assertEquals(UserAccountStatus.ACTIVE, accountStore.findById(actorID).orElseThrow().getStatu());
 		assertEquals(actorID, tenantRepository.findById(tenantID).orElseThrow().toDomain().getSuperAdminUserID());
+	}
+
+	@Test
+	void aFailedSuccessionAuditRollsBackTheHolderRolesVersionsAndNotifications() {
+		service.transferStructureAdmin(service.previewTransfer(structureID, actorID), "verified-proof");
+		authenticate(actorID);
+		SuccessionPreview preview = succession.previewSuccession(tenantID, newAdminUserID, Set.of(structureID));
+		UserAccount outgoing = accountStore.findById(actorID).orElseThrow();
+		UserAccount successor = accountStore.findById(newAdminUserID).orElseThrow();
+		String outgoingSession = registerSession(outgoing);
+		String successorSession = registerSession(successor);
+		IllegalStateException failure = new IllegalStateException("Échec d’audit de succession.");
+		doThrow(failure).when(auditFallback)
+				.writeInBusinessTransaction(argThat(event -> event.getAction() == AuditAction.SUPER_ADMIN_SUCCESSION
+						&& event.getResult() == AuditResult.SUCCESS));
+		authenticate(newAdminUserID);
+
+		assertSame(failure, assertThrows(IllegalStateException.class,
+				() -> succession.acceptSuccession(preview, "verified-proof", "verified-proof")));
+
+		assertEquals(actorID, tenantRepository.findById(tenantID).orElseThrow().toDomain().getSuperAdminUserID());
+		assertEquals(Set.of("ADMIN"), rolesInStructure(actorID));
+		assertTrue(rolesInStructure(newAdminUserID).isEmpty());
+		assertEquals(UserAccountStatus.ACTIVE, accountStore.findById(actorID).orElseThrow().getStatu());
+		assertEquals(outgoing.getSessionVersion(),
+				accountStore.findById(actorID).orElseThrow().getSessionVersion());
+		assertEquals(successor.getSessionVersion(),
+				accountStore.findById(newAdminUserID).orElseThrow().getSessionVersion());
+		assertFalse(sessionRegistry.getSessionInformation(outgoingSession).isExpired());
+		assertFalse(sessionRegistry.getSessionInformation(successorSession).isExpired());
+		assertEquals(0, jdbcTemplate.queryForObject("""
+				SELECT COUNT(*) FROM account_deactivation_notifications
+				WHERE target_id = ? AND structure_id = ? AND kind = 'ADMIN_GRANTED'
+				""", Integer.class, newAdminUserID, structureID));
+		assertEquals(0, jdbcTemplate.queryForObject("""
+				SELECT COUNT(*) FROM audit_events
+				WHERE actor_user_id = ? AND action = 'SUPER_ADMIN_SUCCESSION' AND result = 'SUCCESS'
+				""", Integer.class, newAdminUserID));
 	}
 
 	private boolean attemptSuccession(SuccessionPreview preview, CyclicBarrier start) throws Exception {

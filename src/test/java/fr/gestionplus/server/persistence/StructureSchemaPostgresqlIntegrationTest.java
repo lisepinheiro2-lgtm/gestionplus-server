@@ -14,11 +14,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import fr.gestionplus.server.support.AuditStorageIntegrationTest;
+
 @SpringBootTest(properties = { "spring.datasource.url=jdbc:tc:postgresql:16-alpine:///gestionplus_structure_v8_test",
 		"spring.datasource.driver-class-name=org.testcontainers.jdbc.ContainerDatabaseDriver",
 		"spring.datasource.username=test", "spring.datasource.password=test", "spring.jpa.hibernate.ddl-auto=validate",
 		"spring.flyway.enabled=true" })
-class StructureSchemaPostgresqlIntegrationTest {
+class StructureSchemaPostgresqlIntegrationTest extends AuditStorageIntegrationTest {
 
 	@Autowired
 	private JdbcTemplate jdbcTemplate;

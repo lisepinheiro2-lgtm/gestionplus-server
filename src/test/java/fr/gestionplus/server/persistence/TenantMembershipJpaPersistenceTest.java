@@ -21,13 +21,14 @@ import fr.gestionplus.server.employee.Employee;
 import fr.gestionplus.server.organization.TenantMembership;
 import fr.gestionplus.server.organization.TenantMembershipStore;
 import fr.gestionplus.server.organization.TenantOrganization;
+import fr.gestionplus.server.support.AuditStorageIntegrationTest;
 
 @SpringBootTest(properties = {
 		"spring.datasource.url=jdbc:tc:postgresql:16-alpine:///gestionplus_tenant_membership_test",
 		"spring.datasource.driver-class-name=org.testcontainers.jdbc.ContainerDatabaseDriver",
 		"spring.datasource.username=test", "spring.datasource.password=test", "spring.jpa.hibernate.ddl-auto=validate",
 		"spring.flyway.enabled=true" })
-class TenantMembershipJpaPersistenceTest {
+class TenantMembershipJpaPersistenceTest extends AuditStorageIntegrationTest {
 
 	@Autowired
 	private TenantMembershipStore store;

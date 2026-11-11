@@ -1,12 +1,15 @@
 package fr.gestionplus.server.auth;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Set;
 
 import org.apache.tomcat.util.http.InvalidParameterException;
@@ -15,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -26,6 +30,7 @@ import fr.gestionplus.server.audit.AuditReason;
 import fr.gestionplus.server.audit.AuditResult;
 import fr.gestionplus.server.audit.AuditService;
 import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletRequest;
 
 class HttpRequestPolicyFilterTest {
 
@@ -76,8 +81,9 @@ class HttpRequestPolicyFilterTest {
 
 		filter.doFilter(request, response, chain);
 
-		verify(chain).doFilter(request, response);
-		assertEquals(password, request.getParameter("password"));
+		ArgumentCaptor<ServletRequest> forwarded = ArgumentCaptor.forClass(ServletRequest.class);
+		verify(chain).doFilter(forwarded.capture(), org.mockito.ArgumentMatchers.same(response));
+		assertEquals(password, forwarded.getValue().getParameter("password"));
 		verifyNoInteractions(audit);
 	}
 
@@ -114,6 +120,93 @@ class HttpRequestPolicyFilterTest {
 		verifyNoInteractions(chain);
 		verify(audit).recordForActor(AuditAction.AUTH_ACCESS_ATTEMPT, AuditResult.DENIED, null, "192.0.2.10",
 				Set.of(), AuditMetadata.because(AuditReason.INSECURE_TRANSPORT));
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "application/json", "application/x-www-form-urlencoded" })
+	void countsChunkedBodiesEvenWhenTheApplicationWouldNotReadThem(String type) throws Exception {
+		MockHttpServletRequest request = unknownLength("/api/unused", type, new byte[16385]);
+		assertRejected(request, 413, "PAYLOAD_TOO_LARGE");
+	}
+
+	@Test
+	void preservesAnUnknownLengthBodyExactlyAtTheLimit() throws Exception {
+		byte[] content = "x".repeat(16384).getBytes(StandardCharsets.UTF_8);
+		MockHttpServletRequest request = unknownLength("/api/unused", "application/json", content);
+		MockHttpServletResponse response = new MockHttpServletResponse();
+
+		filter.doFilter(request, response,
+				(forwarded, returned) -> assertArrayEquals(content, forwarded.getInputStream().readAllBytes()));
+
+		assertEquals(200, response.getStatus());
+		verifyNoInteractions(audit);
+	}
+
+	@Test
+	void decodesChunkedFormsWithoutConsumingTheForwardedBody() throws Exception {
+		String form = "username=Alice&password=+a%2Bb+&totp=012345";
+		MockHttpServletRequest request = unknownLength("/login", "application/x-www-form-urlencoded",
+				form.getBytes(StandardCharsets.UTF_8));
+
+		filter.doFilter(request, new MockHttpServletResponse(), (forwarded, response) -> {
+			assertEquals("Alice", forwarded.getParameter("username"));
+			assertEquals(" a+b ", forwarded.getParameter("password"));
+			assertEquals("012345", forwarded.getParameter("totp"));
+			assertEquals(form, new String(forwarded.getInputStream().readAllBytes(), StandardCharsets.UTF_8));
+		});
+		verifyNoInteractions(audit);
+	}
+
+	@Test
+	void preservesUtf8ReaderAndServletReaderExclusivity() throws Exception {
+		MockHttpServletRequest request = unknownLength("/api/unused", "application/json",
+				"été".getBytes(StandardCharsets.UTF_8));
+		request.setCharacterEncoding("UTF-8");
+		filter.doFilter(request, new MockHttpServletResponse(), (forwarded, response) -> {
+			assertEquals("été", forwarded.getReader().readLine());
+			assertThrows(IllegalStateException.class, forwarded::getInputStream);
+		});
+	}
+
+	@Test
+	void preservesTheServletDefaultCharsetWhenNoEncodingWasSpecified() throws Exception {
+		MockHttpServletRequest request = unknownLength("/api/unused", "application/json", new byte[] { (byte) 0xE9 });
+		filter.doFilter(request, new MockHttpServletResponse(),
+				(forwarded, response) -> assertEquals("é", forwarded.getReader().readLine()));
+	}
+
+	@Test
+	void rejectsDuplicateAndMalformedFieldsInRawChunkedForms() throws Exception {
+		assertRejected(unknownLength("/login", "application/x-www-form-urlencoded",
+				"password=one&password=two".getBytes(StandardCharsets.UTF_8)), 400, "INVALID_REQUEST");
+		assertRejected(unknownLength("/login", "application/x-www-form-urlencoded",
+				"password=%ZZ".getBytes(StandardCharsets.UTF_8)), 400, "INVALID_REQUEST");
+	}
+
+	@Test
+	void rejectsTooManyRawParametersAndBodiesWithoutAContentType() throws Exception {
+		assertRejected(unknownLength("/login", "application/x-www-form-urlencoded",
+				("a=1&".repeat(32) + "a=1").getBytes(StandardCharsets.UTF_8)), 400, "INVALID_REQUEST");
+		assertRejected(unknownLength("/login", null, "password=secret".getBytes(StandardCharsets.UTF_8)),
+				415, "UNSUPPORTED_MEDIA_TYPE");
+	}
+
+	private MockHttpServletRequest unknownLength(String path, String type, byte[] body) {
+		MockHttpServletRequest request = new MockHttpServletRequest("POST", path) {
+			@Override
+			public long getContentLengthLong() {
+				return -1;
+			}
+
+			@Override
+			public int getContentLength() {
+				return -1;
+			}
+		};
+		request.setContentType(type);
+		request.setContent(body);
+		request.addHeader("Transfer-Encoding", "chunked");
+		return request;
 	}
 
 	private MockHttpServletRequest login() {

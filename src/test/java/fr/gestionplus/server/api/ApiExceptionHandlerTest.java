@@ -1,5 +1,7 @@
 package fr.gestionplus.server.api;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -15,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.test.context.TestComponent;
 import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataAccessResourceFailureException;
@@ -33,6 +36,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import fr.gestionplus.server.account.AccountActivationConflictException;
+import fr.gestionplus.server.account.InvitationDeliveryPendingException;
 import fr.gestionplus.server.audit.AuditReason;
 import fr.gestionplus.server.audit.AuditService;
 import fr.gestionplus.server.audit.AuditedAccessDeniedException;
@@ -42,7 +51,8 @@ import jakarta.validation.constraints.Size;
 
 class ApiExceptionHandlerTest {
 
-	private static final String PRIVATE_DETAIL = "password=private-test-value tenant=private-tenant-id";
+	private static final String PRIVATE_DETAIL = "password=private-test-value token=private-token totp=654321 "
+			+ "recovery=private-recovery-code tenant=private-tenant-id";
 	private MockMvc mvc;
 
 	@BeforeEach
@@ -55,8 +65,9 @@ class ApiExceptionHandlerTest {
 	@CsvSource({ "authentication,401,AUTHENTICATION_REQUIRED", "stale,401,AUTHENTICATION_REQUIRED",
 			"permission,403,FORBIDDEN",
 			"tenant,404,NOT_FOUND", "structure,404,NOT_FOUND", "missing,404,NOT_FOUND",
-			"input,400,INVALID_REQUEST", "conflict,409,CONFLICT", "unavailable,503,SERVICE_UNAVAILABLE",
-			"unexpected,500,INTERNAL_ERROR" })
+			"input,400,INVALID_REQUEST", "conflict,409,CONFLICT", "activation-conflict,409,CONFLICT",
+			"unrelated-constraint,500,INTERNAL_ERROR", "unavailable,503,SERVICE_UNAVAILABLE",
+			"invitation-pending,503,SERVICE_UNAVAILABLE", "unexpected,500,INTERNAL_ERROR" })
 	void returnsOnlyAPublicCodeForEachError(String kind, int expectedStatus, String code) throws Exception {
 		mvc.perform(get("/test/errors/" + kind).principal(
 				UsernamePasswordAuthenticationToken.authenticated("test-user", null, List.of())))
@@ -98,6 +109,37 @@ class ApiExceptionHandlerTest {
 				.andExpect(content().string("{\"code\":\"INTERNAL_ERROR\"}"));
 	}
 
+	@Test
+	void errorLogsDoNotCopyExceptionMessagesOrAttachSecretContainingStackTraces() throws Exception {
+		Logger logger = (Logger) LoggerFactory.getLogger(ApiExceptionHandler.class);
+		Level previous = logger.getLevel();
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		logger.setLevel(Level.TRACE);
+
+		try {
+			mvc.perform(get("/test/errors/unavailable")).andExpect(status().isServiceUnavailable());
+			mvc.perform(get("/test/errors/unexpected")).andExpect(status().isInternalServerError());
+		} finally {
+			logger.detachAppender(appender);
+			logger.setLevel(previous);
+			appender.stop();
+		}
+
+		assertFalse(appender.list.isEmpty());
+
+		for (ILoggingEvent event : appender.list) {
+			assertNull(event.getThrowableProxy());
+			assertFalse(event.getFormattedMessage().contains(PRIVATE_DETAIL));
+			assertFalse(event.getFormattedMessage().contains("private-test-value"));
+			assertFalse(event.getFormattedMessage().contains("private-token"));
+			assertFalse(event.getFormattedMessage().contains("private-recovery-code"));
+			assertFalse(event.getFormattedMessage().contains("654321"));
+		}
+
+	}
+
 	@TestComponent
 	@RestController
 	static class ErrorTestController {
@@ -114,7 +156,11 @@ class ApiExceptionHandlerTest {
 			case "missing" -> throw new ResponseStatusException(HttpStatus.NOT_FOUND, PRIVATE_DETAIL);
 			case "input" -> throw new IllegalArgumentException(PRIVATE_DETAIL);
 			case "conflict" -> throw new ConcurrencyFailureException(PRIVATE_DETAIL);
+			case "activation-conflict" -> throw new AccountActivationConflictException();
+			case "unrelated-constraint" -> throw new org.springframework.dao.DataIntegrityViolationException(
+					PRIVATE_DETAIL);
 			case "unavailable" -> throw new DataAccessResourceFailureException(PRIVATE_DETAIL);
+			case "invitation-pending" -> throw new InvitationDeliveryPendingException();
 			default -> throw new IllegalStateException(PRIVATE_DETAIL);
 			}
 

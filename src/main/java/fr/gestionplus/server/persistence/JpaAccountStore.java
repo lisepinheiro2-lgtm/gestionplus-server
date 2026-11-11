@@ -5,9 +5,11 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import fr.gestionplus.server.account.AccountActivationConflictException;
 import fr.gestionplus.server.account.AccountInvitationStore;
 import fr.gestionplus.server.account.AccountStore;
 import fr.gestionplus.server.auth.UserAccount;
@@ -104,7 +106,25 @@ public class JpaAccountStore implements AccountStore {
 
 		UserAccountEntity entity = accountJpaRepository.findByIdForUpdate(userID).orElseThrow();
 		entity.activate(userName);
-		credentialRepository.save(new UserCredentialEntity(credential));
+
+		try {
+			credentialRepository.save(new UserCredentialEntity(credential));
+			entityManager.flush();
+		} catch (RuntimeException failure) {
+
+			for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+
+				if (cause instanceof ConstraintViolationException constraint
+						&& "23505".equals(constraint.getSQLState())
+						&& "user_accounts_user_name_key".equals(constraint.getConstraintName())) {
+					throw new AccountActivationConflictException();
+				}
+
+			}
+
+			throw failure;
+		}
+
 	}
 
 	@Override

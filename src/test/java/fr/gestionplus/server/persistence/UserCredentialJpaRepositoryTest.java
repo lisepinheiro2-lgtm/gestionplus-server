@@ -20,13 +20,14 @@ import fr.gestionplus.server.auth.UserAccountStatus;
 import fr.gestionplus.server.auth.UserCredential;
 import fr.gestionplus.server.auth.UserRole;
 import fr.gestionplus.server.employee.Employee;
+import fr.gestionplus.server.support.AuditStorageIntegrationTest;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 
 @ActiveProfiles("test")
 @SpringBootTest
 @Transactional
-class UserCredentialJpaRepositoryTest {
+class UserCredentialJpaRepositoryTest extends AuditStorageIntegrationTest {
 
 	@Autowired
 	private UserAccountJpaRepository accountRepository;

@@ -17,6 +17,7 @@ import fr.gestionplus.server.auth.UserRole;
 import fr.gestionplus.server.employee.Employee;
 import fr.gestionplus.server.organization.OrganizationalStructure;
 import fr.gestionplus.server.organization.TenantOrganization;
+import fr.gestionplus.server.support.AuditStorageIntegrationTest;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 
@@ -26,7 +27,7 @@ import jakarta.persistence.PersistenceContext;
 		"spring.flyway.enabled=true" })
 
 @Transactional
-class OrganizationalStructureJpaPersistenceTest {
+class OrganizationalStructureJpaPersistenceTest extends AuditStorageIntegrationTest {
 
 	@Autowired
 	private OrganizationalStructureJpaRepository repository;
