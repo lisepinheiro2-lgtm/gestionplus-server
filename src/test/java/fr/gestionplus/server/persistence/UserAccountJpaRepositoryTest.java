@@ -2,6 +2,7 @@ package fr.gestionplus.server.persistence;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -15,6 +16,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.InvalidDataAccessApiUsageException;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
 import fr.gestionplus.server.account.AccountStore;
@@ -22,10 +25,8 @@ import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
 import fr.gestionplus.server.auth.UserRole;
 import fr.gestionplus.server.employee.Employee;
-
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
-import org.springframework.test.context.ActiveProfiles;
 
 @ActiveProfiles("test")
 @SpringBootTest
@@ -99,18 +100,18 @@ class UserAccountJpaRepositoryTest {
 
 	@Test
 	void rejectsNewAccountWithoutEmployee() {
-		JpaAccountStore accountStore = new JpaAccountStore(repository, employeeRepository);
 		UUID userId = UUID.randomUUID();
 		UserAccount account = new UserAccount(userId, "test_" + userId, UserAccountStatus.ACTIVE,
 				Set.of(UserRole.EMPLOYEE), null, "Exemple", "Test", "test@example.invalid", "0600000000");
 
-		assertThrows(IllegalArgumentException.class, () -> accountStore.createAccount(account));
+		InvalidDataAccessApiUsageException failure = assertThrows(InvalidDataAccessApiUsageException.class,
+				() -> accountStore.createAccount(account));
+		assertInstanceOf(IllegalArgumentException.class, failure.getMostSpecificCause());
 		assertFalse(repository.existsById(userId));
 	}
 
 	@Test
 	void rejectsUnknownEmployeeAtCreation() {
-		JpaAccountStore accountStore = new JpaAccountStore(repository, employeeRepository);
 		UUID userId = UUID.randomUUID();
 		UUID employeeID = UUID.randomUUID();
 		assertFalse(employeeRepository.existsById(employeeID));
@@ -118,7 +119,9 @@ class UserAccountJpaRepositoryTest {
 		UserAccount account = new UserAccount(userId, "test_" + userId, UserAccountStatus.ACTIVE,
 				Set.of(UserRole.EMPLOYEE), employeeID, "Exemple", "Test", "test@example.invalid", "0600000000");
 
-		assertThrows(IllegalArgumentException.class, () -> accountStore.createAccount(account));
+		InvalidDataAccessApiUsageException failure = assertThrows(InvalidDataAccessApiUsageException.class,
+				() -> accountStore.createAccount(account));
+		assertInstanceOf(IllegalArgumentException.class, failure.getMostSpecificCause());
 		assertFalse(repository.existsById(userId));
 	}
 

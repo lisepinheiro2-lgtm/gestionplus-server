@@ -58,25 +58,28 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userID, "alice_" + userID, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID(),
-				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
+				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID(), employee.getLastName(), employee.getFirstName(),
+				employee.getEmail(), employee.getPhoneNumber());
 
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 
-		OrganizationalStructure structure = new OrganizationalStructure(structureID, "Structure A", createTenant());
+		UUID tenantID = createTenant();
+		joinTenant(userID, tenantID);
+		OrganizationalStructure structure = new OrganizationalStructure(structureID, "Structure A", tenantID);
 
 		structureRepository.saveAndFlush(new OrganizationalStructureEntity(structure));
 
 		StructureMembership membership = new StructureMembership(userID, structureID,
 				Set.of(UserRole.ADMIN, UserRole.ACCOUNTANT));
 
-		membershipRepository.saveAndFlush(new StructureMembershipEntity(membership));
+		membershipRepository.saveAndFlush(new StructureMembershipEntity(membership, tenantID));
 
 		StructureMembership restored = store.findByUserAndStructure(userID, structureID).orElseThrow();
 
 		assertEquals(userID, restored.getUserID());
 		assertEquals(structureID, restored.getStructureID());
 		assertEquals(membership.getRoles(), restored.getRoles());
+		assertEquals(membership.getRoles(), store.findEffectiveLocalRoles(userID));
 	}
 
 	@Test
@@ -96,12 +99,13 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userID, "alice_" + userID, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID(),
-				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
+				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID(), employee.getLastName(), employee.getFirstName(),
+				employee.getEmail(), employee.getPhoneNumber());
 
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 
 		UUID tenantID = createTenant();
+		joinTenant(userID, tenantID);
 		OrganizationalStructure structureA = new OrganizationalStructure(structureAID, "Structure A", tenantID);
 		OrganizationalStructure structureB = new OrganizationalStructure(structureBID, "Structure B", tenantID);
 
@@ -113,8 +117,8 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 
 		StructureMembership membershipB = new StructureMembership(userID, structureBID, Set.of(UserRole.EMPLOYEE));
 
-		membershipRepository.saveAndFlush(new StructureMembershipEntity(membershipA));
-		membershipRepository.saveAndFlush(new StructureMembershipEntity(membershipB));
+		membershipRepository.saveAndFlush(new StructureMembershipEntity(membershipA, tenantID));
+		membershipRepository.saveAndFlush(new StructureMembershipEntity(membershipB, tenantID));
 
 		assertEquals(1L,
 				jdbcTemplate.queryForObject(
@@ -182,8 +186,8 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userID, "super_" + userID, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.SUPER_ADMIN), employee.getEmployeeID(),
-				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
+				Set.of(UserRole.SUPER_ADMIN), employee.getEmployeeID(), employee.getLastName(), employee.getFirstName(),
+				employee.getEmail(), employee.getPhoneNumber());
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 
 		UUID tenantID = UUID.randomUUID();
@@ -201,11 +205,15 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userID, "alice_" + userID, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID(),
-				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
+				Set.of(UserRole.EMPLOYEE), employee.getEmployeeID(), employee.getLastName(), employee.getFirstName(),
+				employee.getEmail(), employee.getPhoneNumber());
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 
 		return userID;
+	}
+
+	private void joinTenant(UUID userID, UUID tenantID) {
+		jdbcTemplate.update("INSERT INTO tenant_memberships (user_id, tenant_id) VALUES (?, ?)", userID, tenantID);
 	}
 
 	private void createStructure(UUID structureID, UUID tenantID) {
@@ -226,7 +234,9 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 
 		UUID userID = createStandardAccount();
 		UUID structureID = UUID.randomUUID();
-		createStructure(structureID, createTenant());
+		UUID tenantID = createTenant();
+		createStructure(structureID, tenantID);
+		joinTenant(userID, tenantID);
 		StructureMembership membership = new StructureMembership(userID, structureID, Set.of(UserRole.EMPLOYEE));
 
 		store.save(membership);
@@ -234,6 +244,7 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 		StructureMembership restored = store.findByUserAndStructure(userID, structureID).orElseThrow();
 
 		assertEquals(membership.getRoles(), restored.getRoles());
+		assertEquals(membership.getRoles(), store.findEffectiveLocalRoles(userID));
 		assertEquals(Set.of("EMPLOYEE"), rolesInDatabase(userID, structureID));
 	}
 
@@ -247,6 +258,7 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 
 		createStructure(structureAID, tenantID);
 		createStructure(structureBID, tenantID);
+		joinTenant(userID, tenantID);
 
 		store.save(new StructureMembership(userID, structureAID, Set.of(UserRole.R_H)));
 		store.save(new StructureMembership(userID, structureBID, Set.of(UserRole.SECRETARY)));
@@ -264,7 +276,10 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 		UUID firstUserID = createStandardAccount();
 		UUID secondUserID = createStandardAccount();
 		UUID structureID = UUID.randomUUID();
-		createStructure(structureID, createTenant());
+		UUID tenantID = createTenant();
+		createStructure(structureID, tenantID);
+		joinTenant(firstUserID, tenantID);
+		joinTenant(secondUserID, tenantID);
 
 		store.save(new StructureMembership(firstUserID, structureID, Set.of(UserRole.ADMIN)));
 		store.save(new StructureMembership(secondUserID, structureID, Set.of(UserRole.EMPLOYEE)));
@@ -285,6 +300,7 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 
 		createStructure(structureAID, tenantID);
 		createStructure(structureBID, tenantID);
+		joinTenant(userID, tenantID);
 
 		store.save(new StructureMembership(userID, structureAID, Set.of(UserRole.ADMIN)));
 		store.save(new StructureMembership(userID, structureBID, Set.of(UserRole.ADMIN)));
@@ -297,10 +313,13 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 	void findsAdminOfStructure() {
 
 		UUID structureID = UUID.randomUUID();
-		createStructure(structureID, createTenant());
+		UUID tenantID = createTenant();
+		createStructure(structureID, tenantID);
 
 		UUID adminID = createStandardAccount();
 		UUID rhID = createStandardAccount();
+		joinTenant(adminID, tenantID);
+		joinTenant(rhID, tenantID);
 
 		store.save(new StructureMembership(rhID, structureID, Set.of(UserRole.R_H)));
 		store.save(new StructureMembership(adminID, structureID, Set.of(UserRole.ADMIN)));
@@ -316,9 +335,11 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 	void returnsEmptyWhenStructureHasNoAdmin() {
 
 		UUID structureID = UUID.randomUUID();
-		createStructure(structureID, createTenant());
+		UUID tenantID = createTenant();
+		createStructure(structureID, tenantID);
 
 		UUID userID = createStandardAccount();
+		joinTenant(userID, tenantID);
 		store.save(new StructureMembership(userID, structureID, Set.of(UserRole.R_H)));
 
 		assertTrue(store.findAdminByStructure(structureID).isEmpty());
@@ -336,6 +357,8 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 
 		UUID adminAID = createStandardAccount();
 		UUID adminBID = createStandardAccount();
+		joinTenant(adminAID, tenantID);
+		joinTenant(adminBID, tenantID);
 
 		store.save(new StructureMembership(adminAID, structureAID, Set.of(UserRole.ADMIN)));
 		store.save(new StructureMembership(adminBID, structureBID, Set.of(UserRole.ADMIN)));
@@ -369,6 +392,9 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 		createStructure(structureCID, tenantBID);
 		createStructure(structureDID, tenantAID);
 		createStructure(structureEID, tenantAID);
+		joinTenant(userID, tenantAID);
+		joinTenant(userID, tenantBID);
+		joinTenant(otherUserID, tenantAID);
 
 		store.save(new StructureMembership(userID, structureAID, Set.of(UserRole.ADMIN)));
 		store.save(new StructureMembership(userID, structureBID, Set.of(UserRole.ADMIN)));
@@ -399,6 +425,7 @@ class JpaStructureMembershipStorePostgresqlIntegrationTest {
 		UUID structureID = UUID.randomUUID();
 
 		createStructure(structureID, tenantID);
+		joinTenant(userID, tenantID);
 
 		store.save(new StructureMembership(userID, structureID, Set.of(UserRole.R_H)));
 

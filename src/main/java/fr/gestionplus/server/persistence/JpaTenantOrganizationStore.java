@@ -20,6 +20,16 @@ public class JpaTenantOrganizationStore implements TenantOrganizationStore {
 
 	@Override
 	public Optional<TenantOrganization> findById(UUID tenantID) {
-		return repository.findById(tenantID).map(entity -> entity.toDomain());
+		return repository.findById(tenantID).map(TenantOrganizationEntity::toDomain);
+	}
+
+	@Override
+	public Optional<TenantOrganization> findBySuperAdminUserID(UUID userID) {
+		return repository.findBySuperAdminUserID(userID).map(TenantOrganizationEntity::toDomain);
+	}
+
+	@Override
+	public boolean replaceSuperAdmin(UUID tenantID, UUID currentUserID, UUID successorUserID) {
+		return repository.replaceSuperAdmin(tenantID, currentUserID, successorUserID) == 1;
 	}
 }

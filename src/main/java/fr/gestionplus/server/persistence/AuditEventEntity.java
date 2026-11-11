@@ -34,6 +34,9 @@ public class AuditEventEntity {
 	@Column(name = "actor_user_id")
 	private UUID actorUserId;
 
+	@Column(name = "tenant_id")
+	private UUID tenantId;
+
 	@Column(name = "action", nullable = false, length = 100)
 	private String action;
 
@@ -58,6 +61,7 @@ public class AuditEventEntity {
 		this.eventId = Objects.requireNonNull(event.getEventId());
 		this.occurredAt = Objects.requireNonNull(event.getOccurredAt());
 		this.actorUserId = event.getActorUserId();
+		this.tenantId = event.getTenantId();
 		this.action = Objects.requireNonNull(event.getAction()).name();
 		this.result = Objects.requireNonNull(event.getResult()).name();
 		this.ipAddress = event.getIpAddress();
@@ -71,6 +75,7 @@ public class AuditEventEntity {
 
 			targets.add(auditTargetEmbeddable);
 		}
+
 	}
 
 	public UUID getEventId() {
@@ -91,6 +96,10 @@ public class AuditEventEntity {
 
 	public String getIpAddress() {
 		return ipAddress;
+	}
+
+	public UUID getTenantId() {
+		return tenantId;
 	}
 
 	public AuditMetadata getMetadata() {

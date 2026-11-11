@@ -24,19 +24,22 @@ public class Employee {
 
 		this.employeeID = Objects.requireNonNull(employeeID);
 
-		if (firstName == null || firstName.isBlank())
+		if (firstName == null || firstName.isBlank()) {
 			throw new IllegalArgumentException("Le prénom est obligatoire.");
+		}
 
 		this.firstName = firstName.strip();
 
-		if (lastName == null || lastName.isBlank())
+		if (lastName == null || lastName.isBlank()) {
 			throw new IllegalArgumentException("Le nom est obligatoire.");
+		}
 
 		this.lastName = lastName.strip();
 
-		if (contractHours < 0 || !Double.isFinite(contractHours))
+		if (contractHours < 0 || !Double.isFinite(contractHours)) {
 			throw new IllegalArgumentException(
 					"Les heures contractuelles doivent être un nombre fini et positif ou nul.");
+		}
 
 		this.contractHours = contractHours;
 

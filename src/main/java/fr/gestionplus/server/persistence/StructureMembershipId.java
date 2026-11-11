@@ -26,8 +26,9 @@ public class StructureMembershipId implements Serializable {
 
 	public boolean equals(Object obj) {
 
-		if (!(obj instanceof StructureMembershipId))
+		if (!(obj instanceof StructureMembershipId)) {
 			return false;
+		}
 
 		StructureMembershipId other = (StructureMembershipId) obj;
 

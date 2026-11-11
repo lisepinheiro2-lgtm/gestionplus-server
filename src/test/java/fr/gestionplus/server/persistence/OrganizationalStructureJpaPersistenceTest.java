@@ -17,7 +17,6 @@ import fr.gestionplus.server.auth.UserRole;
 import fr.gestionplus.server.employee.Employee;
 import fr.gestionplus.server.organization.OrganizationalStructure;
 import fr.gestionplus.server.organization.TenantOrganization;
-
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 

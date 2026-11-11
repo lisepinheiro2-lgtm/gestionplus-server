@@ -1,7 +1,8 @@
 
 package fr.gestionplus.server.persistence;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Set;
 import java.util.UUID;
@@ -21,7 +22,7 @@ class StructureMembershipEntityTest {
 
 		StructureMembership membership = new StructureMembership(userID, structureID,
 				Set.of(UserRole.ADMIN, UserRole.ACCOUNTANT));
-		StructureMembershipEntity entity = new StructureMembershipEntity(membership);
+		StructureMembershipEntity entity = new StructureMembershipEntity(membership, UUID.randomUUID());
 		StructureMembership restored = entity.toDomain();
 
 		assertEquals(userID, restored.getUserID());
@@ -31,6 +32,6 @@ class StructureMembershipEntityTest {
 
 	@Test
 	void rejectsNullMembership() {
-		assertThrows(NullPointerException.class, () -> new StructureMembershipEntity(null));
+		assertThrows(NullPointerException.class, () -> new StructureMembershipEntity(null, UUID.randomUUID()));
 	}
 }

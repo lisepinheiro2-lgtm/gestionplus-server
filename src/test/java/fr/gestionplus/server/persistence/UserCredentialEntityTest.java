@@ -1,8 +1,11 @@
 package fr.gestionplus.server.persistence;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import java.util.UUID;
+
 import org.junit.jupiter.api.Test;
+
 import fr.gestionplus.server.auth.UserCredential;
 
 public class UserCredentialEntityTest {

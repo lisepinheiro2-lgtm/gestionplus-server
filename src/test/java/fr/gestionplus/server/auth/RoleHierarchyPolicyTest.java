@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -16,7 +15,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 class RoleHierarchyPolicyTest {
 
 	private final RoleHierarchyPolicy policy = new RoleHierarchyPolicy(
-			new HttpSecurityConfig(mock(GestionAuthenticationProvider.class)).roleHierarchy());
+			new HttpSecurityConfig().roleHierarchy());
 
 	@ParameterizedTest
 	@CsvSource({ "SUPER_ADMIN, ADMIN", "ADMIN, R_H", "ADMIN, ACCOUNTANT", "R_H, MANAGER", "R_H, SECRETARY",
@@ -45,7 +44,7 @@ class RoleHierarchyPolicyTest {
 	}
 
 	@ParameterizedTest
-	@CsvSource({ "MANAGER, SECRETARY, true", "SECRETARY, MANAGER, false", "SECRETARY, TEAM_LEAD, true",
+	@CsvSource({ "MANAGER, SECRETARY, false", "SECRETARY, MANAGER, false", "SECRETARY, TEAM_LEAD, true",
 			"TEAM_LEAD, EMPLOYEE, false", "EMPLOYEE, EMPLOYEE, false", "ACCOUNTANT, EMPLOYEE, false",
 			"R_H, ACCOUNTANT, false", "ADMIN, ACCOUNTANT, true", "SUPER_ADMIN, R_H, true" })
 	void checksOrdinaryRoleAssignment(UserRole actorRole, UserRole requestedRole, boolean allowed) {
@@ -57,10 +56,18 @@ class RoleHierarchyPolicyTest {
 		Set<UserRole> managerRoles = Set.of(UserRole.MANAGER, UserRole.ACCOUNTANT);
 		Set<UserRole> superAdminRoles = Set.of(UserRole.SUPER_ADMIN);
 
-		assertTrue(policy.canAssignRoles(managerRoles, Set.of(UserRole.SECRETARY, UserRole.TEAM_LEAD)));
+		assertFalse(policy.canAssignRoles(managerRoles, Set.of(UserRole.SECRETARY, UserRole.TEAM_LEAD)));
+		assertTrue(policy.canAssignRoles(managerRoles, Set.of(UserRole.EMPLOYEE, UserRole.TEAM_LEAD)));
 		assertFalse(policy.canAssignRoles(managerRoles, Set.of(UserRole.SECRETARY, UserRole.MANAGER)));
 		assertFalse(policy.canAssignRoles(superAdminRoles, Set.of(UserRole.EMPLOYEE, UserRole.ADMIN)));
 		assertFalse(policy.canAssignRoles(superAdminRoles, Set.of(UserRole.EMPLOYEE, UserRole.SUPER_ADMIN)));
+	}
+
+	@Test
+	void combiningRolesDoesNotPermitDelegatingIncomparableRoles() {
+		assertFalse(policy.canAssignRoles(Set.of(UserRole.MANAGER, UserRole.R_H), Set.of(UserRole.SECRETARY)));
+		assertFalse(policy.canAssignRoles(Set.of(UserRole.SECRETARY, UserRole.ADMIN), Set.of(UserRole.MANAGER)));
+		assertFalse(policy.canAssignRoles(Set.of(UserRole.MANAGER, UserRole.SECRETARY), Set.of(UserRole.SECRETARY)));
 	}
 
 	@Test

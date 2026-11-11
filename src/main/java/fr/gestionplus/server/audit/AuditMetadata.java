@@ -4,9 +4,13 @@ import java.util.Set;
 
 import fr.gestionplus.server.auth.UserRole;
 
-public record AuditMetadata(Set<UserRole> grantedRoles, Set<UserRole> revokedRoles) {
+public record AuditMetadata(Set<UserRole> grantedRoles, Set<UserRole> revokedRoles, AuditReason reason) {
 
 	private static final AuditMetadata EMPTY = new AuditMetadata(Set.of(), Set.of());
+
+	public AuditMetadata(Set<UserRole> grantedRoles, Set<UserRole> revokedRoles) {
+		this(grantedRoles, revokedRoles, null);
+	}
 
 	public AuditMetadata {
 		grantedRoles = Set.copyOf(grantedRoles);
@@ -15,6 +19,10 @@ public record AuditMetadata(Set<UserRole> grantedRoles, Set<UserRole> revokedRol
 
 	public static AuditMetadata empty() {
 		return EMPTY;
+	}
+
+	public static AuditMetadata because(AuditReason reason) {
+		return new AuditMetadata(Set.of(), Set.of(), reason);
 	}
 
 	public static AuditMetadata rolesGranted(Set<UserRole> roles) {

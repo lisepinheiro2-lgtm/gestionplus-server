@@ -1,6 +1,7 @@
 package fr.gestionplus.server.persistence;
 
 import java.util.UUID;
+
 import fr.gestionplus.server.employee.Employee;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

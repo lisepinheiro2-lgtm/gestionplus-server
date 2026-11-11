@@ -1,0 +1,11 @@
+server:
+  ssl:
+    enabled: true
+  servlet:
+    session:
+      cookie:
+        secure: true
+
+gestionplus:
+  http:
+    require-https: true

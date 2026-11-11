@@ -66,7 +66,8 @@ class UserAccountDisablePostgresqlIntegrationTest {
 		assertEquals(account.getUserID(), restored.getUserID());
 		assertEquals(account.getEmployeeID(), restored.getEmployeeID());
 		assertEquals(account.getUserName(), restored.getUserName());
-		assertEquals(account.getRoles(), restored.getRoles());
+		assertTrue(restored.getRoles().isEmpty());
+		assertEquals(account.getSessionVersion() + 1, restored.getSessionVersion());
 	}
 
 	@Test
@@ -92,7 +93,8 @@ class UserAccountDisablePostgresqlIntegrationTest {
 		assertEquals(UserAccountStatus.DISABLED, restored.getStatu());
 		assertEquals(account.getUserID(), restored.getUserID());
 		assertEquals(account.getEmployeeID(), restored.getEmployeeID());
-		assertEquals(account.getRoles(), restored.getRoles());
+		assertTrue(restored.getRoles().isEmpty());
+		assertEquals(account.getSessionVersion() + 1, restored.getSessionVersion());
 	}
 
 	@Test

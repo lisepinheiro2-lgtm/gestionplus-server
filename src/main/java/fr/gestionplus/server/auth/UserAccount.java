@@ -1,13 +1,14 @@
 package fr.gestionplus.server.auth;
 
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.Objects;
 
 public class UserAccount {
 
 	private final UUID userID;
 	private final UUID employeeID;
+	private final long sessionVersion;
 	private String userName;
 	private UserAccountStatus statu;
 	private final Set<UserRole> roles;
@@ -18,6 +19,12 @@ public class UserAccount {
 
 	public UserAccount(UUID userID, String userName, UserAccountStatus statu, Set<UserRole> roles, UUID employeeID,
 			String lastName, String firstName, String email, String phoneNumber) {
+		this(userID, userName, statu, roles, employeeID, lastName, firstName, email, phoneNumber, 0);
+	}
+
+	public UserAccount(UUID userID, String userName, UserAccountStatus statu, Set<UserRole> roles, UUID employeeID,
+			String lastName, String firstName, String email, String phoneNumber, long sessionVersion) {
+		this.sessionVersion = sessionVersion;
 		this.userID = Objects.requireNonNull(userID, "L'UUID de l'utilisateur ne peut pas être null");
 		this.employeeID = employeeID;
 		this.lastName = requireIdentityValue(lastName, "Le nom");
@@ -31,11 +38,13 @@ public class UserAccount {
 
 		this.statu = Objects.requireNonNull(statu);
 
-		if (userName == null && statu == UserAccountStatus.ACTIVE)
+		if (userName == null && statu == UserAccountStatus.ACTIVE) {
 			throw new IllegalArgumentException("Le nom d'utilisateur ne peut pas être null");
+		}
 
-		if (userName != null && this.userName.isBlank())
+		if (userName != null && this.userName.isBlank()) {
 			throw new IllegalArgumentException("Le nom d'utilisateur ne peut pas être vide");
+		}
 
 		Objects.requireNonNull(roles, "Les rôles ne peuvent pas être null");
 
@@ -55,21 +64,25 @@ public class UserAccount {
 	}
 
 	private static String requireIdentityValue(String value, String fieldLabel) {
-		if (value == null || value.isBlank())
+
+		if (value == null || value.isBlank()) {
 			throw new IllegalArgumentException(fieldLabel + " est obligatoire.");
+		}
 
 		return value;
 	}
 
 	public boolean equals(Object obj) {
 
-		if (!(obj instanceof UserAccount))
+		if (!(obj instanceof UserAccount)) {
 			return false;
+		}
 
 		UserAccount other = (UserAccount) obj;
 
-		if (this.userID.equals(other.userID))
+		if (this.userID.equals(other.userID)) {
 			return true;
+		}
 
 		return false;
 	}
@@ -81,6 +94,10 @@ public class UserAccount {
 
 	public UUID getUserID() {
 		return userID;
+	}
+
+	public long getSessionVersion() {
+		return sessionVersion;
 	}
 
 	public UUID getEmployeeID() {

@@ -229,6 +229,7 @@ public class AuditPostgresqlPermissionsTest {
 						assertTrue(result.next());
 						assertEquals(1, result.getInt(1));
 					}
+
 				}
 
 				SQLException exception = assertThrows(SQLException.class,
@@ -250,6 +251,8 @@ public class AuditPostgresqlPermissionsTest {
 			} finally {
 				statement.execute("RESET ROLE");
 			}
+
 		}
+
 	}
 }

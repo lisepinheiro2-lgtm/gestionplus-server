@@ -24,7 +24,7 @@ class StructureSchemaPostgresqlIntegrationTest {
 	private JdbcTemplate jdbcTemplate;
 
 	private UUID createAccount() {
-		
+
 		UUID userID = UUID.randomUUID();
 		jdbcTemplate.update("""
 				INSERT INTO user_accounts (
@@ -51,10 +51,6 @@ class StructureSchemaPostgresqlIntegrationTest {
 		return tenantID;
 	}
 
-	private UUID createStructure(String name) {
-		return createStructure(name, createTenant());
-	}
-
 	private UUID createStructure(String name, UUID tenantID) {
 		UUID structureID = UUID.randomUUID();
 		jdbcTemplate.update(
@@ -69,16 +65,21 @@ class StructureSchemaPostgresqlIntegrationTest {
 		assertEquals(sqlState, cause.getSQLState());
 	}
 
-	private void addMembership(UUID userID, UUID structureID) {
-		jdbcTemplate.update("INSERT INTO structure_memberships (user_id, structure_id) VALUES (?, ?)", userID,
-				structureID);
+	private void joinTenant(UUID userID, UUID tenantID) {
+		jdbcTemplate.update("INSERT INTO tenant_memberships (user_id, tenant_id) VALUES (?, ?)", userID, tenantID);
+	}
+
+	private void addMembership(UUID userID, UUID structureID, UUID tenantID) {
+		jdbcTemplate.update("INSERT INTO structure_memberships (user_id, structure_id, tenant_id) VALUES (?, ?, ?)",
+				userID, structureID, tenantID);
 	}
 
 	@Test
 	void appliesV8AndV9AndCreatesStructureAndTenantTables() {
 
 		Long applied = jdbcTemplate.queryForObject(
-				"SELECT COUNT(*) FROM flyway_schema_history WHERE version IN ('8', '9') AND success = TRUE", Long.class);
+				"SELECT COUNT(*) FROM flyway_schema_history WHERE version IN ('8', '9') AND success = TRUE",
+				Long.class);
 		assertEquals(2L, applied);
 
 		Long tables = jdbcTemplate.queryForObject("""
@@ -103,8 +104,9 @@ class StructureSchemaPostgresqlIntegrationTest {
 		UUID structureA = createStructure("Association A", tenantID);
 		UUID structureB = createStructure("Association B", tenantID);
 
-		addMembership(userID, structureA);
-		addMembership(userID, structureB);
+		joinTenant(userID, tenantID);
+		addMembership(userID, structureA, tenantID);
+		addMembership(userID, structureB, tenantID);
 
 		jdbcTemplate.update("INSERT INTO structure_membership_roles VALUES (?, ?, ?)", userID, structureA, "ADMIN");
 		jdbcTemplate.update("INSERT INTO structure_membership_roles VALUES (?, ?, ?)", userID, structureA,
@@ -125,24 +127,40 @@ class StructureSchemaPostgresqlIntegrationTest {
 	@Test
 	void rejectsMembershipWithUnknownAccountOrStructure() {
 
-		UUID structureID = createStructure("Association A");
-		assertSqlState("23503", () -> addMembership(UUID.randomUUID(), structureID));
+		UUID tenantID = createTenant();
+		UUID structureID = createStructure("Association A", tenantID);
+		assertSqlState("23503", () -> addMembership(UUID.randomUUID(), structureID, tenantID));
 
 		UUID userID = createAccount();
-		assertSqlState("23503", () -> addMembership(userID, UUID.randomUUID()));
+		joinTenant(userID, tenantID);
+		assertSqlState("23503", () -> addMembership(userID, UUID.randomUUID(), tenantID));
+	}
+
+	@Test
+	void rejectsStructureMembershipWhenTheAccountAndStructureTenantsDiffer() {
+		UUID userID = createAccount();
+		UUID accountTenant = createTenant();
+		UUID structureTenant = createTenant();
+		UUID structureID = createStructure("Autre entreprise", structureTenant);
+		joinTenant(userID, accountTenant);
+
+		assertSqlState("23503", () -> addMembership(userID, structureID, structureTenant));
+		assertSqlState("23503", () -> addMembership(userID, structureID, accountTenant));
 	}
 
 	@Test
 	void rejectsRolesWithoutMembershipAndDuplicates() {
 
 		UUID userID = createAccount();
-		UUID structureID = createStructure("Association A");
+		UUID tenantID = createTenant();
+		UUID structureID = createStructure("Association A", tenantID);
+		joinTenant(userID, tenantID);
 
 		assertSqlState("23503", () -> jdbcTemplate
 				.update("INSERT INTO structure_membership_roles VALUES (?, ?, ?)", userID, structureID, "ADMIN"));
 
-		addMembership(userID, structureID);
-		assertSqlState("23505", () -> addMembership(userID, structureID));
+		addMembership(userID, structureID, tenantID);
+		assertSqlState("23505", () -> addMembership(userID, structureID, tenantID));
 
 		jdbcTemplate.update("INSERT INTO structure_membership_roles VALUES (?, ?, ?)", userID, structureID, "ADMIN");
 		assertSqlState("23505", () -> jdbcTemplate
@@ -151,9 +169,10 @@ class StructureSchemaPostgresqlIntegrationTest {
 
 	@Test
 	void rejectsBlankAndNullStructureNames() {
-		assertSqlState("23514", () -> createStructure("   "));
-		assertSqlState("23514", () -> createStructure(""));
-		assertSqlState("23502", () -> createStructure(null));
+		UUID tenantID = createTenant();
+		assertSqlState("23514", () -> createStructure("   ", tenantID));
+		assertSqlState("23514", () -> createStructure("", tenantID));
+		assertSqlState("23502", () -> createStructure(null, tenantID));
 	}
 
 	@Test

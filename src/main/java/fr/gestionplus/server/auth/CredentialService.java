@@ -11,16 +11,19 @@ public class CredentialService {
 
 	private final PasswordEncoder passwordEncoder;
 	private final PasswordPolicy policy;
+	private final String dummyPasswordHash;
 
 	public CredentialService(PasswordEncoder passwordEncoder, PasswordPolicy policy) {
 		this.passwordEncoder = Objects.requireNonNull(passwordEncoder);
 		this.policy = Objects.requireNonNull(policy);
+		dummyPasswordHash = passwordEncoder.encode(UUID.randomUUID().toString());
 	}
 
 	public UserCredential createCredential(UUID userId, String rawPassword) {
 
-		if (userId == null)
+		if (userId == null) {
 			throw new NullPointerException("L'ID utilisateur ne peut pas être null");
+		}
 
 		policy.validate(rawPassword);
 
@@ -28,10 +31,15 @@ public class CredentialService {
 		return new UserCredential(userId, passwordHash);
 	}
 
+	void verifyDummyPassword(String rawPassword) {
+		passwordEncoder.matches(rawPassword, dummyPasswordHash);
+	}
+
 	public boolean verifyPassword(UserCredential credential, String rawPassword) {
 
-		if (credential == null || rawPassword == null || rawPassword.isBlank())
+		if (credential == null || rawPassword == null || rawPassword.isBlank()) {
 			return false;
+		}
 
 		return passwordEncoder.matches(rawPassword, credential.getPasswordHash());
 	}

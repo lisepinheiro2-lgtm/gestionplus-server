@@ -74,7 +74,7 @@ class AuditPostgresqlIntegrationTest {
 
 	@Test
 	void savesAndFindsAuditEventWithMultipleTargetsOnPostgresql() {
-		
+
 		UUID eventId = UUID.randomUUID();
 		UUID actorUserId = UUID.randomUUID();
 
@@ -98,7 +98,7 @@ class AuditPostgresqlIntegrationTest {
 
 	@Test
 	void savesFailedLoginWithoutAuthenticatedActorOnPostgresql() {
-		
+
 		UUID eventId = UUID.randomUUID();
 
 		AuditEvent expected = new AuditEvent(Instant.parse("2026-11-01T13:30:00Z"), eventId, null,

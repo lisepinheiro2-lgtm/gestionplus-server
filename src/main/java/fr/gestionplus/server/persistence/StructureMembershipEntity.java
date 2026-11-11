@@ -24,6 +24,9 @@ public class StructureMembershipEntity {
 	@EmbeddedId
 	private StructureMembershipId id;
 
+	@Column(name = "tenant_id", nullable = false)
+	private UUID tenantID;
+
 	@ElementCollection
 	@CollectionTable(name = "structure_membership_roles", joinColumns = {
 			@JoinColumn(name = "user_id", referencedColumnName = "user_id"),
@@ -35,9 +38,10 @@ public class StructureMembershipEntity {
 	protected StructureMembershipEntity() {
 	}
 
-	public StructureMembershipEntity(StructureMembership membership) {
+	public StructureMembershipEntity(StructureMembership membership, UUID tenantID) {
 
 		Objects.requireNonNull(membership);
+		this.tenantID = Objects.requireNonNull(tenantID);
 		UUID userID = membership.getUserID();
 		UUID structureID = membership.getStructureID();
 

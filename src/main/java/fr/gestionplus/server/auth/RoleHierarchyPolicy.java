@@ -27,6 +27,7 @@ public class RoleHierarchyPolicy {
 		Set<UserRole> delegatingRoles = EnumSet.noneOf(UserRole.class);
 
 		for (UserRole actorRole : actorRoles) {
+
 			if (actorRole == null) {
 				return false;
 			}
@@ -35,20 +36,19 @@ public class RoleHierarchyPolicy {
 					&& RolePermissionPolicy.allows(actorRole, Permission.MANAGE_USER_ROLES)) {
 				delegatingRoles.add(actorRole);
 			}
+
 		}
 
 		for (UserRole requestedRole : requestedRoles) {
+
 			if (requestedRole == null || requestedRole == UserRole.ADMIN || requestedRole == UserRole.SUPER_ADMIN) {
 				return false;
-			}
-
-			if (requestedRole == UserRole.SECRETARY && delegatingRoles.contains(UserRole.MANAGER)) {
-				continue;
 			}
 
 			if (!isStrictlyHigher(delegatingRoles, Set.of(requestedRole))) {
 				return false;
 			}
+
 		}
 
 		return true;
@@ -61,15 +61,24 @@ public class RoleHierarchyPolicy {
 		}
 
 		for (UserRole role : actorRoles) {
+
 			if (role == null) {
 				return false;
 			}
+
 		}
 
 		for (UserRole role : targetRoles) {
+
 			if (role == null) {
 				return false;
 			}
+
+		}
+
+		if ((actorRoles.contains(UserRole.MANAGER) && targetRoles.contains(UserRole.SECRETARY))
+				|| (actorRoles.contains(UserRole.SECRETARY) && targetRoles.contains(UserRole.MANAGER))) {
+			return false;
 		}
 
 		for (UserRole targetRole : targetRoles) {
@@ -91,11 +100,13 @@ public class RoleHierarchyPolicy {
 					isHigher = true;
 					break;
 				}
+
 			}
 
 			if (!isHigher) {
 				return false;
 			}
+
 		}
 
 		return true;

@@ -47,7 +47,8 @@ class UserCredentialJpaRepositoryTest {
 	void savesAndFindsCredential() {
 
 		UUID userId = UUID.randomUUID();
-		Employee employee = new Employee(UUID.randomUUID(), "Test", "Employee", 35, "test@example.invalid", "0600000000", null);
+		Employee employee = new Employee(UUID.randomUUID(), "Test", "Employee", 35, "test@example.invalid",
+				"0600000000", null);
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userId, "test_" + userId, UserAccountStatus.ACTIVE,
@@ -71,7 +72,8 @@ class UserCredentialJpaRepositoryTest {
 		UserCredential restored = found.get().toDomain();
 
 		assertEquals(userId, restored.getUserId());
-		assertEquals(employee.getEmployeeID(), accountRepository.findById(userId).orElseThrow().toDomain().getEmployeeID());
+		assertEquals(employee.getEmployeeID(),
+				accountRepository.findById(userId).orElseThrow().toDomain().getEmployeeID());
 		assertEquals(passwordHash, restored.getPasswordHash());
 		assertTrue(encoder.matches(password, restored.getPasswordHash()));
 	}

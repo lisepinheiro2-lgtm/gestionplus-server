@@ -60,6 +60,10 @@ class AuditJpaPersistenceTest {
 		ScriptUtils.executeSqlScript(connection,
 				new ClassPathResource("db/migration/V12__add_audit_event_metadata.sql"));
 
+		try (Statement statement = connection.createStatement()) {
+			statement.execute("ALTER TABLE audit_events ADD COLUMN tenant_id UUID");
+		}
+
 		registry = new StandardServiceRegistryBuilder().clearSettings()
 				.applySetting("hibernate.connection.datasource", new SingleConnectionDataSource(connection, true))
 				.applySetting("hibernate.dialect", "org.hibernate.dialect.H2Dialect")
@@ -83,35 +87,49 @@ class AuditJpaPersistenceTest {
 	void closesIsolatedDatabase() throws Exception {
 
 		try {
+
 			if (entityManager != null && entityManager.isOpen()) {
 
 				try {
+
 					if (entityManager.getTransaction().isActive()) {
 						entityManager.getTransaction().rollback();
 					}
+
 				} finally {
 					entityManager.close();
 				}
+
 			}
+
 		} finally {
 
 			try {
+
 				if (sessionFactory != null) {
 					sessionFactory.close();
 				}
+
 			} finally {
 
 				try {
+
 					if (registry != null) {
 						StandardServiceRegistryBuilder.destroy(registry);
 					}
+
 				} finally {
+
 					if (connection != null) {
 						connection.close();
 					}
+
 				}
+
 			}
+
 		}
+
 	}
 
 	@Test
@@ -221,6 +239,7 @@ class AuditJpaPersistenceTest {
 	void rejectsTargetWithoutExistingEvent() {
 
 		assertThrows(SQLException.class, () -> {
+
 			try (PreparedStatement statement = connection.prepareStatement(
 					"INSERT INTO audit_targets " + "(event_id, target_type, target_id) " + "VALUES (?, ?, ?)")) {
 
@@ -230,6 +249,7 @@ class AuditJpaPersistenceTest {
 
 				statement.executeUpdate();
 			}
+
 		});
 	}
 

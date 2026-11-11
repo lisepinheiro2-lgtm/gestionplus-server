@@ -43,48 +43,59 @@ public class PwnedPasswordsChecker implements CompromisedPasswordChecker {
 			HttpRequest request = builder.build();
 			HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
-			if (response.statusCode() != 200)
+			if (response.statusCode() != 200) {
 				throw new IllegalStateException(
 						"Échec de la vérification du mot de passe. Code HTTP : " + response.statusCode());
+			}
 
 			String responseBody = response.body();
 
-			if (responseBody == null || responseBody.isBlank())
+			if (responseBody == null || responseBody.isBlank()) {
 				throw new IllegalStateException("Réponse invalide du service de vérification des mots de passe.");
+			}
 
 			String[] lines = responseBody.split("\\R");
 
 			for (String line : lines) {
 				String[] parts = line.split(":");
 
-				if (parts.length != 2)
+				if (parts.length != 2) {
 					throw new IllegalStateException("Réponse invalide du service de vérification des mots de passe.");
+				}
 
-				if (parts[0].length() != 35)
+				if (parts[0].length() != 35) {
 					throw new IllegalStateException("Réponse invalide du service de vérification des mots de passe.");
+				}
 
 				for (int i = 0; i < parts[0].length(); i++) {
 					char currentChar = parts[0].charAt(i);
 
 					if (!(currentChar >= '0' && currentChar <= '9' || currentChar >= 'A' && currentChar <= 'F'
-							|| currentChar >= 'a' && currentChar <= 'f'))
+							|| currentChar >= 'a' && currentChar <= 'f')) {
 						throw new IllegalStateException(
 								"Réponse invalide du service de vérification des mots de passe.");
+					}
+
 				}
 
 				if (parts[0].equalsIgnoreCase(suffix)) {
 					int count = Integer.parseInt(parts[1]);
 
-					if (count > 0)
+					if (count > 0) {
 						return true;
+					}
 
-					if (count == 0)
+					if (count == 0) {
 						continue;
+					}
 
-					if (count < 0)
+					if (count < 0) {
 						throw new IllegalStateException(
 								"Réponse invalide du service de vérification des mots de passe.");
+					}
+
 				}
+
 			}
 
 			return false;
@@ -101,5 +112,6 @@ public class PwnedPasswordsChecker implements CompromisedPasswordChecker {
 		} catch (NumberFormatException e) {
 			throw new IllegalStateException("Réponse invalide du service de vérification des mots de passe.", e);
 		}
+
 	}
 }

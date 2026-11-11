@@ -14,8 +14,10 @@ public class TenantOrganization {
 		this.tenantName = Objects.requireNonNull(tenantName).strip();
 		this.superAdminUserID = Objects.requireNonNull(superAdminUserID);
 
-		if (tenantName.isBlank())
+		if (tenantName.isBlank()) {
 			throw new IllegalArgumentException("Le nom ne peut pas être vide ou blanc.");
+		}
+
 	}
 
 	public UUID getTenantID() {

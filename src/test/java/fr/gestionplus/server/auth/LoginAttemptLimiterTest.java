@@ -1,0 +1,170 @@
+package fr.gestionplus.server.auth;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.util.Set;
+import java.util.UUID;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+
+import fr.gestionplus.server.audit.AuditAction;
+import fr.gestionplus.server.audit.AuditMetadata;
+import fr.gestionplus.server.audit.AuditReason;
+import fr.gestionplus.server.audit.AuditResult;
+import fr.gestionplus.server.audit.AuditService;
+import fr.gestionplus.server.audit.AuditTarget;
+import fr.gestionplus.server.audit.AuditTargetType;
+import fr.gestionplus.server.auth.GestionAuthenticationProvider.RejectedLogin;
+
+class LoginAttemptLimiterTest {
+
+	private final Clock clock = mock(Clock.class);
+	private final Instant start = Instant.parse("2026-01-01T12:00:00Z");
+	private final LoginAttemptLimiter limiter = new LoginAttemptLimiter(clock);
+
+	@BeforeEach
+	void setUp() {
+		at(0);
+	}
+
+	@Test
+	void countsFailuresAcrossAddressesWithoutBlockingOtherAccountsOnTheSameAddress() {
+
+		for (int failure = 0; failure < 10; failure++) {
+			at(3L * failure);
+			var attempt = limiter.begin("target", "192.0.2." + failure);
+			assertNotNull(attempt);
+
+			if (failure < 9) {
+				assertFalse(limiter.finish(attempt, true, true));
+			} else {
+				assertTrue(limiter.finish(attempt, true, true));
+			}
+
+		}
+
+		assertNull(limiter.begin("target", "192.0.2.40"));
+		var colleague = limiter.begin("colleague", "192.0.2.9");
+		assertNotNull(colleague);
+		assertFalse(limiter.finish(colleague, false, true));
+
+		at(326);
+		assertNull(limiter.begin("target", "192.0.2.40"));
+		at(327);
+		assertNotNull(limiter.begin("target", "192.0.2.40"));
+	}
+
+	@Test
+	void rejectsConcurrentAttemptsAndGraduallyIncreasesTheRetryDelay() {
+		var first = limiter.begin("target", "192.0.2.1");
+		assertNotNull(first);
+		assertNull(limiter.begin("target", "192.0.2.2"));
+		assertFalse(limiter.finish(first, true, true));
+		when(clock.instant()).thenReturn(start.plusMillis(199));
+		assertNull(limiter.begin("target", "192.0.2.2"));
+
+		when(clock.instant()).thenReturn(start.plusMillis(200));
+		var second = limiter.begin("target", "192.0.2.2");
+		assertNotNull(second);
+		assertFalse(limiter.finish(second, true, true));
+		when(clock.instant()).thenReturn(start.plusMillis(599));
+		assertNull(limiter.begin("target", "192.0.2.2"));
+		when(clock.instant()).thenReturn(start.plusMillis(600));
+		assertNotNull(limiter.begin("target", "192.0.2.2"));
+	}
+
+	@Test
+	void addsDelayOnAnAddressWithManyFailuresOnlyForAnAlreadyTargetedAccount() {
+
+		for (int failure = 0; failure < 10; failure++) {
+			var attempt = limiter.begin("account" + failure, "192.0.2.1");
+			assertNotNull(attempt);
+			assertFalse(limiter.finish(attempt, true, true));
+		}
+
+		when(clock.instant()).thenReturn(start.plusMillis(200));
+		assertNull(limiter.begin("account0", "192.0.2.1"));
+		assertNotNull(limiter.begin("unaffected", "192.0.2.1"));
+		assertNotNull(limiter.begin("account0", "192.0.2.2"));
+	}
+
+	@Test
+	void discardsFailuresOutsideTheSlidingWindow() {
+
+		for (int failure = 0; failure < 9; failure++) {
+			at(failure * 3L);
+			var attempt = limiter.begin("target", "192.0.2.1");
+			assertNotNull(attempt);
+			assertFalse(limiter.finish(attempt, true, true));
+		}
+
+		at(900);
+		var attempt = limiter.begin("target", "192.0.2.1");
+		assertNotNull(attempt);
+		assertFalse(limiter.finish(attempt, true, true));
+	}
+
+	@Test
+	void doesNotDenyANewLoginWhenUnknownNamesFillTheTrackingCapacity() {
+
+		for (int failure = 0; failure < 8192; failure++) {
+			var attempt = limiter.begin("unknown-" + failure, "192.0.2.1");
+			assertNotNull(attempt);
+			assertFalse(limiter.finish(attempt, true, false));
+		}
+
+		assertNotNull(limiter.begin("new-account", "192.0.2.1"));
+	}
+
+	@Test
+	void auditsTheRestrictionSeparatelyFromTheGenericLoginFailure() {
+		UUID userID = UUID.randomUUID();
+		LoginService login = mock(LoginService.class);
+		when(login.evaluate("target", "incorrect"))
+				.thenReturn(new LoginService.LoginAttempt(null, userID, AuditReason.INVALID_CREDENTIALS));
+		GestionAuthenticationProvider provider = new GestionAuthenticationProvider(
+				login, mock(AccountMfaService.class), limiter);
+		var credentials = UsernamePasswordAuthenticationToken.unauthenticated("target", "incorrect");
+		credentials.setDetails(new GestionAuthenticationProvider.LoginDetails("192.0.2.1", null));
+
+		for (int index = 0; index < 9; index++) {
+			at(index * 3L);
+			assertFalse(
+					assertThrows(RejectedLogin.class, () -> provider.authenticate(credentials)).restrictionStarted());
+		}
+
+		at(27);
+		RejectedLogin threshold = assertThrows(RejectedLogin.class, () -> provider.authenticate(credentials));
+		RejectedLogin limited = assertThrows(RejectedLogin.class, () -> provider.authenticate(credentials));
+		assertTrue(threshold.restrictionStarted());
+		assertEquals(threshold.getMessage(), limited.getMessage());
+
+		AuditService audit = mock(AuditService.class);
+		MockHttpServletRequest request = new MockHttpServletRequest();
+		request.setRemoteAddr("192.0.2.1");
+		new HttpSecurityAudit(audit).loginFailed(request, threshold);
+
+		Set<AuditTarget> targets = Set.of(new AuditTarget(AuditTargetType.ACCOUNT, userID));
+		verify(audit).recordForActor(AuditAction.AUTH_LOGIN, AuditResult.FAILURE, null, "192.0.2.1", targets,
+				AuditMetadata.because(AuditReason.INVALID_CREDENTIALS));
+		verify(audit).recordForActor(AuditAction.AUTH_LOGIN_RESTRICTION, AuditResult.DENIED, null, "192.0.2.1", targets,
+				AuditMetadata.because(AuditReason.RATE_LIMITED));
+	}
+
+	private void at(long seconds) {
+		when(clock.instant()).thenReturn(start.plusSeconds(seconds));
+	}
+}

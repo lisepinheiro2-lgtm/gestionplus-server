@@ -5,9 +5,18 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -15,8 +24,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.TestComponent;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.mock.web.MockHttpSession;
@@ -25,18 +36,34 @@ import org.springframework.security.web.context.HttpSessionSecurityContextReposi
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import com.jayway.jsonpath.JsonPath;
 
+import fr.gestionplus.server.account.AccountStore;
+import fr.gestionplus.server.audit.AuditAction;
+import fr.gestionplus.server.audit.AuditMetadata;
+import fr.gestionplus.server.audit.AuditReason;
+import fr.gestionplus.server.audit.AuditResult;
+import fr.gestionplus.server.audit.AuditService;
+import fr.gestionplus.server.audit.AuditTarget;
+import fr.gestionplus.server.audit.AuditTargetType;
+import fr.gestionplus.server.auth.AccountMfaService;
+import fr.gestionplus.server.auth.AccountMfaService.Verification;
 import fr.gestionplus.server.auth.GestionAuthenticationProvider;
+import fr.gestionplus.server.auth.GestionAuthenticationProvider.LoginAssurance;
 import fr.gestionplus.server.auth.HttpSecurityConfig;
+import fr.gestionplus.server.auth.LoginAttemptLimiter;
 import fr.gestionplus.server.auth.LoginService;
+import fr.gestionplus.server.auth.LoginService.LoginAttempt;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
 import fr.gestionplus.server.auth.UserRole;
 
 @WebMvcTest({ CsrfController.class, AuthSessionController.class })
-@Import({ HttpSecurityConfig.class, GestionAuthenticationProvider.class })
+@Import({ HttpSecurityConfig.class, GestionAuthenticationProvider.class, LoginAttemptLimiter.class,
+		CsrfHttpTest.UnlistedController.class })
 class CsrfHttpTest {
 
 	@Autowired
@@ -45,8 +72,56 @@ class CsrfHttpTest {
 	@MockitoBean
 	private LoginService loginService;
 
+	@MockitoBean
+	private AccountStore accountStore;
+
+	@MockitoBean
+	private AuditService auditService;
+
+	@MockitoBean
+	private AccountMfaService mfa;
+
 	private final String userName = "alice";
 	private final String password = "test-password";
+
+	@BeforeEach
+	void allowOrdinaryAccountsToLogInWithoutMfa() {
+		when(mfa.verifyForLogin(any(UserAccount.class), nullable(String.class))).thenReturn(Verification.NOT_REQUIRED);
+	}
+
+	@Test
+	void aNewControllerRemainsDeniedUntilTheRouteIsExplicitlyAuthorized() throws Exception {
+		mockMvc.perform(get("/api/unlisted")).andExpect(status().isUnauthorized())
+				.andExpect(content().json("{\"code\":\"AUTHENTICATION_REQUIRED\"}"));
+
+		UserAccount account = createTestAccount();
+		when(loginService.evaluate(userName, password))
+				.thenReturn(new LoginAttempt(account, account.getUserID(), null));
+		MvcResult csrf = requestCsrf(null);
+		MockHttpSession session = (MockHttpSession) csrf.getRequest().getSession(false);
+		MvcResult login = mockMvc.perform(post("/login").session(session).header("X-CSRF-TOKEN", getToken(csrf))
+				.param("username", userName).param("password", password)).andExpect(status().isOk()).andReturn();
+
+		mockMvc.perform(get("/api/unlisted").session((MockHttpSession) login.getRequest().getSession(false)))
+				.andExpect(status().isForbidden()).andExpect(content().json("{\"code\":\"FORBIDDEN\"}"));
+	}
+
+	@Test
+	void oversizedLoginIsRejectedBeforePasswordOrMfaVerification() throws Exception {
+		mockMvc.perform(post("/login").content(new byte[16385])).andExpect(status().is(413))
+				.andExpect(content().json("{\"code\":\"PAYLOAD_TOO_LARGE\"}"));
+		verifyNoInteractions(loginService, mfa);
+	}
+
+	@TestComponent
+	@RestController
+	static class UnlistedController {
+
+		@GetMapping("/api/unlisted")
+		String unlisted() {
+			return "private-test-value";
+		}
+	}
 
 	@Test
 	void returnsCsrfToken() throws Exception {
@@ -65,6 +140,9 @@ class CsrfHttpTest {
 
 		mockMvc.perform(post("/login").param("username", userName).param("password", password))
 				.andExpect(status().isForbidden());
+
+		verify(auditService).recordForActor(eq(AuditAction.AUTH_ACCESS_ATTEMPT), eq(AuditResult.DENIED), isNull(),
+				anyString(), eq(Set.of()), eq(AuditMetadata.because(AuditReason.CSRF_REJECTED)));
 	}
 
 	@Test
@@ -72,7 +150,8 @@ class CsrfHttpTest {
 
 		UserAccount account = createTestAccount();
 
-		when(loginService.authenticate(userName, password)).thenReturn(Optional.of(account));
+		when(loginService.evaluate(userName, password))
+				.thenReturn(new LoginAttempt(account, account.getUserID(), null));
 
 		MvcResult csrfResult = requestCsrf(null);
 		String token = getToken(csrfResult);
@@ -91,20 +170,71 @@ class CsrfHttpTest {
 		assertNotNull(context);
 		assertTrue(context.getAuthentication().isAuthenticated());
 		assertEquals(account, context.getAuthentication().getPrincipal());
+		verify(auditService).recordForActor(eq(AuditAction.AUTH_LOGIN), eq(AuditResult.SUCCESS),
+				eq(account.getUserID()),
+				anyString(), eq(Set.of(new AuditTarget(AuditTargetType.ACCOUNT, account.getUserID()))),
+				eq(AuditMetadata.empty()));
 	}
 
 	@Test
 	void rejectsIncorrectPassword() throws Exception {
 
-		when(loginService.authenticate(userName, "wrong-password")).thenReturn(Optional.empty());
+		String attemptedName = "wrong-password-user";
+		when(loginService.evaluate(attemptedName, "wrong-password"))
+				.thenReturn(new LoginAttempt(null, null, AuditReason.INVALID_CREDENTIALS));
 
 		MvcResult csrfResult = requestCsrf(null);
 		String token = getToken(csrfResult);
 
 		MockHttpSession session = (MockHttpSession) csrfResult.getRequest().getSession(false);
 
-		mockMvc.perform(post("/login").session(session).header("X-CSRF-TOKEN", token).param("username", userName)
+		mockMvc.perform(post("/login").session(session).header("X-CSRF-TOKEN", token).param("username", attemptedName)
 				.param("password", "wrong-password")).andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void unknownAndDisabledAccountsReturnTheSameResponseWithDistinctInternalReasons() throws Exception {
+		UUID disabledId = UUID.randomUUID();
+		when(loginService.evaluate("unknown", password))
+				.thenReturn(new LoginAttempt(null, null, AuditReason.UNKNOWN_ACCOUNT));
+		when(loginService.evaluate("disabled", password))
+				.thenReturn(new LoginAttempt(null, disabledId, AuditReason.DISABLED_ACCOUNT));
+
+		MvcResult unknown = rejectedLogin("unknown");
+		MvcResult disabled = rejectedLogin("disabled");
+
+		assertEquals(unknown.getResponse().getContentAsString(), disabled.getResponse().getContentAsString());
+		verify(auditService).recordForActor(eq(AuditAction.AUTH_LOGIN), eq(AuditResult.FAILURE), isNull(), anyString(),
+				eq(Set.of()), eq(AuditMetadata.because(AuditReason.UNKNOWN_ACCOUNT)));
+		verify(auditService).recordForActor(eq(AuditAction.AUTH_LOGIN), eq(AuditResult.FAILURE), isNull(), anyString(),
+				eq(Set.of(new AuditTarget(AuditTargetType.ACCOUNT, disabledId))),
+				eq(AuditMetadata.because(AuditReason.DISABLED_ACCOUNT)));
+	}
+
+	@Test
+	void failedMandatoryAuditPreventsASuccessfulLogin() throws Exception {
+		UserAccount account = createTestAccount();
+		when(loginService.evaluate(userName, password))
+				.thenReturn(new LoginAttempt(account, account.getUserID(), null));
+		doThrow(new IllegalStateException("Audit indisponible")).when(auditService)
+				.recordForActor(eq(AuditAction.AUTH_LOGIN), eq(AuditResult.SUCCESS), eq(account.getUserID()),
+						anyString(), eq(Set.of(new AuditTarget(AuditTargetType.ACCOUNT, account.getUserID()))),
+						eq(AuditMetadata.empty()));
+
+		MvcResult csrf = requestCsrf(null);
+		MockHttpSession session = (MockHttpSession) csrf.getRequest().getSession(false);
+		mockMvc.perform(post("/login").session(session).header("X-CSRF-TOKEN", getToken(csrf))
+				.param("username", userName).param("password", password)).andExpect(status().isServiceUnavailable());
+
+		assertTrue(session.isInvalid());
+	}
+
+	private MvcResult rejectedLogin(String attemptedName) throws Exception {
+		MvcResult csrf = requestCsrf(null);
+		MockHttpSession session = (MockHttpSession) csrf.getRequest().getSession(false);
+		return mockMvc.perform(post("/login").session(session).header("X-CSRF-TOKEN", getToken(csrf))
+				.param("username", attemptedName).param("password", password)).andExpect(status().isUnauthorized())
+				.andReturn();
 	}
 
 	@Test
@@ -112,7 +242,8 @@ class CsrfHttpTest {
 
 		UserAccount account = createTestAccount();
 
-		when(loginService.authenticate(userName, password)).thenReturn(Optional.of(account));
+		when(loginService.evaluate(userName, password))
+				.thenReturn(new LoginAttempt(account, account.getUserID(), null));
 
 		MvcResult firstCsrf = requestCsrf(null);
 		String oldToken = getToken(firstCsrf);
@@ -150,8 +281,10 @@ class CsrfHttpTest {
 	}
 
 	private UserAccount createTestAccount() {
-		return new UserAccount(UUID.randomUUID(), userName, UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE),
-				UUID.randomUUID(), "Exemple", "Test", "test@example.invalid", "0600000000");
+		UserAccount account = new UserAccount(UUID.randomUUID(), userName, UserAccountStatus.ACTIVE,
+				Set.of(UserRole.EMPLOYEE), UUID.randomUUID(), "Exemple", "Test", "test@example.invalid", "0600000000");
+		when(accountStore.findById(account.getUserID())).thenReturn(Optional.of(account));
+		return account;
 	}
 
 	@Test
@@ -159,7 +292,8 @@ class CsrfHttpTest {
 
 		UserAccount account = createTestAccount();
 
-		when(loginService.authenticate(userName, password)).thenReturn(Optional.of(account));
+		when(loginService.evaluate(userName, password))
+				.thenReturn(new LoginAttempt(account, account.getUserID(), null));
 
 		MvcResult csrfResult = requestCsrf(null);
 		String token = getToken(csrfResult);
@@ -177,6 +311,73 @@ class CsrfHttpTest {
 	}
 
 	@Test
+	void rejectsAFormerSessionEvenWhenTheAccountIsActiveAgain() throws Exception {
+
+		UserAccount account = createTestAccount();
+		when(loginService.evaluate(userName, password))
+				.thenReturn(new LoginAttempt(account, account.getUserID(), null));
+		MvcResult csrfResult = requestCsrf(null);
+		MockHttpSession session = (MockHttpSession) csrfResult.getRequest().getSession(false);
+		MvcResult login = mockMvc.perform(post("/login").session(session).header("X-CSRF-TOKEN", getToken(csrfResult))
+				.param("username", userName).param("password", password)).andExpect(status().isOk()).andReturn();
+		MockHttpSession authenticatedSession = (MockHttpSession) login.getRequest().getSession(false);
+
+		UserAccount reactivated = new UserAccount(account.getUserID(), account.getUserName(), UserAccountStatus.ACTIVE,
+				Set.of(), account.getEmployeeID(), account.getLastName(), account.getFirstName(), account.getEmail(),
+				account.getPhoneNumber(), account.getSessionVersion() + 1);
+		when(accountStore.findById(account.getUserID())).thenReturn(Optional.of(reactivated));
+
+		mockMvc.perform(get("/api/auth/me").session(authenticatedSession)).andExpect(status().isUnauthorized());
+		assertTrue(authenticatedSession.isInvalid());
+	}
+
+	@Test
+	void requiresTotpForTheAccountAndKeepsOnlyAssuranceInTheSession() throws Exception {
+		UserAccount account = createTestAccount();
+		String attemptedName = "mfa-required-user";
+		String code = "012345";
+		when(loginService.evaluate(attemptedName, password))
+				.thenReturn(new LoginAttempt(account, account.getUserID(), null));
+		when(mfa.verifyForLogin(account, code)).thenReturn(Verification.VERIFIED);
+		when(mfa.verifyForLogin(account, null)).thenReturn(Verification.DENIED);
+		when(mfa.requiresVerification(account.getUserID())).thenReturn(true);
+
+		MvcResult csrf = requestCsrf(null);
+		MockHttpSession session = (MockHttpSession) csrf.getRequest().getSession(false);
+		MvcResult login = mockMvc.perform(post("/login").session(session).header("X-CSRF-TOKEN", getToken(csrf))
+				.param("username", attemptedName).param("password", password).param("totp", code))
+				.andExpect(status().isOk()).andReturn();
+		MockHttpSession authenticated = (MockHttpSession) login.getRequest().getSession(false);
+		SecurityContext context = (SecurityContext) authenticated
+				.getAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
+		assertEquals(new LoginAssurance(true), context.getAuthentication().getDetails());
+
+		mockMvc.perform(get("/api/auth/session").session(authenticated)).andExpect(status().isOk())
+				.andExpect(jsonPath("$.expiresAt").exists()).andExpect(jsonPath("$.warnAt").exists());
+		rejectedLogin(attemptedName);
+		verify(auditService).recordForActor(eq(AuditAction.AUTH_LOGIN), eq(AuditResult.FAILURE), isNull(),
+				anyString(), eq(Set.of(new AuditTarget(AuditTargetType.ACCOUNT, account.getUserID()))),
+				eq(AuditMetadata.because(AuditReason.MFA_REQUIRED)));
+	}
+
+	@Test
+	void rejectsAPasswordOnlySessionWhenMfaBecomesMandatory() throws Exception {
+		UserAccount account = createTestAccount();
+		when(loginService.evaluate(userName, password))
+				.thenReturn(new LoginAttempt(account, account.getUserID(), null));
+		MvcResult csrf = requestCsrf(null);
+		MockHttpSession session = (MockHttpSession) csrf.getRequest().getSession(false);
+		MvcResult login = mockMvc.perform(post("/login").session(session).header("X-CSRF-TOKEN", getToken(csrf))
+				.param("username", userName).param("password", password)).andExpect(status().isOk()).andReturn();
+		MockHttpSession authenticated = (MockHttpSession) login.getRequest().getSession(false);
+
+		when(mfa.requiresVerification(account.getUserID())).thenReturn(true);
+
+		mockMvc.perform(get("/api/auth/me").session(authenticated)).andExpect(status().isUnauthorized());
+		assertTrue(authenticated.isInvalid());
+	}
+
+	@Test
 	void refusesCurrentUserWithoutSession() throws Exception {
 		mockMvc.perform(get("/api/auth/me")).andExpect(status().isUnauthorized());
 	}
@@ -186,7 +387,8 @@ class CsrfHttpTest {
 
 		UserAccount account = createTestAccount();
 
-		when(loginService.authenticate(userName, password)).thenReturn(Optional.of(account));
+		when(loginService.evaluate(userName, password))
+				.thenReturn(new LoginAttempt(account, account.getUserID(), null));
 		MvcResult csrfResult = requestCsrf(null);
 
 		String token = getToken(csrfResult);
@@ -213,7 +415,8 @@ class CsrfHttpTest {
 
 		UserAccount account = createTestAccount();
 
-		when(loginService.authenticate(userName, password)).thenReturn(Optional.of(account));
+		when(loginService.evaluate(userName, password))
+				.thenReturn(new LoginAttempt(account, account.getUserID(), null));
 
 		MvcResult csrfResult = requestCsrf(null);
 		String token = getToken(csrfResult);
@@ -224,7 +427,7 @@ class CsrfHttpTest {
 				.param("username", userName).param("password", password)).andExpect(status().isOk()).andReturn();
 
 		MockHttpSession authenticatedSession = (MockHttpSession) loginResult.getRequest().getSession(false);
-	
+
 		mockMvc.perform(post("/logout").session(authenticatedSession)).andExpect(status().isForbidden());
 		assertFalse(authenticatedSession.isInvalid());
 

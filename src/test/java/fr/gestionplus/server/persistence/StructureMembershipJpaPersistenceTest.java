@@ -17,6 +17,7 @@ import fr.gestionplus.server.auth.UserRole;
 import fr.gestionplus.server.employee.Employee;
 import fr.gestionplus.server.organization.OrganizationalStructure;
 import fr.gestionplus.server.organization.StructureMembership;
+import fr.gestionplus.server.organization.TenantMembership;
 import fr.gestionplus.server.organization.TenantOrganization;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -32,6 +33,8 @@ class StructureMembershipJpaPersistenceTest {
 	private StructureMembershipJpaRepository membershipRepository;
 	@Autowired
 	private TenantOrganizationJpaRepository tenantRepository;
+	@Autowired
+	private TenantMembershipJpaRepository tenantMembershipRepository;
 	@Autowired
 	private OrganizationalStructureJpaRepository structureRepository;
 	@Autowired
@@ -57,6 +60,7 @@ class StructureMembershipJpaPersistenceTest {
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 
 		UUID tenantID = createTenant();
+		tenantMembershipRepository.saveAndFlush(new TenantMembershipEntity(new TenantMembership(userID, tenantID)));
 		OrganizationalStructure structureA = new OrganizationalStructure(UUID.randomUUID(), "Structure A", tenantID);
 		OrganizationalStructure structureB = new OrganizationalStructure(UUID.randomUUID(), "Structure B", tenantID);
 
@@ -68,8 +72,8 @@ class StructureMembershipJpaPersistenceTest {
 		StructureMembership membershipB = new StructureMembership(userID, structureB.getStructureID(),
 				Set.of(UserRole.EMPLOYEE));
 
-		membershipRepository.saveAndFlush(new StructureMembershipEntity(membershipA));
-		membershipRepository.saveAndFlush(new StructureMembershipEntity(membershipB));
+		membershipRepository.saveAndFlush(new StructureMembershipEntity(membershipA, tenantID));
+		membershipRepository.saveAndFlush(new StructureMembershipEntity(membershipB, tenantID));
 
 		entityManager.clear();
 

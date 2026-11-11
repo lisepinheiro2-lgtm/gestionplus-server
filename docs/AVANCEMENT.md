@@ -1,5 +1,5 @@
 ---
-summary: "État serveur au 9 novembre 2026. Audit des rattachements, migrations locales V7 à V12 et résultats de tests."
+summary: "État local au 11 novembre 2026. Sécurité P1.01 à P1.12, tests rapportés et validations restantes."
 read_when:
   - "reprendre les comptes authentification rôles permissions sessions et audit"
   - "distinguer code présent tests écrits résultats disponibles et fonctions prévues"
@@ -8,6 +8,40 @@ read_when:
 ---
 
 # Avancement et feuille de route
+
+<a id="securite-p1-2026-11-11"></a>
+
+## Sécurité P1.01 à P1.12 — état local du 11 novembre 2026
+
+Les développements de sécurité des comptes ont été poursuivis en local les 10–11 novembre. La reprise de P1.11–P1.12 a complété les sources et les tests après une interruption. Les sections datées plus bas conservent les états et décisions de leur époque.
+
+| Périmètre | Code présent dans les sources |
+| --- | --- |
+| P1.01–P1.05 | Autorisations et isolation tenant/structure, responsabilité individuelle du MANAGER, contrôle des rôles locaux et réévaluation des droits. Au dernier retrait valide, désactivation, suppression des accès résiduels et révocation des sessions après commit. Version de session contrôlée pour empêcher la réutilisation d’une session ancienne. |
+| P1.06 | Services de préparation, invitation, activation, expiration, renvoi, remplacement, annulation et réintégration. Invitation valable sept jours à partir de l’envoi effectif, empreinte du jeton stockée côté serveur et notifications mises en file. |
+| P1.07–P1.08 | Transfert ADMIN et succession volontaire du SUPER_ADMIN avec état confirmé revérifié, preuves renforcées et invalidation des sessions concernées. |
+| P1.09 | Audit des succès coordonné avec la transaction PostgreSQL, refus et échecs indépendants, journal transactionnel chiffré et secours local configurable. |
+| P1.10 | Argon2, réponses de connexion génériques, limitation initiale des tentatives, contrôle TOTP, secrets chiffrés, codes de secours à usage unique et changement de mot de passe avec révocation générale. Sessions expirant après 30 minutes d’inactivité ou 8 heures, avec état d’avertissement fourni par le serveur. |
+| P1.11 | Réponses d’erreur JSON génériques, classement des erreurs et masquage des ressources hors périmètre par `404`. Validation du formulaire de connexion, limites HTTP, CSRF, refus par défaut et profil `prod` exigeant HTTPS avec cookies sécurisés. |
+| P1.12 | Ordre commun de verrouillage, structures puis comptes par UUID croissant. Contrôle de l’état et de la version de session de l’acteur après attente. Coordination des accès, invitations et transferts. |
+
+### Tests, preuves et corrections
+
+La suite antérieure à P1.11–P1.12 a été signalée au vert par l’utilisatrice après correction des erreurs remontées dans Eclipse. La capture précédente recensait 445 cas et cinq échecs. La confirmation au vert est une preuve rapportée dont le bilan chiffré détaillé reste à préciser.
+
+Les nouveaux tests P1.11–P1.12 sont rédigés. Ils couvrent les codes HTTP et la confidentialité des erreurs, les limites de connexion, les en-têtes de proxy falsifiés, le profil de production, le refus d’une nouvelle route non autorisée et les opérations concurrentes sur PostgreSQL. Les scénarios incluent dernier retrait contre attribution, réintégration contre révocation, opérations croisées entre comptes et session révoquée pendant l’attente d’un verrou. Les tests existants du journal de secours couvrent aussi la disparition d’un succès après rollback.
+
+Les corrections de la conversation portent notamment sur les attentes d’exceptions Spring/JPA, les fixtures de rôles locaux, la relecture des comptes après promotion et le double enregistrement du fournisseur d’authentification. Les nouveaux fichiers ont été relus et leurs différences contrôlées. Leur compilation et leur exécution restent à effectuer.
+
+Les migrations V17 à V23 figurent dans les sources pour les appartenances, versions de session, responsabilités, notifications, invitations, audit et facteurs MFA. Leur application et leur validation sur la base utilisée doivent être établies séparément des résultats JUnit.
+
+### Reprise et exploitation
+
+- Relancer les [tests HTTP](../src/test/java/fr/gestionplus/server/api/ApiExceptionHandlerTest.java), les [scénarios de concurrence des accès](../src/test/java/fr/gestionplus/server/account/StructureAccessPostgresqlIntegrationTest.java) et ceux des invitations, puis consigner le bilan.
+- Fournir les vérificateurs opérationnels d’identité pour l’activation, l’enrôlement MFA et les confirmations privilégiées. Un compte soumis au MFA sans facteur configuré est refusé à la connexion. Raccorder ces services et les avertissements de session aux parcours Swing.
+- Configurer la clé MFA externe et le journal de secours. La limitation initiale des connexions et le registre de sessions utilisent la mémoire d’une instance. Préciser les récidives, les appareils de confiance, la récupération exceptionnelle et les contacts vérifiés.
+- Déployer le profil `prod` avec un certificat TLS et vérifier le comportement réel des cookies et de HTTPS. Les en-têtes de transfert sont ignorés avec `server.forward-headers-strategy=none`. Définir la confiance envers un éventuel proxy selon l’infrastructure retenue.
+- Les limites HTTP initiales sont de 16 Kio pour les corps de taille annoncée et les formulaires Tomcat, 32 paramètres et 8 Kio d’en-têtes. Adapter et vérifier ces limites pour tout nouveau contrat de requête.
 
 État initial relu le **27 octobre 2026 (Europe/Paris)**, complété par les décisions du 29 octobre et du 2 novembre. **Actualisation technique le 2 novembre 2026** : fichiers Java présents sur `main` et résultats JUnit ciblés montrés depuis Eclipse. **Complément au 3 novembre 2026** : avancement du code *local* signalé par captures Eclipse et validations JUnit ciblées ; les nouvelles classes et la migration V8 ne sont pas supposées déjà poussées sur GitHub. Les mises à jour documentaires ne lancent ni test, ni build, ni serveur, ni migration.
 
@@ -316,3 +350,4 @@ Journal public :
 | 3 novembre 2026 | Registre HTTP et service de révocation testés ; persistance de désactivation et refus métier partiels ; choix du compte unique multi-structures ; modèles, migration V8, entité/repository de structure, clé composée et entité d'appartenance en local. **36 réussites ciblées** sur les classes listées, mais pas de suite complète, pas de révocation automatique, pas d'autorisation inter-structures. Prochaine étape : repository et intégration JPA des appartenances. |
 | 5 novembre 2026 — tests et documentation | Adaptation aux contrats locaux actuels : huit tests modifiés, deux ajoutés, 87 méthodes déclarées non compilées/non exécutées. Contrôles de périmètre, hiérarchie, audit et fixtures tenants ; problèmes de production signalés sans correction. Empreintes de src comparées, production inchangée ; aucune nouvelle réussite applicative ni publication. |
 | 9 novembre 2026 — audit des rattachements | Instantanés des rôles attribués ou révoqués, protection contre le doublon concurrent, V7 à V12 appliquées localement et 356/356 tests réussis selon le lancement de l’utilisatrice. |
+| 11 novembre 2026 — sécurité P1.01 à P1.12 | État des développements locaux et corrections Eclipse récapitulé. Suite antérieure à P1.11–P1.12 signalée au vert par l’utilisatrice. Nouveaux tests HTTP et PostgreSQL rédigés, compilation et exécution à effectuer. Contrôle documentaire des contenus et liens. |

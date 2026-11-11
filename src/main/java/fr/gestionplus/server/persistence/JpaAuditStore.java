@@ -37,8 +37,9 @@ public class JpaAuditStore implements AuditStore {
 
 		Optional<AuditEventEntity> eventEntitys = eventJpaRepository.findById(eventId);
 
-		if (eventEntitys.isEmpty())
+		if (eventEntitys.isEmpty()) {
 			return Optional.empty();
+		}
 
 		AuditEventEntity eventEntity = eventEntitys.get();
 		AuditAction action = AuditAction.valueOf(eventEntity.getAction());
@@ -54,7 +55,7 @@ public class JpaAuditStore implements AuditStore {
 
 		AuditEvent event = new AuditEvent(eventEntity.getOccurredAt(), eventEntity.getEventId(),
 				eventEntity.getActorUserId(), action, result, eventEntity.getIpAddress(), targets,
-				eventEntity.getMetadata());
+				eventEntity.getMetadata(), eventEntity.getTenantId());
 
 		return Optional.of(event);
 	}

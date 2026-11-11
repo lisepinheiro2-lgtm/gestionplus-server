@@ -29,6 +29,9 @@ public class UserAccountEntity {
 	@Column(name = "employee_id")
 	private UUID employeeID;
 
+	@Column(name = "session_version", nullable = false)
+	private long sessionVersion;
+
 	@Column(name = "user_name", unique = true)
 	private String userName;
 
@@ -59,11 +62,13 @@ public class UserAccountEntity {
 
 	public UserAccountEntity(UserAccount account) {
 
-		if (account == null)
+		if (account == null) {
 			throw new NullPointerException("Le compte est null.");
+		}
 
 		userId = account.getUserID();
 		employeeID = account.getEmployeeID();
+		sessionVersion = account.getSessionVersion();
 		userName = account.getUserName();
 		statu = account.getStatu();
 		roles = new HashSet<>(account.getRoles());
@@ -75,22 +80,71 @@ public class UserAccountEntity {
 
 	@PrePersist
 	protected void validateCreation() {
+
 		if (statu == UserAccountStatus.PENDING_ACTIVATION) {
-			if (!roles.isEmpty())
+
+			if (!roles.isEmpty()) {
 				throw new IllegalStateException("Un compte en attente doit être créé sans rôle global.");
+			}
 
 			return;
 		}
 
-		if (employeeID == null)
+		if (employeeID == null) {
 			throw new IllegalStateException("Un nouveau compte doit être rattaché à un salarié.");
+		}
+
 	}
 
 	public UserAccount toDomain() {
-		return new UserAccount(userId, userName, statu, roles, employeeID, lastName, firstName, email, phoneNumber);
+		return new UserAccount(userId, userName, statu, roles, employeeID, lastName, firstName, email, phoneNumber,
+				sessionVersion);
+	}
+
+	void setPendingActivation() {
+
+		if (statu != UserAccountStatus.DISABLED) {
+			throw new IllegalStateException("Le compte doit être désactivé.");
+		}
+
+		sessionVersion++;
+		statu = UserAccountStatus.PENDING_ACTIVATION;
+	}
+
+	void updateEmail(String email) {
+
+		if (email == null || email.isBlank() || email.length() > 255) {
+			throw new IllegalArgumentException("L’adresse e-mail est invalide.");
+		}
+
+		this.email = email;
+	}
+
+	void activate(String userName) {
+
+		if (statu != UserAccountStatus.PENDING_ACTIVATION || employeeID == null) {
+			throw new IllegalStateException("Le compte doit être en attente et associé à un salarié.");
+		}
+
+		if (userName == null || userName.isBlank() || userName.strip().length() > 255) {
+			throw new IllegalArgumentException("Le nom d’utilisateur est invalide.");
+		}
+
+		this.userName = userName.strip();
+		statu = UserAccountStatus.ACTIVE;
+	}
+
+	void advanceSessionVersion() {
+		sessionVersion++;
 	}
 
 	void disable() {
+
+		if (statu != UserAccountStatus.DISABLED) {
+			sessionVersion++;
+		}
+
 		statu = UserAccountStatus.DISABLED;
+		roles.clear();
 	}
 }

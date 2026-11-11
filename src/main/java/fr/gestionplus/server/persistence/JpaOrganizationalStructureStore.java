@@ -1,5 +1,6 @@
 package fr.gestionplus.server.persistence;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -26,6 +27,11 @@ public class JpaOrganizationalStructureStore implements OrganizationalStructureS
 	@Override
 	public Optional<OrganizationalStructure> findByIdForUpdate(UUID structureID) {
 		return repository.findByIdForUpdate(structureID).map(entity -> entity.toDomain());
+	}
+
+	@Override
+	public List<UUID> findIDsByTenant(UUID tenantID) {
+		return repository.findIDsByTenant(tenantID);
 	}
 
 }

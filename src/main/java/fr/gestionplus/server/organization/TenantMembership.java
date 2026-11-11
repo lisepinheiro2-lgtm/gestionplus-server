@@ -7,7 +7,7 @@ public class TenantMembership {
 
 	private final UUID userID;
 	private final UUID tenantID;
-	
+
 	public TenantMembership(UUID userID, UUID tenantID) {
 		this.userID = Objects.requireNonNull(userID);
 		this.tenantID = Objects.requireNonNull(tenantID);

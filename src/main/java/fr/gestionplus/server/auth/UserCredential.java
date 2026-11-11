@@ -16,6 +16,7 @@ public class UserCredential {
 		if (this.passwordHash.isBlank()) {
 			throw new IllegalArgumentException("L'empreinte du mot de passe ne peut pas être vide");
 		}
+
 	}
 
 	public String getPasswordHash() {

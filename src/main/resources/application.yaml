@@ -1,3 +1,15 @@
+server:
+  forward-headers-strategy: none
+  max-http-request-header-size: 8KB
+  tomcat:
+    max-http-form-post-size: ${gestionplus.http.max-body-bytes:16384}B
+    max-parameter-count: 32
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        same-site: lax
+
 spring:
   application:
     name: gestionplus-server

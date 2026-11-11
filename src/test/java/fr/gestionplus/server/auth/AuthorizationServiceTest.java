@@ -3,7 +3,12 @@ package fr.gestionplus.server.auth;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import java.util.HashSet;
 import java.util.Optional;
@@ -20,6 +25,8 @@ import fr.gestionplus.server.organization.OrganizationalStructure;
 import fr.gestionplus.server.organization.OrganizationalStructureStore;
 import fr.gestionplus.server.organization.StructureMembership;
 import fr.gestionplus.server.organization.StructureMembershipStore;
+import fr.gestionplus.server.organization.TenantMembership;
+import fr.gestionplus.server.organization.TenantMembershipStore;
 import fr.gestionplus.server.organization.TenantOrganization;
 import fr.gestionplus.server.organization.TenantOrganizationStore;
 
@@ -33,12 +40,14 @@ class AuthorizationServiceTest {
 	private final OrganizationalStructureStore organizationalStructureStore = mock(OrganizationalStructureStore.class);
 	private final TenantOrganizationStore tenantOrganizationStore = mock(TenantOrganizationStore.class);
 
+	private final TenantMembershipStore tenantMembershipStore = mock(TenantMembershipStore.class);
+
 	private AuthorizationService service;
 
 	@BeforeEach
 	void setUp() {
 		service = new AuthorizationService(structureMembershipStore, accountStore, organizationalStructureStore,
-				tenantOrganizationStore);
+				tenantOrganizationStore, tenantMembershipStore);
 	}
 
 	private UserAccount account(UserAccountStatus statu, Set<UserRole> roles) {
@@ -53,6 +62,8 @@ class AuthorizationServiceTest {
 				.thenReturn(Optional.of(new OrganizationalStructure(structureID, "Structure", tenantID)));
 		when(tenantOrganizationStore.findById(tenantID))
 				.thenReturn(Optional.of(new TenantOrganization(tenantID, "Entreprise", superAdminUserID)));
+		when(tenantMembershipStore.findByUserAndTenant(userID, tenantID))
+				.thenReturn(Optional.of(new TenantMembership(userID, tenantID)));
 	}
 
 	private void membership(UUID userID, UUID structureID, Set<UserRole> roles) {
@@ -63,13 +74,14 @@ class AuthorizationServiceTest {
 	@Test
 	void rejectsNullDependencies() {
 		assertThrows(NullPointerException.class, () -> new AuthorizationService(null, accountStore,
-				organizationalStructureStore, tenantOrganizationStore));
+				organizationalStructureStore, tenantOrganizationStore, tenantMembershipStore));
 		assertThrows(NullPointerException.class, () -> new AuthorizationService(structureMembershipStore, null,
-				organizationalStructureStore, tenantOrganizationStore));
+				organizationalStructureStore, tenantOrganizationStore, tenantMembershipStore));
 		assertThrows(NullPointerException.class,
-				() -> new AuthorizationService(structureMembershipStore, accountStore, null, tenantOrganizationStore));
+				() -> new AuthorizationService(structureMembershipStore, accountStore, null, tenantOrganizationStore,
+						tenantMembershipStore));
 		assertThrows(NullPointerException.class, () -> new AuthorizationService(structureMembershipStore, accountStore,
-				organizationalStructureStore, null));
+				organizationalStructureStore, null, tenantMembershipStore));
 	}
 
 	@Test
@@ -146,6 +158,29 @@ class AuthorizationServiceTest {
 		assertTrue(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
 		assertFalse(service.canInStructure(userID, structureB, Permission.MANAGE_USERS));
 		assertTrue(service.canInStructure(userID, structureB, Permission.VIEW_OWN_SCHEDULE));
+	}
+
+	@Test
+	void rejectsLocalRoleWhenTenantMembershipIsMissingOrIncoherent() {
+		account(UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE));
+		structure(structureID, tenantID, UUID.randomUUID());
+		membership(userID, structureID, Set.of(UserRole.ADMIN));
+		when(tenantMembershipStore.findByUserAndTenant(userID, tenantID)).thenReturn(Optional.empty());
+
+		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+
+		when(tenantMembershipStore.findByUserAndTenant(userID, tenantID))
+				.thenReturn(Optional.of(new TenantMembership(userID, UUID.randomUUID())));
+		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+	}
+
+	@Test
+	void rejectsPendingAccountEvenWithPreparedLocalRoles() {
+		account(UserAccountStatus.PENDING_ACTIVATION, Set.of());
+		structure(structureID, tenantID, UUID.randomUUID());
+		membership(userID, structureID, Set.of(UserRole.EMPLOYEE));
+
+		assertFalse(service.canInStructure(userID, structureID, Permission.VIEW_OWN_SCHEDULE));
 	}
 
 	@Test
@@ -231,8 +266,10 @@ class AuthorizationServiceTest {
 	@ParameterizedTest
 	@EnumSource(Permission.class)
 	void superAdminCannotActInAnotherTenantEvenWithAdminMembership(Permission permission) {
-		account(UserAccountStatus.ACTIVE, Set.of(UserRole.SUPER_ADMIN, UserRole.ADMIN));
+		account(UserAccountStatus.ACTIVE, Set.of());
 		structure(structureID, tenantID, UUID.randomUUID());
+		when(tenantOrganizationStore.findBySuperAdminUserID(userID))
+				.thenReturn(Optional.of(new TenantOrganization(UUID.randomUUID(), "Entreprise titulaire", userID)));
 		membership(userID, structureID, Set.of(UserRole.ADMIN));
 
 		assertFalse(service.canInStructure(userID, structureID, permission));
@@ -240,17 +277,41 @@ class AuthorizationServiceTest {
 	}
 
 	@Test
-	void tenantOwnershipWithoutGlobalSuperAdminRoleDoesNotGrantAccess() {
-		account(UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE));
+	void tenantDesignationGrantsSuperAdminPermissionsWithoutAGlobalRole() {
+		account(UserAccountStatus.ACTIVE, Set.of());
 		structure(structureID, tenantID, userID);
 
+		assertTrue(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+		verifyNoInteractions(structureMembershipStore);
+	}
+
+	@Test
+	void ignoresALegacyGlobalRoleWithoutATenantDesignation() {
+		account(UserAccountStatus.ACTIVE, Set.of(UserRole.SUPER_ADMIN));
+		structure(structureID, tenantID, UUID.randomUUID());
+		membership(userID, structureID, Set.of(UserRole.EMPLOYEE));
+
 		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));
+		assertTrue(service.canInStructure(userID, structureID, Permission.VIEW_OWN_SCHEDULE));
+	}
+
+	@Test
+	void aSessionIssuedBeforeAPromotionCannotUseTheNewPermissions() {
+		UserAccount principal = account(UserAccountStatus.ACTIVE, Set.of());
+		structure(structureID, tenantID, userID);
+		UserAccount promoted = new UserAccount(userID, principal.getUserName(), UserAccountStatus.ACTIVE,
+				Set.of(), principal.getEmployeeID(), principal.getLastName(), principal.getFirstName(),
+				principal.getEmail(), principal.getPhoneNumber(), principal.getSessionVersion() + 1);
+		when(accountStore.findById(userID)).thenReturn(Optional.of(promoted));
+
+		assertTrue(service.rolesInStructureForSession(principal, structureID).isEmpty());
+		assertTrue(service.rolesInStructureForSession(promoted, structureID).contains(UserRole.SUPER_ADMIN));
 	}
 
 	@Test
 	void rejectsSuperAdminAsStructureRoleEvenAlongsideAdmin() {
 		account(UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE));
-		structure(structureID, tenantID, userID);
+		structure(structureID, tenantID, UUID.randomUUID());
 		membership(userID, structureID, Set.of(UserRole.SUPER_ADMIN, UserRole.ADMIN));
 
 		assertFalse(service.canInStructure(userID, structureID, Permission.MANAGE_USERS));

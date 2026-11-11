@@ -11,15 +11,18 @@ import org.springframework.stereotype.Component;
 public class AuthenticatedUserProvider {
 
 	public UUID getCurrentUserID() {
+		return getCurrentAccount().getUserID();
+	}
+
+	public UserAccount getCurrentAccount() {
 
 		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
 		if (authentication == null || !(authentication.getPrincipal() instanceof UserAccount)
-				|| !authentication.isAuthenticated())
+				|| !authentication.isAuthenticated()) {
 			throw new AuthenticationCredentialsNotFoundException("Vous ne passerez paaaaas !!!");
+		}
 
-		UserAccount account = (UserAccount) authentication.getPrincipal();
-
-		return account.getUserID();
+		return (UserAccount) authentication.getPrincipal();
 	}
 }

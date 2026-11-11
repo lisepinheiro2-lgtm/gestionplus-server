@@ -27,7 +27,6 @@ public class OrganizationalUnitEntity {
 	}
 
 	public OrganizationalUnitEntity(OrganizationalUnit unit) {
-
 		Objects.requireNonNull(unit);
 		this.unitId = unit.getUnitId();
 		this.name = unit.getName();

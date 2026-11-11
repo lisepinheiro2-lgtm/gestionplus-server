@@ -8,14 +8,16 @@ public class OrganizationalStructure {
 	private final UUID structureID;
 	private final String structureName;
 	private final UUID tenantID;
-	
+
 	public OrganizationalStructure(UUID structureID, String structureName, UUID tenantID) {
 		this.structureID = Objects.requireNonNull(structureID);
 		this.structureName = Objects.requireNonNull(structureName).strip();
 		this.tenantID = Objects.requireNonNull(tenantID);
-		
-		if (structureName.isBlank())
-			throw new IllegalArgumentException("Le nom de la structure ne peut pas être vide");		
+
+		if (structureName.isBlank()) {
+			throw new IllegalArgumentException("Le nom de la structure ne peut pas être vide");
+		}
+
 	}
 
 	public UUID getStructureID() {

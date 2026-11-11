@@ -23,19 +23,23 @@ public class AuditTargetEmbeddable {
 	@Override
 	public boolean equals(Object obj) {
 
-		if (obj == null)
+		if (obj == null) {
 			return false;
+		}
 
-		if (!(obj instanceof AuditTargetEmbeddable))
+		if (!(obj instanceof AuditTargetEmbeddable)) {
 			return false;
+		}
 
-		if (obj == this)
+		if (obj == this) {
 			return true;
+		}
 
 		AuditTargetEmbeddable other = (AuditTargetEmbeddable) obj;
 
-		if (other.getTargetId().equals(this.getTargetId()) && other.getTargetType().equals(this.getTargetType()))
+		if (other.getTargetId().equals(this.getTargetId()) && other.getTargetType().equals(this.getTargetType())) {
 			return true;
+		}
 
 		return false;
 	}

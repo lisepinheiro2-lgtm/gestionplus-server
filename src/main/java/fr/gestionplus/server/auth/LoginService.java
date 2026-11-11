@@ -2,8 +2,11 @@ package fr.gestionplus.server.auth;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 import org.springframework.stereotype.Service;
+
+import fr.gestionplus.server.audit.AuditReason;
 
 @Service
 public class LoginService {
@@ -21,30 +24,49 @@ public class LoginService {
 	}
 
 	public Optional<UserAccount> authenticate(String userName, String rawPassword) {
+		return Optional.ofNullable(evaluate(userName, rawPassword).account());
+	}
 
-		if (userName == null || rawPassword == null || userName.isBlank() || rawPassword.isBlank())
-			return Optional.empty();
+	public LoginAttempt evaluate(String userName, String rawPassword) {
 
-		Optional<UserAccount> userAccount = userAccountLookup.findByUserName(userName);
+		if (userName == null || rawPassword == null || userName.isBlank() || rawPassword.isBlank()) {
+			return new LoginAttempt(null, null, AuditReason.INVALID_CREDENTIALS);
+		}
 
-		if (userAccount.isEmpty())
-			return Optional.empty();
+		Optional<UserAccount> found = userAccountLookup.findByUserName(userName);
 
-		if (userAccount.get().getStatu() != UserAccountStatus.ACTIVE)
-			return Optional.empty();
+		if (found.isEmpty()) {
+			return rejectAfterDummyCheck(rawPassword, null, AuditReason.UNKNOWN_ACCOUNT);
+		}
 
-		Optional<UserCredential> credential = userCredentialLookup.findByUserId(userAccount.get().getUserID());
+		UserAccount account = found.get();
 
-		if (credential.isEmpty())
-			return Optional.empty();
+		if (account.getStatu() == UserAccountStatus.DISABLED) {
+			return rejectAfterDummyCheck(rawPassword, account.getUserID(), AuditReason.DISABLED_ACCOUNT);
+		}
 
-		if (!userAccount.get().getUserID().equals(credential.get().getUserId()))
-			return Optional.empty();
+		if (account.getStatu() != UserAccountStatus.ACTIVE) {
+			return rejectAfterDummyCheck(rawPassword, account.getUserID(), AuditReason.ACCOUNT_NOT_ACTIVE);
+		}
 
-		if (!credentialService.verifyPassword(credential.get(), rawPassword))
-			return Optional.empty();
+		Optional<UserCredential> credential = userCredentialLookup.findByUserId(account.getUserID());
 
-		return userAccount;
+		if (credential.isEmpty() || !account.getUserID().equals(credential.get().getUserId())) {
+			return rejectAfterDummyCheck(rawPassword, account.getUserID(), AuditReason.INVALID_CREDENTIALS);
+		}
 
+		if (!credentialService.verifyPassword(credential.get(), rawPassword)) {
+			return new LoginAttempt(null, account.getUserID(), AuditReason.INVALID_CREDENTIALS);
+		}
+
+		return new LoginAttempt(account, account.getUserID(), null);
+	}
+
+	private LoginAttempt rejectAfterDummyCheck(String rawPassword, UUID targetId, AuditReason reason) {
+		credentialService.verifyDummyPassword(rawPassword);
+		return new LoginAttempt(null, targetId, reason);
+	}
+
+	public record LoginAttempt(UserAccount account, UUID targetId, AuditReason reason) {
 	}
 }

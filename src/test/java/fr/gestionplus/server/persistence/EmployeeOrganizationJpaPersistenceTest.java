@@ -45,7 +45,7 @@ class EmployeeOrganizationJpaPersistenceTest {
 
 	@BeforeEach
 	void opensIsolatedInMemoryDatabase() throws Exception {
-		
+
 		Class<?> driverClass;
 
 		try {
@@ -85,30 +85,51 @@ class EmployeeOrganizationJpaPersistenceTest {
 
 	@AfterEach
 	void closesIsolatedDatabase() throws Exception {
-		
+
 		try {
+
 			if (entityManager != null && entityManager.isOpen()) {
+
 				try {
-					if (entityManager.getTransaction().isActive())
+
+					if (entityManager.getTransaction().isActive()) {
 						entityManager.getTransaction().rollback();
+					}
+
 				} finally {
 					entityManager.close();
 				}
+
 			}
+
 		} finally {
+
 			try {
-				if (sessionFactory != null)
+
+				if (sessionFactory != null) {
 					sessionFactory.close();
-			} finally {
-				try {
-					if (registry != null)
-						StandardServiceRegistryBuilder.destroy(registry);
-				} finally {
-					if (connection != null)
-						connection.close();
 				}
+
+			} finally {
+
+				try {
+
+					if (registry != null) {
+						StandardServiceRegistryBuilder.destroy(registry);
+					}
+
+				} finally {
+
+					if (connection != null) {
+						connection.close();
+					}
+
+				}
+
 			}
+
 		}
+
 	}
 
 	@Test
@@ -128,10 +149,12 @@ class EmployeeOrganizationJpaPersistenceTest {
 	@Test
 	void updatesUnitWithoutChangingUuid() {
 		UUID unitId = UUID.randomUUID();
-		unitRepository.saveAndFlush(new OrganizationalUnitEntity(new OrganizationalUnit(unitId, "Initial", structureID)));
+		unitRepository
+				.saveAndFlush(new OrganizationalUnitEntity(new OrganizationalUnit(unitId, "Initial", structureID)));
 		entityManager.clear();
 
-		unitRepository.saveAndFlush(new OrganizationalUnitEntity(new OrganizationalUnit(unitId, "Modifie", structureID)));
+		unitRepository
+				.saveAndFlush(new OrganizationalUnitEntity(new OrganizationalUnit(unitId, "Modifie", structureID)));
 		entityManager.clear();
 
 		OrganizationalUnit restored = unitRepository.findById(unitId).orElseThrow().toDomain();
@@ -304,11 +327,13 @@ class EmployeeOrganizationJpaPersistenceTest {
 
 	private UUID insertStructure() throws SQLException {
 		UUID id = UUID.randomUUID();
+
 		try (PreparedStatement statement = connection.prepareStatement(
 				"INSERT INTO organizational_structures (structure_id) VALUES (?)")) {
 			statement.setObject(1, id);
 			statement.executeUpdate();
 		}
+
 		return id;
 	}
 

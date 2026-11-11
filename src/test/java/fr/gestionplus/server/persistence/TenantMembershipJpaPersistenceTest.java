@@ -53,8 +53,8 @@ class TenantMembershipJpaPersistenceTest {
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userID, "alice_" + userID, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.SUPER_ADMIN), employee.getEmployeeID(),
-				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
+				Set.of(UserRole.SUPER_ADMIN), employee.getEmployeeID(), employee.getLastName(), employee.getFirstName(),
+				employee.getEmail(), employee.getPhoneNumber());
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 
 		TenantOrganization tenant = new TenantOrganization(tenantID, "Entreprise test", userID);
@@ -86,8 +86,8 @@ class TenantMembershipJpaPersistenceTest {
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userID, "alice_" + userID, UserAccountStatus.ACTIVE, Set.of(role),
-				employee.getEmployeeID(),
-				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
+				employee.getEmployeeID(), employee.getLastName(), employee.getFirstName(), employee.getEmail(),
+				employee.getPhoneNumber());
 		accountRepository.saveAndFlush(new UserAccountEntity(account));
 
 		return userID;

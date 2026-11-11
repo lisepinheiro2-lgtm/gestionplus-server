@@ -8,7 +8,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
 
 @Embeddable
-public class TenantMembershipId implements Serializable{
+public class TenantMembershipId implements Serializable {
 
 	@Column(name = "user_id")
 	private UUID userID;
@@ -25,8 +25,9 @@ public class TenantMembershipId implements Serializable{
 
 	public boolean equals(Object obj) {
 
-		if (!(obj instanceof TenantMembershipId))
+		if (!(obj instanceof TenantMembershipId)) {
 			return false;
+		}
 
 		TenantMembershipId other = (TenantMembershipId) obj;
 

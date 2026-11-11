@@ -146,5 +146,6 @@ public class RolePermissionPolicy {
 		default:
 			return false;
 		}
+
 	}
 }

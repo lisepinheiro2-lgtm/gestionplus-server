@@ -1,25 +1,34 @@
 package fr.gestionplus.server.auth;
 
-import java.util.Objects;
+import java.time.Clock;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
 import org.springframework.security.access.hierarchicalroles.RoleHierarchyImpl;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.core.session.SessionRegistryImpl;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
+import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
+import org.springframework.security.web.csrf.CsrfException;
+import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.session.HttpSessionEventPublisher;
+
+import fr.gestionplus.server.account.AccountStore;
+import fr.gestionplus.server.api.HttpApiError;
+import fr.gestionplus.server.audit.AuditReason;
+import fr.gestionplus.server.audit.AuditService;
+import fr.gestionplus.server.audit.AuditedAccessDeniedException;
+import jakarta.servlet.DispatcherType;
 
 @Configuration
 public class HttpSecurityConfig {
-
-	private final GestionAuthenticationProvider authenticationProvider;
-
-	public HttpSecurityConfig(GestionAuthenticationProvider authenticationProvider) {
-		this.authenticationProvider = Objects.requireNonNull(authenticationProvider);
-	}
 
 	@Bean
 	public RoleHierarchy roleHierarchy() {
@@ -36,32 +45,90 @@ public class HttpSecurityConfig {
 	}
 
 	@Bean
-	public SecurityFilterChain securityFilterChain(HttpSecurity http, SessionRegistry registry) throws Exception {
+	public SecurityFilterChain securityFilterChain(HttpSecurity http, SessionRegistry registry,
+			AccountStore accountStore,
+			AuditService auditService, SessionLifetime lifetime, AccountMfaService mfa,
+			@Value("${gestionplus.http.require-https:false}") boolean requireHttps,
+			@Value("${gestionplus.http.max-body-bytes:16384}") long maxBodyBytes) throws Exception {
 
-		http.formLogin(form -> form.permitAll().successHandler((request, response, authentication) -> {
-			response.setStatus(200);
-		})
+		HttpSecurityAudit audit = new HttpSecurityAudit(auditService);
+		SecurityContextLogoutHandler logoutHandler = new SecurityContextLogoutHandler();
 
-				.failureHandler((request, response, exception) -> {
-					response.setStatus(401);
+		http.formLogin(form -> form.permitAll()
+				.authenticationDetailsSource(request -> new GestionAuthenticationProvider.LoginDetails(
+						request.getRemoteAddr(), request.getParameter("totp")))
+				.successHandler((request, response, authentication) -> {
+
+					try {
+						audit.loginSucceeded(request, authentication);
+						lifetime.start(request.getSession(true),
+								authentication
+										.getDetails() instanceof GestionAuthenticationProvider.LoginAssurance assurance
+										&& assurance.mfaVerified());
+						response.setStatus(200);
+					} catch (RuntimeException failure) {
+						logoutHandler.logout(request, response, authentication);
+						HttpApiError.SERVICE_UNAVAILABLE.write(response);
+					}
+
+				}).failureHandler((request, response, exception) -> {
+					audit.loginFailed(request, exception);
+					HttpApiError.AUTHENTICATION_REQUIRED.write(response);
 				}));
 
 		http.exceptionHandling(errors -> errors.authenticationEntryPoint((request, response, exception) -> {
-			response.setStatus(401);
+			audit.refused(request, currentPrincipal(), AuditReason.AUTHENTICATION_REQUIRED);
+			HttpApiError.AUTHENTICATION_REQUIRED.write(response);
+		}).accessDeniedHandler((request, response, exception) -> {
+			AuditReason reason = AuditReason.ACCESS_NOT_AUTHORIZED;
+
+			if (exception instanceof CsrfException) {
+				reason = AuditReason.CSRF_REJECTED;
+			} else if (exception instanceof AuditedAccessDeniedException denied) {
+				reason = denied.getReason();
+			}
+
+			audit.refused(request, currentPrincipal(), reason);
+			HttpApiError.fromAccessDenied(exception).write(response);
 		}));
 
 		http.logout(logout -> logout.logoutSuccessHandler((request, response, authentication) -> {
+			audit.logout(request, authentication);
 			response.setStatus(204);
 		}));
 
-		http.authorizeHttpRequests(auth -> auth.requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
-				.requestMatchers(HttpMethod.GET, "/api/auth/me").authenticated().anyRequest().denyAll());
+		http.requestCache(cache -> cache.disable());
+		http.authorizeHttpRequests(auth -> auth.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+				.requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
+				.requestMatchers(HttpMethod.GET, "/api/auth/me", SessionLifetime.STATUS_PATH).authenticated()
+				.anyRequest().denyAll());
 
 		http.sessionManagement(sessions -> sessions.maximumSessions(-1).sessionRegistry(registry)
-				.expiredSessionStrategy(event -> event.getResponse().setStatus(401)));
+				.expiredSessionStrategy(event -> {
+					audit.refused(event.getRequest(), event.getSessionInformation().getPrincipal(),
+							AuditReason.STALE_SESSION);
+					HttpApiError.AUTHENTICATION_REQUIRED.write(event.getResponse());
+				}));
 
-		http.authenticationProvider(authenticationProvider);
+		http.addFilterBefore(new HttpRequestPolicyFilter(audit, requireHttps, maxBodyBytes), CsrfFilter.class);
+		http.addFilterBefore(new CurrentAccountSessionFilter(accountStore, audit, lifetime, mfa),
+				AuthorizationFilter.class);
 		return http.build();
+	}
+
+	private Object currentPrincipal() {
+		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+		return authentication == null ? null : authentication.getPrincipal();
+	}
+
+	@Bean
+	public SessionLifetime sessionLifetime() {
+		return new SessionLifetime(Clock.systemUTC());
+	}
+
+	@Bean
+	public HttpSessionEventPublisher httpSessionEventPublisher() {
+		return new HttpSessionEventPublisher();
 	}
 
 	@Bean

@@ -7,11 +7,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -43,13 +41,12 @@ import fr.gestionplus.server.audit.AuditTarget;
 import fr.gestionplus.server.audit.AuditTargetType;
 import fr.gestionplus.server.auth.AuthenticatedUserProvider;
 import fr.gestionplus.server.auth.AuthorizationService;
-import fr.gestionplus.server.auth.GestionAuthenticationProvider;
 import fr.gestionplus.server.auth.HttpSecurityConfig;
-import fr.gestionplus.server.auth.Permission;
 import fr.gestionplus.server.auth.RoleHierarchyPolicy;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
 import fr.gestionplus.server.auth.UserRole;
+import fr.gestionplus.server.employee.EmployeeResponsibilityStore;
 import fr.gestionplus.server.organization.OrganizationalStructure;
 import fr.gestionplus.server.organization.OrganizationalStructureStore;
 import fr.gestionplus.server.organization.StructureMembership;
@@ -72,8 +69,14 @@ class AccountManagementServiceTest {
 	private final AuditService auditService = mock(AuditService.class);
 	private final AuthenticatedUserProvider authenticatedUserProvider = new AuthenticatedUserProvider();
 	private final RoleHierarchyPolicy roleHierarchyPolicy = new RoleHierarchyPolicy(
-			new HttpSecurityConfig(mock(GestionAuthenticationProvider.class)).roleHierarchy());
+			new HttpSecurityConfig().roleHierarchy());
 	private final TenantMembershipStore tenantMembershipStore = mock(TenantMembershipStore.class);
+
+	private final EmployeeResponsibilityStore responsibilityStore = mock(EmployeeResponsibilityStore.class);
+	private final AccountAccessLifecycle accountAccessLifecycle = mock(AccountAccessLifecycle.class);
+
+	private final PrivilegedConfirmationService confirmations = mock(PrivilegedConfirmationService.class);
+	private final AccountDeactivationNotifications notifications = mock(AccountDeactivationNotifications.class);
 
 	private AuthorizationService authorizationService;
 	private StructureAccessService accessService;
@@ -83,12 +86,13 @@ class AccountManagementServiceTest {
 	void setUp() {
 		SecurityContextHolder.clearContext();
 		authorizationService = new AuthorizationService(structureMembershipStore, store, organizationalStructureStore,
-				tenantOrganizationStore);
+				tenantOrganizationStore, tenantMembershipStore);
 		accessService = new StructureAccessService(authorizationService, store, structureMembershipStore,
 				authenticatedUserProvider, auditService, roleHierarchyPolicy, organizationalStructureStore,
-				tenantMembershipStore);
+				responsibilityStore, accountAccessLifecycle);
 		adminTransferService = new StructureAdminTransferService(authorizationService, store, structureMembershipStore,
-				authenticatedUserProvider, auditService, organizationalStructureStore, tenantMembershipStore);
+				authenticatedUserProvider, auditService, organizationalStructureStore, tenantMembershipStore,
+				accountAccessLifecycle, confirmations, notifications);
 	}
 
 	@AfterEach
@@ -97,9 +101,10 @@ class AccountManagementServiceTest {
 	}
 
 	private UserAccount account(UUID userID, UserAccountStatus statu, Set<UserRole> roles) {
-		UserAccount account = new UserAccount(userID, "test_" + userID, statu, roles, UUID.randomUUID(),
-				"Exemple", "Test", "test@example.invalid", "0600000000");
+		UserAccount account = new UserAccount(userID, "test_" + userID, statu, roles, UUID.randomUUID(), "Exemple",
+				"Test", "test@example.invalid", "0600000000");
 		when(store.findById(userID)).thenReturn(Optional.of(account));
+		when(store.findByIdForUpdate(userID)).thenReturn(Optional.of(account));
 		return account;
 	}
 
@@ -122,14 +127,20 @@ class AccountManagementServiceTest {
 				.thenReturn(Optional.of(new StructureMembership(actorUserId, structureID, actorRoles)));
 		when(structureMembershipStore.findByUserAndStructure(targetUserId, structureID))
 				.thenReturn(Optional.of(new StructureMembership(targetUserId, structureID, targetRoles)));
+		when(tenantMembershipStore.findByUserAndTenant(actorUserId, tenantID))
+				.thenReturn(Optional.of(new TenantMembership(actorUserId, tenantID)));
+		when(tenantMembershipStore.findByUserAndTenant(targetUserId, tenantID))
+				.thenReturn(Optional.of(new TenantMembership(targetUserId, tenantID)));
+		when(responsibilityStore.isResponsibleFor(eq(actorUserId), any(), eq(structureID))).thenReturn(true);
 	}
 
 	private void prepareSuperAdmin(Set<UserRole> targetRoles) {
 		prepare(Set.of(), targetRoles);
-		UserAccount actorUser = account(actorUserId, UserAccountStatus.ACTIVE, Set.of(UserRole.SUPER_ADMIN));
+		UserAccount actorUser = account(actorUserId, UserAccountStatus.ACTIVE, Set.of());
 		authenticate(actorUser);
-		when(tenantOrganizationStore.findById(tenantID))
-				.thenReturn(Optional.of(new TenantOrganization(tenantID, "Entreprise", actorUserId)));
+		TenantOrganization tenant = new TenantOrganization(tenantID, "Entreprise", actorUserId);
+		when(tenantOrganizationStore.findById(tenantID)).thenReturn(Optional.of(tenant));
+		when(tenantOrganizationStore.findBySuperAdminUserID(actorUserId)).thenReturn(Optional.of(tenant));
 		when(structureMembershipStore.findByUserAndStructure(actorUserId, structureID)).thenReturn(Optional.empty());
 	}
 
@@ -149,62 +160,95 @@ class AccountManagementServiceTest {
 						new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID)),
 				AuditMetadata.rolesRevoked(revokedRoles));
 		verify(structureMembershipStore, times(1)).deleteByUserAndStructure(any(), any());
+		verify(accountAccessLifecycle).disableIfWithoutAccess(
+				argThat(account -> targetUserId.equals(account.getUserID())), eq(actorUserId), eq(structureID));
 		verify(store, never()).disableAccount(any());
 		verify(store, never()).createAccount(any());
 		verifyNoMoreInteractions(auditService);
 	}
 
 	@Test
+	void locksBothAccountsBeforeReadingTheActorsCurrentPermissions() {
+		prepare(Set.of(UserRole.ADMIN), Set.of(UserRole.EMPLOYEE));
+
+		accessService.changeStructureRoles(targetUserId, structureID, Set.of(UserRole.TEAM_LEAD));
+
+		InOrder order = inOrder(organizationalStructureStore, store);
+		order.verify(organizationalStructureStore).findByIdForUpdate(structureID);
+
+		for (UUID userID : List.of(actorUserId, targetUserId).stream().sorted().toList()) {
+			order.verify(store).findByIdForUpdate(userID);
+		}
+
+		order.verify(store).findById(actorUserId);
+	}
+
+	@Test
 	void rejectsNullStructureAccessServiceDependencies() {
 		assertThrows(NullPointerException.class,
 				() -> new StructureAccessService(null, store, structureMembershipStore, authenticatedUserProvider,
-						auditService, roleHierarchyPolicy, organizationalStructureStore, tenantMembershipStore));
+						auditService, roleHierarchyPolicy, organizationalStructureStore, responsibilityStore,
+						accountAccessLifecycle));
 		assertThrows(NullPointerException.class,
 				() -> new StructureAccessService(authorizationService, null, structureMembershipStore,
 						authenticatedUserProvider, auditService, roleHierarchyPolicy, organizationalStructureStore,
-						tenantMembershipStore));
+						responsibilityStore, accountAccessLifecycle));
 		assertThrows(NullPointerException.class,
 				() -> new StructureAccessService(authorizationService, store, null, authenticatedUserProvider,
-						auditService, roleHierarchyPolicy, organizationalStructureStore, tenantMembershipStore));
+						auditService, roleHierarchyPolicy, organizationalStructureStore, responsibilityStore,
+						accountAccessLifecycle));
 		assertThrows(NullPointerException.class,
 				() -> new StructureAccessService(authorizationService, store, structureMembershipStore, null,
-						auditService, roleHierarchyPolicy, organizationalStructureStore, tenantMembershipStore));
+						auditService, roleHierarchyPolicy, organizationalStructureStore, responsibilityStore,
+						accountAccessLifecycle));
 		assertThrows(NullPointerException.class,
 				() -> new StructureAccessService(authorizationService, store, structureMembershipStore,
 						authenticatedUserProvider, null, roleHierarchyPolicy, organizationalStructureStore,
-						tenantMembershipStore));
+						responsibilityStore, accountAccessLifecycle));
 		assertThrows(NullPointerException.class,
 				() -> new StructureAccessService(authorizationService, store, structureMembershipStore,
 						authenticatedUserProvider, auditService, null, organizationalStructureStore,
-						tenantMembershipStore));
+						responsibilityStore, accountAccessLifecycle));
 		assertThrows(NullPointerException.class,
 				() -> new StructureAccessService(authorizationService, store, structureMembershipStore,
-						authenticatedUserProvider, auditService, roleHierarchyPolicy, null, tenantMembershipStore));
+						authenticatedUserProvider, auditService, roleHierarchyPolicy, null, responsibilityStore,
+						accountAccessLifecycle));
 		assertThrows(NullPointerException.class,
 				() -> new StructureAccessService(authorizationService, store, structureMembershipStore,
 						authenticatedUserProvider, auditService, roleHierarchyPolicy, organizationalStructureStore,
-						null));
+						null, accountAccessLifecycle));
 	}
 
 	@Test
 	void rejectsNullStructureAdminTransferServiceDependencies() {
 		assertThrows(NullPointerException.class,
 				() -> new StructureAdminTransferService(null, store, structureMembershipStore,
-						authenticatedUserProvider, auditService, organizationalStructureStore, tenantMembershipStore));
+						authenticatedUserProvider, auditService, organizationalStructureStore, tenantMembershipStore,
+						accountAccessLifecycle, confirmations, notifications));
 		assertThrows(NullPointerException.class,
 				() -> new StructureAdminTransferService(authorizationService, null, structureMembershipStore,
-						authenticatedUserProvider, auditService, organizationalStructureStore, tenantMembershipStore));
-		assertThrows(NullPointerException.class, () -> new StructureAdminTransferService(authorizationService, store,
-				null, authenticatedUserProvider, auditService, organizationalStructureStore, tenantMembershipStore));
-		assertThrows(NullPointerException.class, () -> new StructureAdminTransferService(authorizationService, store,
-				structureMembershipStore, null, auditService, organizationalStructureStore, tenantMembershipStore));
+						authenticatedUserProvider, auditService, organizationalStructureStore, tenantMembershipStore,
+						accountAccessLifecycle, confirmations, notifications));
+		assertThrows(NullPointerException.class,
+				() -> new StructureAdminTransferService(authorizationService, store, null, authenticatedUserProvider,
+						auditService, organizationalStructureStore, tenantMembershipStore, accountAccessLifecycle,
+						confirmations, notifications));
+		assertThrows(NullPointerException.class,
+				() -> new StructureAdminTransferService(authorizationService, store, structureMembershipStore, null,
+						auditService, organizationalStructureStore, tenantMembershipStore, accountAccessLifecycle,
+						confirmations, notifications));
 		assertThrows(NullPointerException.class,
 				() -> new StructureAdminTransferService(authorizationService, store, structureMembershipStore,
-						authenticatedUserProvider, null, organizationalStructureStore, tenantMembershipStore));
-		assertThrows(NullPointerException.class, () -> new StructureAdminTransferService(authorizationService, store,
-				structureMembershipStore, authenticatedUserProvider, auditService, null, tenantMembershipStore));
-		assertThrows(NullPointerException.class, () -> new StructureAdminTransferService(authorizationService, store,
-				structureMembershipStore, authenticatedUserProvider, auditService, organizationalStructureStore, null));
+						authenticatedUserProvider, null, organizationalStructureStore, tenantMembershipStore,
+						accountAccessLifecycle, confirmations, notifications));
+		assertThrows(NullPointerException.class,
+				() -> new StructureAdminTransferService(authorizationService, store, structureMembershipStore,
+						authenticatedUserProvider, auditService, null, tenantMembershipStore, accountAccessLifecycle,
+						confirmations, notifications));
+		assertThrows(NullPointerException.class,
+				() -> new StructureAdminTransferService(authorizationService, store, structureMembershipStore,
+						authenticatedUserProvider, auditService, organizationalStructureStore, null,
+						accountAccessLifecycle, confirmations, notifications));
 	}
 
 	@Test
@@ -217,8 +261,8 @@ class AccountManagementServiceTest {
 	@Test
 	void rejectsUnauthenticatedSpringIdentity() {
 		UserAccount actorUser = new UserAccount(actorUserId, "alice", UserAccountStatus.ACTIVE,
-				Set.of(UserRole.SUPER_ADMIN), UUID.randomUUID(),
-				"Exemple", "Alice", "alice@example.invalid", "0600000000");
+				Set.of(UserRole.SUPER_ADMIN), UUID.randomUUID(), "Exemple", "Alice", "alice@example.invalid",
+				"0600000000");
 		SecurityContextHolder.getContext()
 				.setAuthentication(UsernamePasswordAuthenticationToken.unauthenticated(actorUser, null));
 
@@ -287,8 +331,8 @@ class AccountManagementServiceTest {
 	void ignoresForgedOrStaleSpringRolesAndAuthorities() {
 		prepare(Set.of(UserRole.EMPLOYEE), Set.of(UserRole.EMPLOYEE));
 		UserAccount actorUser = new UserAccount(actorUserId, "alice", UserAccountStatus.ACTIVE,
-				Set.of(UserRole.SUPER_ADMIN, UserRole.ADMIN), UUID.randomUUID(),
-				"Exemple", "Alice", "alice@example.invalid", "0600000000");
+				Set.of(UserRole.SUPER_ADMIN, UserRole.ADMIN), UUID.randomUUID(), "Exemple", "Alice",
+				"alice@example.invalid", "0600000000");
 		SecurityContextHolder.getContext().setAuthentication(UsernamePasswordAuthenticationToken
 				.authenticated(actorUser, null, List.of(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"))));
 
@@ -338,7 +382,7 @@ class AccountManagementServiceTest {
 	@Test
 	void rejectsUnknownTargetAccount() {
 		prepare(Set.of(UserRole.ADMIN), Set.of(UserRole.EMPLOYEE));
-		when(store.findById(targetUserId)).thenReturn(Optional.empty());
+		when(store.findByIdForUpdate(targetUserId)).thenReturn(Optional.empty());
 
 		assertThrows(AccessDeniedException.class, () -> accessService.revokeStructureAccess(targetUserId, structureID));
 		assertNoRevocation();
@@ -361,9 +405,10 @@ class AccountManagementServiceTest {
 	}
 
 	@Test
-	void protectsGlobalSuperAdminEvenWithOrdinaryStructureRole() {
+	void protectsDesignatedSuperAdminEvenWithoutALegacyRole() {
 		prepareSuperAdmin(Set.of(UserRole.EMPLOYEE));
-		account(targetUserId, UserAccountStatus.ACTIVE, Set.of(UserRole.SUPER_ADMIN));
+		when(tenantOrganizationStore.findBySuperAdminUserID(targetUserId))
+				.thenReturn(Optional.of(new TenantOrganization(UUID.randomUUID(), "Autre entreprise", targetUserId)));
 
 		assertThrows(AccessDeniedException.class, () -> accessService.revokeStructureAccess(targetUserId, structureID));
 		assertNoRevocation();
@@ -510,18 +555,79 @@ class AccountManagementServiceTest {
 		assertGrantDenied(Set.of(UserRole.EMPLOYEE));
 	}
 
-	@ParameterizedTest
-	@EnumSource(value = Permission.class, names = { "MANAGE_USERS", "MANAGE_USER_ROLES" })
-	void deniesGrantWhenEitherRequiredPermissionIsMissing(Permission missingPermission) {
+	@Test
+	void managerCannotManageAnEmployeeWithoutExplicitResponsibility() {
+		prepare(Set.of(UserRole.MANAGER), Set.of(UserRole.EMPLOYEE));
+		when(responsibilityStore.isResponsibleFor(eq(actorUserId), any(), eq(structureID))).thenReturn(false);
 
-		prepare(Set.of(UserRole.ADMIN), Set.of());
+		assertThrows(AccessDeniedException.class, () -> accessService.revokeStructureAccess(targetUserId, structureID));
+		assertNoRevocation();
+	}
+
+	@Test
+	void managerCannotChangeOrRevokeALowerRoleWhenAnotherStructureHasAHigherRole() {
+		prepare(Set.of(UserRole.MANAGER), Set.of(UserRole.EMPLOYEE));
+		when(structureMembershipStore.findByUserAndTenant(targetUserId, tenantID))
+				.thenReturn(List.of(new StructureMembership(targetUserId, structureID, Set.of(UserRole.EMPLOYEE)),
+						new StructureMembership(targetUserId, UUID.randomUUID(), Set.of(UserRole.R_H))));
+
+		assertThrows(AccessDeniedException.class,
+				() -> accessService.changeStructureRoles(targetUserId, structureID, Set.of(UserRole.TEAM_LEAD)));
+		assertThrows(AccessDeniedException.class, () -> accessService.revokeStructureAccess(targetUserId, structureID));
+		verify(structureMembershipStore, never()).save(any());
+		assertNoRevocation();
+	}
+
+	@Test
+	void secretaryCannotModifyAccessWithoutAnEstablishedScope() {
+		prepare(Set.of(UserRole.SECRETARY, UserRole.ACCOUNTANT), Set.of(UserRole.EMPLOYEE));
+
+		assertThrows(AccessDeniedException.class, () -> accessService.revokeStructureAccess(targetUserId, structureID));
+		assertThrows(AccessDeniedException.class,
+				() -> accessService.changeStructureRoles(targetUserId, structureID, Set.of(UserRole.TEAM_LEAD)));
+		assertNoRevocation();
+	}
+
+	@Test
+	void managerCannotGrantSecretaryOrModifyTheirOwnRoles() {
+		prepare(Set.of(UserRole.MANAGER), Set.of(UserRole.EMPLOYEE));
 		prepareNewGrant();
 
-		AuthorizationService restrictedAuthorization = spy(authorizationService);
-		doReturn(false).when(restrictedAuthorization).canInStructure(actorUserId, structureID, missingPermission);
-		accessService = new StructureAccessService(restrictedAuthorization, store, structureMembershipStore,
-				authenticatedUserProvider, auditService, roleHierarchyPolicy, organizationalStructureStore,
-				tenantMembershipStore);
+		assertGrantDenied(Set.of(UserRole.SECRETARY));
+		assertThrows(AccessDeniedException.class,
+				() -> accessService.changeStructureRoles(actorUserId, structureID, Set.of(UserRole.TEAM_LEAD)));
+	}
+
+	@Test
+	void managerCanChangeAnExplicitlyAssignedEmployeesRoles() {
+		prepare(Set.of(UserRole.MANAGER), Set.of(UserRole.EMPLOYEE));
+
+		accessService.changeStructureRoles(targetUserId, structureID, Set.of(UserRole.TEAM_LEAD));
+
+		verify(structureMembershipStore).save(argThat(membership -> membership.getUserID().equals(targetUserId)
+				&& membership.getRoles().equals(Set.of(UserRole.TEAM_LEAD))));
+		verify(auditService).record(AuditAction.STRUCTURE_ROLES_CHANGE, AuditResult.SUCCESS,
+				Set.of(new AuditTarget(AuditTargetType.ACCOUNT, targetUserId),
+						new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID)),
+				new AuditMetadata(Set.of(UserRole.TEAM_LEAD), Set.of(UserRole.EMPLOYEE)));
+	}
+
+	@Test
+	void invalidatesSessionsWhenAChangeIntroducesMandatoryMfa() {
+		prepare(Set.of(UserRole.ADMIN), Set.of(UserRole.EMPLOYEE));
+		UserAccount target = store.findById(targetUserId).orElseThrow();
+
+		accessService.changeStructureRoles(targetUserId, structureID, Set.of(UserRole.MANAGER, UserRole.EMPLOYEE));
+
+		verify(accountAccessLifecycle).invalidateSessions(target,
+				new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID));
+	}
+
+	@Test
+	void deniesGrantToADisabledAccount() {
+		prepare(Set.of(UserRole.ADMIN), Set.of());
+		prepareNewGrant();
+		account(targetUserId, UserAccountStatus.DISABLED, Set.of());
 
 		assertGrantDenied(Set.of(UserRole.EMPLOYEE));
 	}
@@ -606,10 +712,11 @@ class AccountManagementServiceTest {
 		when(structureMembershipStore.findAdminByStructure(structureID))
 				.thenReturn(Optional.of(new StructureMembership(oldAdminUserID, structureID, Set.of(UserRole.ADMIN))));
 
-		adminTransferService.transferStructureAdmin(structureID, targetUserId);
+		var preview = adminTransferService.previewTransfer(structureID, targetUserId);
+		adminTransferService.transferStructureAdmin(preview, "verified-proof");
 
-		verify(organizationalStructureStore).findByIdForUpdate(structureID);
-		verify(structureMembershipStore).save(argThat(membership -> membership.getUserID().equals(targetUserId)
+		verify(organizationalStructureStore, times(2)).findByIdForUpdate(structureID);
+		verify(structureMembershipStore).saveAndFlush(argThat(membership -> membership.getUserID().equals(targetUserId)
 				&& membership.getStructureID().equals(structureID)
 				&& membership.getRoles().equals(Set.of(UserRole.ADMIN))));
 		verify(structureMembershipStore).deleteByUserAndStructure(oldAdminUserID, structureID);
@@ -625,6 +732,7 @@ class AccountManagementServiceTest {
 	void rejectsAdminTransferOutsideTenant() {
 
 		prepareSuperAdmin(Set.of(UserRole.R_H));
+		when(tenantMembershipStore.findByUserAndTenant(targetUserId, tenantID)).thenReturn(Optional.empty());
 
 		UUID oldAdminUserID = UUID.randomUUID();
 		account(oldAdminUserID, UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE));
@@ -633,7 +741,7 @@ class AccountManagementServiceTest {
 				.thenReturn(Optional.of(new StructureMembership(oldAdminUserID, structureID, Set.of(UserRole.ADMIN))));
 
 		assertThrows(AccessDeniedException.class,
-				() -> adminTransferService.transferStructureAdmin(structureID, targetUserId));
+				() -> adminTransferService.previewTransfer(structureID, targetUserId));
 		verify(tenantMembershipStore).findByUserAndTenant(targetUserId, tenantID);
 		verify(store, never()).findById(targetUserId);
 		verify(structureMembershipStore, never()).deleteByUserAndStructure(any(), any());
@@ -645,9 +753,10 @@ class AccountManagementServiceTest {
 	void adminCannotTransferStructureAdmin() {
 
 		prepare(Set.of(UserRole.ADMIN), Set.of(UserRole.R_H));
+		prepareIncumbent();
 
 		assertThrows(AccessDeniedException.class,
-				() -> adminTransferService.transferStructureAdmin(structureID, targetUserId));
+				() -> adminTransferService.previewTransfer(structureID, targetUserId));
 
 		verify(structureMembershipStore, never()).deleteByUserAndStructure(any(), any());
 		verify(structureMembershipStore, never()).save(any());
@@ -658,12 +767,13 @@ class AccountManagementServiceTest {
 	void superAdminCannotTransferAdminInAnotherTenant() {
 
 		prepareSuperAdmin(Set.of(UserRole.R_H));
+		prepareIncumbent();
 
 		when(tenantOrganizationStore.findById(tenantID))
 				.thenReturn(Optional.of(new TenantOrganization(tenantID, "Autre entreprise", UUID.randomUUID())));
 
 		assertThrows(AccessDeniedException.class,
-				() -> adminTransferService.transferStructureAdmin(structureID, targetUserId));
+				() -> adminTransferService.previewTransfer(structureID, targetUserId));
 
 		verify(structureMembershipStore, never()).deleteByUserAndStructure(any(), any());
 		verify(structureMembershipStore, never()).save(any());
@@ -683,10 +793,11 @@ class AccountManagementServiceTest {
 		when(structureMembershipStore.findAdminByStructure(structureID))
 				.thenReturn(Optional.of(new StructureMembership(oldAdminUserID, structureID, Set.of(UserRole.ADMIN))));
 
+		account(oldAdminUserID, UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE));
 		account(targetUserId, UserAccountStatus.DISABLED, Set.of(UserRole.EMPLOYEE));
 
 		assertThrows(AccessDeniedException.class,
-				() -> adminTransferService.transferStructureAdmin(structureID, targetUserId));
+				() -> adminTransferService.previewTransfer(structureID, targetUserId));
 
 		verify(structureMembershipStore, never()).deleteByUserAndStructure(any(), any());
 		verify(structureMembershipStore, never()).save(any());
@@ -703,12 +814,13 @@ class AccountManagementServiceTest {
 
 		UUID oldAdminUserID = UUID.randomUUID();
 
+		account(oldAdminUserID, UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE));
 		when(structureMembershipStore.findAdminByStructure(structureID))
 				.thenReturn(Optional.of(new StructureMembership(oldAdminUserID, structureID, Set.of(UserRole.ADMIN))));
-		when(store.findById(targetUserId)).thenReturn(Optional.empty());
+		when(store.findByIdForUpdate(targetUserId)).thenReturn(Optional.empty());
 
 		assertThrows(AccessDeniedException.class,
-				() -> adminTransferService.transferStructureAdmin(structureID, targetUserId));
+				() -> adminTransferService.previewTransfer(structureID, targetUserId));
 
 		verify(structureMembershipStore, never()).deleteByUserAndStructure(any(), any());
 		verify(structureMembershipStore, never()).save(any());
@@ -727,7 +839,7 @@ class AccountManagementServiceTest {
 				.thenReturn(Optional.of(new StructureMembership(targetUserId, structureID, Set.of(UserRole.ADMIN))));
 
 		assertThrows(AccessDeniedException.class,
-				() -> adminTransferService.transferStructureAdmin(structureID, targetUserId));
+				() -> adminTransferService.previewTransfer(structureID, targetUserId));
 
 		verify(structureMembershipStore, never()).deleteByUserAndStructure(any(), any());
 		verify(structureMembershipStore, never()).save(any());
@@ -738,15 +850,23 @@ class AccountManagementServiceTest {
 	void rejectsDisabledSuperAdminDespiteAuthenticatedSession() {
 
 		prepareSuperAdmin(Set.of(UserRole.R_H));
+		prepareIncumbent();
 
 		account(actorUserId, UserAccountStatus.DISABLED, Set.of(UserRole.SUPER_ADMIN));
 
 		assertThrows(AccessDeniedException.class,
-				() -> adminTransferService.transferStructureAdmin(structureID, targetUserId));
+				() -> adminTransferService.previewTransfer(structureID, targetUserId));
 
 		verify(structureMembershipStore, never()).deleteByUserAndStructure(any(), any());
 		verify(structureMembershipStore, never()).save(any());
 		verify(auditService, never()).record(any(), eq(AuditResult.SUCCESS), anySet());
+	}
+
+	private void prepareIncumbent() {
+		UUID incumbentID = UUID.randomUUID();
+		account(incumbentID, UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE));
+		when(structureMembershipStore.findAdminByStructure(structureID))
+				.thenReturn(Optional.of(new StructureMembership(incumbentID, structureID, Set.of(UserRole.ADMIN))));
 	}
 
 	@Test

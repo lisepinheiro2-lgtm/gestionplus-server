@@ -22,8 +22,9 @@ public class JpaEmployeeStore implements EmployeeStore {
 	public void createEmployee(Employee employee) {
 		Objects.requireNonNull(employee);
 
-		if (employee.getUnitId() != null && employee.getStructureID() == null)
+		if (employee.getUnitId() != null && employee.getStructureID() == null) {
 			throw new IllegalArgumentException("Le secteur et le salarié doivent appartenir à la même structure.");
+		}
 
 		EmployeeEntity entity = new EmployeeEntity(employee);
 		repository.save(entity);

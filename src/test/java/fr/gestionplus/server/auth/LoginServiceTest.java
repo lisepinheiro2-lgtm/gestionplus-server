@@ -3,6 +3,10 @@ package fr.gestionplus.server.auth;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import java.util.Optional;
 import java.util.Set;
@@ -12,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import fr.gestionplus.server.audit.AuditReason;
 import fr.gestionplus.server.employee.Employee;
 
 public class LoginServiceTest {
@@ -40,16 +45,20 @@ public class LoginServiceTest {
 				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
 
 		userAccountLookup = name -> {
+
 			if (name.equals(userAccount.getUserName())) {
 				return Optional.of(userAccount);
 			}
+
 			return Optional.empty();
 		};
 
 		userCredentialLookup = id -> {
+
 			if (id.equals(userId)) {
 				return Optional.of(credential);
 			}
+
 			return Optional.empty();
 		};
 
@@ -58,7 +67,8 @@ public class LoginServiceTest {
 
 	@Test
 	void rejectsUnknownUser() {
-	    assertTrue(loginService.authenticate("utilisateurInconnu", "ujkel").isEmpty());
+		assertTrue(loginService.authenticate("utilisateurInconnu", "ujkel").isEmpty());
+		assertEquals(AuditReason.UNKNOWN_ACCOUNT, loginService.evaluate("utilisateurInconnu", "ujkel").reason());
 	}
 
 	@Test
@@ -78,6 +88,25 @@ public class LoginServiceTest {
 				employee.getLastName(), employee.getFirstName(), employee.getEmail(), employee.getPhoneNumber());
 
 		assertFalse(loginService.authenticate(name, "jekel-test-password").isPresent());
+		assertEquals(AuditReason.DISABLED_ACCOUNT, loginService.evaluate(name, "jekel-test-password").reason());
+	}
+
+	@Test
+	void performsOneArgon2CheckForUnknownDisabledAndActiveAccounts() {
+		PasswordEncoder measured = spy(encoder);
+		CredentialService measuredCredentials = new CredentialService(measured, new PasswordPolicy(password -> false));
+		LoginService measuredLogin = new LoginService(userAccountLookup, userCredentialLookup, measuredCredentials);
+
+		assertEquals(AuditReason.UNKNOWN_ACCOUNT, measuredLogin.evaluate("unknown", "unknown-password").reason());
+		assertEquals(AuditReason.INVALID_CREDENTIALS, measuredLogin.evaluate(name, "wrong-password").reason());
+		userAccount = new UserAccount(userId, name, UserAccountStatus.DISABLED, Set.of(UserRole.EMPLOYEE),
+				employee.getEmployeeID(), employee.getLastName(), employee.getFirstName(), employee.getEmail(),
+				employee.getPhoneNumber());
+		assertEquals(AuditReason.DISABLED_ACCOUNT, measuredLogin.evaluate(name, "disabled-password").reason());
+
+		verify(measured).matches(eq("unknown-password"), argThat(hash -> hash.startsWith("$argon2id$")));
+		verify(measured).matches(eq("disabled-password"), argThat(hash -> hash.startsWith("$argon2id$")));
+		verify(measured).matches("wrong-password", credential.getPasswordHash());
 	}
 
 	@Test
@@ -96,7 +125,7 @@ public class LoginServiceTest {
 	@Test
 	void rejectsMismatchedCredential() {
 		credential = service.createCredential(UUID.randomUUID(), "jekel-test-password");
-		
+
 		assertTrue(loginService.authenticate(name, "jekel-test-password").isEmpty());
 	}
 }

@@ -17,8 +17,9 @@ public class OrganizationalUnit {
 		this.unitId = Objects.requireNonNull(unitId);
 		this.structureID = structureID;
 
-		if (name == null || name.isBlank())
+		if (name == null || name.isBlank()) {
 			throw new IllegalArgumentException("Le nom du secteur est obligatoire.");
+		}
 
 		this.name = name.strip();
 	}

@@ -27,7 +27,7 @@ public class PasswordSecurityConfig {
 	public CompromisedPasswordChecker compromisedPasswordChecker(HttpClient client) {
 		return new PwnedPasswordsChecker(client);
 	}
-	
+
 	@Bean
 	public HttpClient httpClient() {
 		return HttpClient.newHttpClient();

@@ -19,13 +19,15 @@ public class SpringAuditContextProvider implements AuditContextProvider {
 
 		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
-		if (authentication == null || !authentication.isAuthenticated())
+		if (authentication == null || !authentication.isAuthenticated()) {
 			return null;
+		}
 
 		Object principal = authentication.getPrincipal();
 
-		if (!(principal instanceof UserAccount))
+		if (!(principal instanceof UserAccount)) {
 			return null;
+		}
 
 		UserAccount account = (UserAccount) principal;
 
@@ -37,8 +39,9 @@ public class SpringAuditContextProvider implements AuditContextProvider {
 
 		RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
 
-		if (!(attributes instanceof ServletRequestAttributes))
+		if (!(attributes instanceof ServletRequestAttributes)) {
 			return null;
+		}
 
 		ServletRequestAttributes requestAttributes = (ServletRequestAttributes) attributes;
 

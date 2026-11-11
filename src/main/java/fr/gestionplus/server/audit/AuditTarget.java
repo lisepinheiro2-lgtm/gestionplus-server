@@ -7,7 +7,6 @@ public final class AuditTarget {
 
 	private final AuditTargetType targetType;
 	private final UUID targetId;
-	
 
 	public AuditTarget(AuditTargetType targetType, UUID targetId) {
 		this.targetType = Objects.requireNonNull(targetType);
@@ -17,19 +16,23 @@ public final class AuditTarget {
 	@Override
 	public boolean equals(Object obj) {
 
-		if (obj == null)
+		if (obj == null) {
 			return false;
+		}
 
-		if (!(obj instanceof AuditTarget))
+		if (!(obj instanceof AuditTarget)) {
 			return false;
+		}
 
-		if (obj == this)
+		if (obj == this) {
 			return true;
+		}
 
 		AuditTarget other = (AuditTarget) obj;
 
-		if (other.getTargetId().equals(this.getTargetId()) && other.getTargetType().equals(this.getTargetType()))
+		if (other.getTargetId().equals(this.getTargetId()) && other.getTargetType().equals(this.getTargetType())) {
 			return true;
+		}
 
 		return false;
 	}
