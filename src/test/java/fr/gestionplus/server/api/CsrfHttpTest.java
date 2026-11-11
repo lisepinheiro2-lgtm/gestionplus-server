@@ -26,18 +26,27 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.TestComponent;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.web.FilterChainProxy;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextHolderFilter;
+import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.filter.FormContentFilter;
 
 import com.jayway.jsonpath.JsonPath;
 
@@ -68,6 +77,14 @@ class CsrfHttpTest {
 
 	@Autowired
 	private MockMvc mockMvc;
+	@Autowired
+	private FilterChainProxy securityFilters;
+	@Autowired
+	@Qualifier("requestPolicyRegistration")
+	private FilterRegistrationBean<?> requestPolicyRegistration;
+	@Autowired
+	@Qualifier("formContentRegistration")
+	private FilterRegistrationBean<?> formContentRegistration;
 
 	@MockitoBean
 	private LoginService loginService;
@@ -111,6 +128,69 @@ class CsrfHttpTest {
 		mockMvc.perform(post("/login").content(new byte[16385])).andExpect(status().is(413))
 				.andExpect(content().json("{\"code\":\"PAYLOAD_TOO_LARGE\"}"));
 		verifyNoInteractions(loginService, mfa);
+	}
+
+	@Test
+	void loadsTheSessionBeforeRequestPolicyAndKeepsItBeforeCsrfAndAuthentication() {
+		var filters = securityFilters.getFilters("/login");
+		int policyIndex = filters.indexOf(requestPolicyRegistration.getFilter());
+		assertFalse(requestPolicyRegistration.isEnabled());
+		assertTrue(policyIndex > 0);
+		int formIndex = filters.indexOf(formContentRegistration.getFilter());
+		assertFalse(formContentRegistration.isEnabled());
+		assertTrue(formContentRegistration.getFilter() instanceof FormContentFilter);
+		assertTrue(formIndex > policyIndex);
+		assertEquals(1, filters.stream().filter(FormContentFilter.class::isInstance).count());
+		assertTrue(filters.subList(formIndex + 1, filters.size()).stream().anyMatch(CsrfFilter.class::isInstance));
+		assertTrue(filters.subList(0, policyIndex).stream()
+				.anyMatch(SecurityContextHolderFilter.class::isInstance));
+		assertTrue(filters.subList(policyIndex + 1, filters.size()).stream().anyMatch(CsrfFilter.class::isInstance));
+		assertTrue(filters.subList(policyIndex + 1, filters.size()).stream()
+				.anyMatch(UsernamePasswordAuthenticationFilter.class::isInstance));
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = { false, true })
+	void attributesOversizedRequestsOnlyToAnAuthenticatedSession(boolean authenticated) throws Exception {
+		UserAccount account = createTestAccount();
+		MockHttpSession session = authenticated ? authenticatedSession(account) : new MockHttpSession();
+
+		mockMvc.perform(post("/login").session(session).header("X-User-ID", account.getUserID())
+				.header("X-Username", userName).content(new byte[16385]))
+				.andExpect(status().is(413)).andExpect(content().json("{\"code\":\"PAYLOAD_TOO_LARGE\"}"));
+
+		verifyRequestPolicyRefusal(authenticated ? account : null, AuditReason.INVALID_INPUT);
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = { false, true })
+	void attributesInvalidFormsWithoutTrustingCredentialsOrExposingSecrets(boolean authenticated) throws Exception {
+		UserAccount account = createTestAccount();
+		MockHttpSession session = authenticated ? authenticatedSession(account) : new MockHttpSession();
+
+		mockMvc.perform(post("/login").session(session).param("username", userName)
+				.param("password", "private-first-password", "private-second-password").param("totp", "012345"))
+				.andExpect(status().isBadRequest()).andExpect(content().json("{\"code\":\"INVALID_REQUEST\"}"));
+
+		verifyRequestPolicyRefusal(authenticated ? account : null, AuditReason.INVALID_INPUT);
+	}
+
+	private MockHttpSession authenticatedSession(UserAccount account) throws Exception {
+		when(loginService.evaluate(userName, password))
+				.thenReturn(new LoginAttempt(account, account.getUserID(), null));
+		MvcResult csrf = requestCsrf(null);
+		MockHttpSession session = (MockHttpSession) csrf.getRequest().getSession(false);
+		MvcResult login = mockMvc.perform(post("/login").session(session).header("X-CSRF-TOKEN", getToken(csrf))
+				.param("username", userName).param("password", password)).andExpect(status().isOk()).andReturn();
+		return (MockHttpSession) login.getRequest().getSession(false);
+	}
+
+	private void verifyRequestPolicyRefusal(UserAccount account, AuditReason reason) {
+		UUID actorID = account == null ? null : account.getUserID();
+		Set<AuditTarget> targets = actorID == null ? Set.of()
+				: Set.of(new AuditTarget(AuditTargetType.ACCOUNT, actorID));
+		verify(auditService).recordForActor(eq(AuditAction.AUTH_ACCESS_ATTEMPT), eq(AuditResult.DENIED), eq(actorID),
+				anyString(), eq(targets), eq(AuditMetadata.because(reason)));
 	}
 
 	@TestComponent

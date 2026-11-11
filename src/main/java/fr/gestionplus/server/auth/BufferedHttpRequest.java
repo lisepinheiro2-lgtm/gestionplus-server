@@ -12,6 +12,7 @@ import java.util.Collections;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.tomcat.util.http.InvalidParameterException;
 import org.springframework.http.MediaType;
@@ -49,7 +50,7 @@ final class BufferedHttpRequest extends HttpServletRequestWrapper {
 
 		String type = request.getContentType();
 
-		if (type != null && "POST".equals(request.getMethod())) {
+		if (type != null && Set.of("POST", "PUT", "PATCH", "DELETE").contains(request.getMethod())) {
 			MediaType mediaType = MediaType.parseMediaType(type);
 
 			if ("application".equals(mediaType.getType())
@@ -65,6 +66,10 @@ final class BufferedHttpRequest extends HttpServletRequestWrapper {
 
 					if (++count > maxParameters) {
 						throw new InvalidParameterException("Trop de paramètres HTTP.");
+					}
+
+					if (!"POST".equals(request.getMethod())) {
+						continue;
 					}
 
 					int separator = field.indexOf('=');

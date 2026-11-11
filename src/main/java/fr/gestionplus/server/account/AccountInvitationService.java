@@ -52,6 +52,7 @@ public class AccountInvitationService {
 	private final ObjectProvider<ActivationIdentityVerifier> identityVerifiers;
 	private final Clock clock;
 	private final TransactionTemplate replacementTransaction;
+	private final TransactionTemplate deliveryTransaction;
 
 	AccountInvitationService(AccountStore accountStore, AccountInvitationStore invitationStore,
 			AccountInvitationDeliveryStore deliveries, AccountInvitationDelivery deliveryWorker,
@@ -74,6 +75,8 @@ public class AccountInvitationService {
 		clock = clocks.getIfAvailable(Clock::systemUTC);
 		replacementTransaction = new TransactionTemplate(transactionManager);
 		replacementTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		deliveryTransaction = new TransactionTemplate(transactionManager);
+		deliveryTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_NOT_SUPPORTED);
 	}
 
 	@AuditedOperation(value = AuditAction.INVITATION_CREATE, account = 0, structure = 1)
@@ -349,7 +352,7 @@ public class AccountInvitationService {
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
 			@Override
 			public void afterCommit() {
-				delivery.status = deliveryWorker.deliver(delivery.requestID);
+				delivery.status = deliveryTransaction.execute(status -> deliveryWorker.deliver(delivery.requestID));
 			}
 		});
 		return delivery;

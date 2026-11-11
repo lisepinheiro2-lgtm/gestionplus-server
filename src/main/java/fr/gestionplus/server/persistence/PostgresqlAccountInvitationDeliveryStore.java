@@ -64,11 +64,23 @@ public class PostgresqlAccountInvitationDeliveryStore implements AccountInvitati
 	}
 
 	@Override
-	public Optional<Request> lockById(UUID requestID) {
+	public Optional<Claim> claim(UUID requestID) {
+		return jdbc.query("""
+				UPDATE account_invitation_deliveries
+				SET attempts = attempts + 1, next_attempt_at = CURRENT_TIMESTAMP + INTERVAL '5 minutes'
+				WHERE request_id = ? AND state = 'PENDING' AND next_attempt_at <= CURRENT_TIMESTAMP
+				RETURNING *
+				""", (row, number) -> new Claim(read(row, number), row.getInt("attempts")), requestID)
+				.stream().findFirst();
+	}
+
+	@Override
+	public Optional<Request> lockClaim(Claim claim) {
 		return jdbc.query("""
 				SELECT * FROM account_invitation_deliveries
-				WHERE request_id = ? AND state = 'PENDING' FOR UPDATE SKIP LOCKED
-				""", this::read, requestID).stream().findFirst();
+				WHERE request_id = ? AND state = 'PENDING' AND attempts = ?
+				    AND next_attempt_at > CURRENT_TIMESTAMP FOR UPDATE SKIP LOCKED
+				""", this::read, claim.request().requestID(), claim.attempt()).stream().findFirst();
 	}
 
 	@Override
@@ -90,20 +102,31 @@ public class PostgresqlAccountInvitationDeliveryStore implements AccountInvitati
 	}
 
 	@Override
-	public void complete(UUID requestID) {
-		jdbc.update("""
+	public boolean complete(Claim claim) {
+		return jdbc.update("""
 				UPDATE account_invitation_deliveries SET state = 'SENT', sent_at = CURRENT_TIMESTAMP
-				WHERE request_id = ? AND state = 'PENDING'
-				""", requestID);
+				WHERE request_id = ? AND state = 'PENDING' AND attempts = ?
+				    AND next_attempt_at > CURRENT_TIMESTAMP
+				""", claim.request().requestID(), claim.attempt()) == 1;
 	}
 
 	@Override
-	public void retry(UUID requestID) {
-		jdbc.update("""
+	public boolean retry(Claim claim) {
+		return jdbc.update("""
 				UPDATE account_invitation_deliveries
-				SET attempts = attempts + 1, next_attempt_at = CURRENT_TIMESTAMP + INTERVAL '5 minutes'
-				WHERE request_id = ? AND state = 'PENDING'
-				""", requestID);
+				SET next_attempt_at = CURRENT_TIMESTAMP + INTERVAL '5 minutes'
+				WHERE request_id = ? AND state = 'PENDING' AND attempts = ?
+				    AND next_attempt_at > CURRENT_TIMESTAMP
+				""", claim.request().requestID(), claim.attempt()) == 1;
+	}
+
+	@Override
+	public boolean cancel(Claim claim) {
+		return jdbc.update("""
+				UPDATE account_invitation_deliveries SET state = 'CANCELLED'
+				WHERE request_id = ? AND state = 'PENDING' AND attempts = ?
+				    AND next_attempt_at > CURRENT_TIMESTAMP
+				""", claim.request().requestID(), claim.attempt()) == 1;
 	}
 
 	@Override

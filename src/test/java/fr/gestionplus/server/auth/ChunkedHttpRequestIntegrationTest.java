@@ -70,7 +70,7 @@ class ChunkedHttpRequestIntegrationTest extends AuditStorageIntegrationTest {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = { "PUT", "PATCH" })
+	@ValueSource(strings = { "PUT", "PATCH", "DELETE" })
 	void boundsChunkedFormsBeforeSpringParsesThem(String method) throws Exception {
 		byte[] body = ("field=" + "x".repeat(16385)).getBytes(StandardCharsets.UTF_8);
 		HttpRequest request = HttpRequest.newBuilder(uri("/api/unused")).timeout(Duration.ofSeconds(10))
@@ -80,6 +80,7 @@ class ChunkedHttpRequestIntegrationTest extends AuditStorageIntegrationTest {
 		try (HttpClient client = client()) {
 			HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 			assertEquals(413, response.statusCode());
+			assertEquals("{\"code\":\"PAYLOAD_TOO_LARGE\"}", response.body());
 			verifyNoInteractions(login);
 		}
 

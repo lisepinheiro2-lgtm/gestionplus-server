@@ -64,10 +64,25 @@ class RoleHierarchyPolicyTest {
 	}
 
 	@Test
-	void combiningRolesDoesNotPermitDelegatingIncomparableRoles() {
-		assertFalse(policy.canAssignRoles(Set.of(UserRole.MANAGER, UserRole.R_H), Set.of(UserRole.SECRETARY)));
-		assertFalse(policy.canAssignRoles(Set.of(UserRole.SECRETARY, UserRole.ADMIN), Set.of(UserRole.MANAGER)));
+	void combiningRolesPreservesEachRolesAuthority() {
+		assertTrue(policy.canAssignRoles(Set.of(UserRole.MANAGER, UserRole.R_H), Set.of(UserRole.SECRETARY)));
+		assertTrue(policy.canAssignRoles(Set.of(UserRole.SECRETARY, UserRole.ADMIN), Set.of(UserRole.MANAGER)));
+		assertTrue(policy.isStrictlyHigher(Set.of(UserRole.MANAGER, UserRole.R_H), Set.of(UserRole.SECRETARY)));
+		assertTrue(policy.isStrictlyHigher(Set.of(UserRole.SECRETARY, UserRole.ADMIN), Set.of(UserRole.MANAGER)));
 		assertFalse(policy.canAssignRoles(Set.of(UserRole.MANAGER, UserRole.SECRETARY), Set.of(UserRole.SECRETARY)));
+	}
+
+	@Test
+	void combiningRolesStillProtectsEveryRoleOfTheTargetAccount() {
+		assertFalse(policy.canAssignRoles(Set.of(UserRole.MANAGER, UserRole.R_H),
+				Set.of(UserRole.SECRETARY, UserRole.ACCOUNTANT)));
+		assertFalse(policy.canAssignRoles(Set.of(UserRole.SECRETARY, UserRole.ADMIN),
+				Set.of(UserRole.MANAGER, UserRole.ADMIN)));
+		assertFalse(policy.canAssignRoles(Set.of(UserRole.SECRETARY, UserRole.ADMIN),
+				Set.of(UserRole.MANAGER, UserRole.SUPER_ADMIN)));
+		assertFalse(policy.canAssignRoles(Set.of(UserRole.MANAGER, UserRole.SECRETARY), Set.of(UserRole.MANAGER)));
+		assertTrue(policy.canAssignRoles(Set.of(UserRole.SECRETARY, UserRole.ADMIN),
+				Set.of(UserRole.MANAGER, UserRole.ACCOUNTANT)));
 	}
 
 	@Test

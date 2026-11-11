@@ -45,6 +45,7 @@ import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import fr.gestionplus.server.account.AccountInvitationStore.Invitation;
@@ -203,6 +204,7 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 		assertEquals(initial, invitationStore.findByAccount(userID).orElseThrow());
 
 		allowDelivery();
+		makePendingDeliveryDue(userID);
 		assertTrue(invitations.resendInvitation(userID, structureID).sent());
 		SentInvitation resent = sent.getLast();
 		Invitation latest = invitationStore.findByAccount(userID).orElseThrow();
@@ -500,6 +502,7 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 				"x".repeat(43), accepted.deliveredAt());
 		assertThrows(AccessDeniedException.class, () -> activate(userID, forged, "verified-proof"));
 
+		makePendingDeliveryDue(userID);
 		assertEquals(AccountInvitationDelivery.Status.SENT, deliveryWorker.deliver(pending.requestID()));
 		SentInvitation retried = sent.getLast();
 		assertEquals(accepted.token(), retried.token());
@@ -522,6 +525,7 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 				""", Integer.class, pending.requestID()));
 		allowDelivery();
 		SecurityContextHolder.clearContext();
+		makePendingDeliveryDue(userID);
 
 		assertEquals(AccountInvitationDelivery.Status.SENT, deliveryWorker.deliver(pending.requestID()));
 
@@ -541,6 +545,7 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 		new TransactionTemplate(transactionManager).executeWithoutResult(
 				transaction -> accountStore.advanceSessionVersion(actor.getUserID()));
 		allowDelivery();
+		makePendingDeliveryDue(userID);
 
 		assertEquals(AccountInvitationDelivery.Status.CANCELLED, deliveryWorker.deliver(pending.requestID()));
 		assertTrue(sent.isEmpty());
@@ -603,6 +608,7 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 		membershipStore.save(new StructureMembership(secretary.getUserID(), structureID, Set.of(UserRole.EMPLOYEE)));
 		assertEquals(principal.getSessionVersion(), account(secretary.getUserID()).getSessionVersion());
 		allowDelivery();
+		makePendingDeliveryDue(userID);
 
 		assertEquals(AccountInvitationDelivery.Status.CANCELLED, deliveryWorker.deliver(pending.requestID()));
 		assertTrue(sent.isEmpty());
@@ -615,6 +621,7 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 		doReturn(false).when(sender).send(anyString(), any(), anyString());
 		AccountInvitationService.Delivery pending = invitations.sendInitialInvitation(userID, structureID);
 		allowDelivery();
+		makePendingDeliveryDue(userID);
 		CyclicBarrier start = new CyclicBarrier(2);
 
 		try (ExecutorService workers = Executors.newFixedThreadPool(2)) {
@@ -626,12 +633,186 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 				start.await(5, TimeUnit.SECONDS);
 				return deliveryWorker.deliver(pending.requestID());
 			});
-			assertEquals(AccountInvitationDelivery.Status.SENT, first.get(15, TimeUnit.SECONDS));
-			assertEquals(AccountInvitationDelivery.Status.SENT, second.get(15, TimeUnit.SECONDS));
+			AccountInvitationDelivery.Status firstResult = first.get(15, TimeUnit.SECONDS);
+			AccountInvitationDelivery.Status secondResult = second.get(15, TimeUnit.SECONDS);
+			assertTrue(firstResult == AccountInvitationDelivery.Status.SENT
+					|| secondResult == AccountInvitationDelivery.Status.SENT);
+			assertTrue(Set.of(AccountInvitationDelivery.Status.SENT, AccountInvitationDelivery.Status.PENDING)
+					.contains(firstResult));
+			assertTrue(Set.of(AccountInvitationDelivery.Status.SENT, AccountInvitationDelivery.Status.PENDING)
+					.contains(secondResult));
 		}
 
 		assertEquals(1, sent.size());
 		assertTrue(deliveryStore.wasSent(pending.requestID()));
+	}
+
+	@Test
+	void smtpRunsWithoutATransactionOrBusinessLocks() {
+		UUID userID = preparePendingAccount();
+		doAnswer(call -> {
+			assertFalse(TransactionSynchronizationManager.isActualTransactionActive());
+			new TransactionTemplate(transactionManager).executeWithoutResult(transaction -> {
+				jdbcTemplate.queryForObject("""
+						SELECT structure_id FROM organizational_structures WHERE structure_id = ? FOR UPDATE NOWAIT
+						""", UUID.class, structureID);
+				jdbcTemplate.queryForObject("""
+						SELECT user_id FROM user_accounts WHERE user_id = ? FOR UPDATE NOWAIT
+						""", UUID.class, userID);
+				jdbcTemplate.queryForObject("""
+						SELECT user_id FROM user_accounts WHERE user_id = ? FOR UPDATE NOWAIT
+						""", UUID.class, actor.getUserID());
+			});
+			return true;
+		}).when(sender).send(anyString(), any(), anyString());
+
+		assertTrue(invitations.sendInitialInvitation(userID, structureID).sent());
+		assertTrue(invitationStore.findByAccount(userID).isPresent());
+	}
+
+	@Test
+	void aReservationOrRetryDelayPreventsImmediateRepeatedSmtpAttempts() {
+		UUID userID = preparePendingAccount();
+		doReturn(false).when(sender).send(anyString(), any(), anyString());
+		AccountInvitationService.Delivery pending = invitations.sendInitialInvitation(userID, structureID);
+		allowDelivery();
+
+		assertEquals(AccountInvitationDelivery.Status.PENDING, deliveryWorker.deliver(pending.requestID()));
+		assertFalse(deliveryStore.findDue().contains(pending.requestID()));
+		assertTrue(sent.isEmpty());
+		assertEquals(1, deliveryAttempts(pending.requestID()));
+
+		makePendingDeliveryDue(userID);
+		assertEquals(AccountInvitationDelivery.Status.SENT, deliveryWorker.deliver(pending.requestID()));
+		assertEquals(2, deliveryAttempts(pending.requestID()));
+	}
+
+	@Test
+	void cancellationCanCommitWhileSmtpIsBlockedAndPreventsActivation() throws Exception {
+		UUID userID = preparePendingAccount();
+		doReturn(false).when(sender).send(anyString(), any(), anyString());
+		AccountInvitationService.Delivery pending = invitations.sendInitialInvitation(userID, structureID);
+		makePendingDeliveryDue(userID);
+		CountDownLatch sending = new CountDownLatch(1);
+		CountDownLatch releaseSmtp = new CountDownLatch(1);
+		doAnswer(call -> {
+			sent.add(new SentInvitation(call.getArgument(0), call.getArgument(1), call.getArgument(2), Instant.now()));
+			sending.countDown();
+			assertTrue(releaseSmtp.await(10, TimeUnit.SECONDS));
+			return true;
+		}).when(sender).send(anyString(), any(), anyString());
+
+		try (ExecutorService workers = Executors.newFixedThreadPool(2)) {
+			Future<AccountInvitationDelivery.Status> sendingResult = workers.submit(
+					() -> deliveryWorker.deliver(pending.requestID()));
+
+			try {
+				assertTrue(sending.await(5, TimeUnit.SECONDS));
+				Future<?> cancellation = workers.submit(() -> {
+					authenticate(actor);
+
+					try {
+						withLockTimeout(() -> invitations.cancelInvitation(userID, structureID));
+					} finally {
+						SecurityContextHolder.clearContext();
+					}
+
+				});
+				cancellation.get(5, TimeUnit.SECONDS);
+			} finally {
+				releaseSmtp.countDown();
+			}
+
+			assertEquals(AccountInvitationDelivery.Status.CANCELLED, sendingResult.get(10, TimeUnit.SECONDS));
+		}
+
+		assertDisabledWithoutAccess(userID);
+		assertThrows(AccessDeniedException.class, () -> activate(userID, sent.getFirst(), "verified-proof"));
+		assertEquals(0, successfulAudits(userID, "INVITATION_CREATE"));
+	}
+
+	@Test
+	void aProcessInterruptionLeavesARecoverableReservationWithTheSameToken() {
+		UUID userID = preparePendingAccount();
+		doReturn(false).when(sender).send(anyString(), any(), anyString());
+		AccountInvitationService.Delivery pending = invitations.sendInitialInvitation(userID, structureID);
+		makePendingDeliveryDue(userID);
+		doAnswer(call -> {
+			sent.add(new SentInvitation(call.getArgument(0), call.getArgument(1), call.getArgument(2), Instant.now()));
+			throw new AssertionError("Interruption du processus simulée");
+		}).when(sender).send(anyString(), any(), anyString());
+
+		assertThrows(AssertionError.class, () -> deliveryWorker.deliver(pending.requestID()));
+		assertTrue(deliveryStore.findById(pending.requestID()).isPresent());
+		assertTrue(invitationStore.findByAccount(userID).isEmpty());
+		assertFalse(deliveryStore.findDue().contains(pending.requestID()));
+		SentInvitation interrupted = sent.getFirst();
+		allowDelivery();
+		makePendingDeliveryDue(userID);
+
+		assertEquals(AccountInvitationDelivery.Status.SENT, deliveryWorker.deliver(pending.requestID()));
+		assertEquals(interrupted.token(), sent.getLast().token());
+		assertEquals(interrupted.invitationID(), sent.getLast().invitationID());
+		assertEquals(1, successfulAudits(userID, "INVITATION_CREATE"));
+	}
+
+	@Test
+	void anExpiredWorkerCannotOverwriteTheNewWorkersCompletion() throws Exception {
+		UUID userID = preparePendingAccount();
+		doReturn(false).when(sender).send(anyString(), any(), anyString());
+		AccountInvitationService.Delivery pending = invitations.sendInitialInvitation(userID, structureID);
+		makePendingDeliveryDue(userID);
+		AtomicInteger sends = new AtomicInteger();
+		AtomicReference<String> firstToken = new AtomicReference<>();
+		CountDownLatch sending = new CountDownLatch(1);
+		CountDownLatch releaseSmtp = new CountDownLatch(1);
+		doAnswer(call -> {
+
+			if (sends.incrementAndGet() == 1) {
+				firstToken.set(call.getArgument(2));
+				sending.countDown();
+				assertTrue(releaseSmtp.await(10, TimeUnit.SECONDS));
+				return false;
+			}
+
+			assertEquals(firstToken.get(), call.getArgument(2));
+			return true;
+		}).when(sender).send(anyString(), any(), anyString());
+
+		try (ExecutorService workers = Executors.newSingleThreadExecutor()) {
+			Future<AccountInvitationDelivery.Status> oldWorker = workers.submit(
+					() -> deliveryWorker.deliver(pending.requestID()));
+
+			try {
+				assertTrue(sending.await(5, TimeUnit.SECONDS));
+				assertEquals(AccountInvitationDelivery.Status.PENDING, deliveryWorker.deliver(pending.requestID()));
+				assertEquals(1, sends.get());
+				makePendingDeliveryDue(userID);
+				assertEquals(AccountInvitationDelivery.Status.SENT, deliveryWorker.deliver(pending.requestID()));
+			} finally {
+				releaseSmtp.countDown();
+			}
+
+			assertEquals(AccountInvitationDelivery.Status.SENT, oldWorker.get(10, TimeUnit.SECONDS));
+		}
+
+		assertEquals(2, sends.get());
+		assertEquals(3, deliveryAttempts(pending.requestID()));
+		assertTrue(deliveryStore.wasSent(pending.requestID()));
+		assertEquals(1, successfulAudits(userID, "INVITATION_CREATE"));
+	}
+
+	private void makePendingDeliveryDue(UUID userID) {
+		jdbcTemplate.update("""
+				UPDATE account_invitation_deliveries SET next_attempt_at = CURRENT_TIMESTAMP - INTERVAL '1 second'
+				WHERE user_id = ? AND state = 'PENDING'
+				""", userID);
+	}
+
+	private int deliveryAttempts(UUID requestID) {
+		return jdbcTemplate.queryForObject("""
+				SELECT attempts FROM account_invitation_deliveries WHERE request_id = ?
+				""", Integer.class, requestID);
 	}
 
 	@ParameterizedTest

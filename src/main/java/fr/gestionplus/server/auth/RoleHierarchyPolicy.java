@@ -76,11 +76,6 @@ public class RoleHierarchyPolicy {
 
 		}
 
-		if ((actorRoles.contains(UserRole.MANAGER) && targetRoles.contains(UserRole.SECRETARY))
-				|| (actorRoles.contains(UserRole.SECRETARY) && targetRoles.contains(UserRole.MANAGER))) {
-			return false;
-		}
-
 		for (UserRole targetRole : targetRoles) {
 
 			boolean isHigher = false;

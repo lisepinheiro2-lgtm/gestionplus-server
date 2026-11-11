@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.util.Map;
 
 import org.apache.tomcat.util.http.InvalidParameterException;
-import org.springframework.core.Ordered;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -17,7 +16,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
-final class HttpRequestPolicyFilter extends OncePerRequestFilter implements Ordered {
+final class HttpRequestPolicyFilter extends OncePerRequestFilter {
 
 	private final HttpSecurityAudit audit;
 	private final boolean requireHttps;
@@ -38,11 +37,6 @@ final class HttpRequestPolicyFilter extends OncePerRequestFilter implements Orde
 
 		this.maxBodyBytes = (int) maxBodyBytes;
 		this.maxParameters = maxParameters;
-	}
-
-	@Override
-	public int getOrder() {
-		return Ordered.HIGHEST_PRECEDENCE + 1;
 	}
 
 	@Override
@@ -128,7 +122,9 @@ final class HttpRequestPolicyFilter extends OncePerRequestFilter implements Orde
 			AuditReason reason)
 			throws IOException {
 		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-		audit.refused(request, authentication == null ? null : authentication.getPrincipal(), reason);
+		audit.refused(request,
+				authentication != null && authentication.isAuthenticated() ? authentication.getPrincipal() : null,
+				reason);
 		error.write(response);
 	}
 }

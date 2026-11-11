@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Set;
+import java.util.UUID;
 
 import org.apache.tomcat.util.http.InvalidParameterException;
 import org.junit.jupiter.api.AfterEach;
@@ -22,7 +23,9 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.filter.FormContentFilter;
 
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditMetadata;
@@ -122,11 +125,69 @@ class HttpRequestPolicyFilterTest {
 				Set.of(), AuditMetadata.because(AuditReason.INSECURE_TRANSPORT));
 	}
 
+	@Test
+	void anUnauthenticatedPrincipalCannotBeUsedToAttributeARefusal() throws Exception {
+		UserAccount unverified = new UserAccount(UUID.randomUUID(), "unverified", UserAccountStatus.ACTIVE,
+				Set.of(), UUID.randomUUID(), "Exemple", "Test", "test@example.invalid", "0600000000");
+		SecurityContextHolder.getContext()
+				.setAuthentication(UsernamePasswordAuthenticationToken.unauthenticated(unverified, null));
+		MockHttpServletRequest request = login();
+		request.setContent(new byte[16385]);
+
+		assertRejected(request, 413, "PAYLOAD_TOO_LARGE");
+
+		verify(audit).recordForActor(AuditAction.AUTH_ACCESS_ATTEMPT, AuditResult.DENIED, null, "127.0.0.1",
+				Set.of(), AuditMetadata.because(AuditReason.INVALID_INPUT));
+	}
+
 	@ParameterizedTest
 	@ValueSource(strings = { "application/json", "application/x-www-form-urlencoded" })
 	void countsChunkedBodiesEvenWhenTheApplicationWouldNotReadThem(String type) throws Exception {
 		MockHttpServletRequest request = unknownLength("/api/unused", type, new byte[16385]);
 		assertRejected(request, 413, "PAYLOAD_TOO_LARGE");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "PUT", "PATCH", "DELETE" })
+	void rejectsOversizedChunkedFormsBeforeTheSpringFormFilter(String method) throws Exception {
+		MockHttpServletRequest request = unknownLength("/api/unused", "application/x-www-form-urlencoded",
+				("field=" + "x".repeat(16385)).getBytes(StandardCharsets.UTF_8));
+		request.setMethod(method);
+		MockHttpServletResponse response = new MockHttpServletResponse();
+
+		filter.doFilter(request, response, (forwarded, returned) -> {
+			throw new AssertionError("Le formulaire trop volumineux ne doit pas atteindre le parseur Spring.");
+		});
+
+		assertEquals(413, response.getStatus());
+		assertEquals("{\"code\":\"PAYLOAD_TOO_LARGE\"}", response.getContentAsString());
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "PUT", "PATCH", "DELETE" })
+	void preservesNormalChunkedFormsForTheSpringFormFilter(String method) throws Exception {
+		MockHttpServletRequest request = unknownLength("/api/unused", "application/x-www-form-urlencoded",
+				"field=+a%2Bb+".getBytes(StandardCharsets.UTF_8));
+		request.setMethod(method);
+
+		filter.doFilter(request, new MockHttpServletResponse(), (forwarded, returned) -> {
+			new FormContentFilter().doFilter(forwarded, returned, (parsed, response) -> {
+				assertEquals(" a+b ", parsed.getParameter("field"));
+				assertArrayEquals(new String[] { " a+b " }, parsed.getParameterValues("field"));
+			});
+		});
+
+		verifyNoInteractions(audit);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "PUT", "PATCH", "DELETE" })
+	void boundsFormParametersBeforeTheSpringFormFilter(String method) throws Exception {
+		MockHttpServletRequest request = unknownLength("/api/unused", "application/x-www-form-urlencoded",
+				("field=value&".repeat(32) + "field=value").getBytes(StandardCharsets.UTF_8));
+		request.setMethod(method);
+
+		assertRejected(request, 400, "INVALID_REQUEST");
 	}
 
 	@Test

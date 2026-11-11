@@ -14,8 +14,10 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import fr.gestionplus.server.account.AccountInvitationDeliveryStore.Claim;
 import fr.gestionplus.server.account.AccountInvitationDeliveryStore.Request;
 import fr.gestionplus.server.account.AccountInvitationStore.Invitation;
 import fr.gestionplus.server.audit.AuditAction;
@@ -78,38 +80,57 @@ public class AccountInvitationDelivery {
 	}
 
 	public Status deliver(UUID requestID) {
-		Request candidate;
+
+		if (TransactionSynchronizationManager.isActualTransactionActive()) {
+			return Status.PENDING;
+		}
+
+		Claim claim;
 
 		try {
-			candidate = transaction.execute(status -> deliveries.findById(requestID).orElse(null));
+			claim = transaction.execute(status -> deliveries.claim(requestID).orElse(null));
 		} catch (RuntimeException failure) {
 			LOGGER.warn("Invitation {} conservée pour une prochaine tentative ({})", requestID,
 					failure.getClass().getSimpleName());
 			return Status.PENDING;
 		}
 
-		if (candidate == null) {
+		if (claim == null) {
 			return deliveredStatus(requestID);
 		}
 
 		try {
-			return transaction.execute(status -> deliverLocked(candidate));
+			Request request = transaction.execute(status -> authorizedRequest(claim));
+
+			if (request == null) {
+				return deliveredStatus(requestID);
+			}
+
+			String token = tokens.token(request.requestID(), request.invitationID());
+
+			if (!sender.send(request.email(), request.invitationID(), token)) {
+				return postpone(claim, false);
+			}
+
+			Status result = transaction.execute(status -> completeLocked(claim));
+			return result == null ? deliveredStatus(requestID) : result;
 		} catch (AccessDeniedException denied) {
-			return postpone(candidate, true);
+			return postpone(claim, true);
 		} catch (RuntimeException failure) {
 			LOGGER.warn("Envoi de l’invitation {} à reprendre ({})", requestID, failure.getClass().getSimpleName());
-			return postpone(candidate, false);
+			return postpone(claim, false);
 		}
 
 	}
 
-	private Status deliverLocked(Request candidate) {
+	private Request authorizedRequest(Claim claim) {
+		Request candidate = claim.request();
 		UserAccount account = scope.lockAndAuthorize(candidate.actorID(), candidate.actorVersion(),
 				candidate.userID(), candidate.structureID(), candidate.roles());
-		Request request = deliveries.lockById(candidate.requestID()).orElse(null);
+		Request request = deliveries.lockClaim(claim).orElse(null);
 
 		if (request == null) {
-			return deliveredStatus(candidate.requestID());
+			return null;
 		}
 
 		boolean preparingReintegration = !request.roles().isEmpty();
@@ -143,13 +164,17 @@ public class AccountInvitationDelivery {
 			throw new IllegalStateException("La clé d’envoi ne correspond plus à l’invitation conservée.");
 		}
 
-		if (!sender.send(request.email(), request.invitationID(), token)) {
-			deliveries.retry(request.requestID());
-			record(request, AuditResult.FAILURE);
-			return Status.PENDING;
+		return request;
+	}
+
+	private Status completeLocked(Claim claim) {
+		Request request = authorizedRequest(claim);
+
+		if (request == null) {
+			return null;
 		}
 
-		if (preparingReintegration) {
+		if (!request.roles().isEmpty()) {
 			request.roles().forEach((structureID, roles) -> {
 				memberships.save(new StructureMembership(request.userID(), structureID, roles));
 				audit.recordForActor(AuditAction.STRUCTURE_ACCESS_GRANT, AuditResult.SUCCESS, request.actorID(), null,
@@ -163,22 +188,21 @@ public class AccountInvitationDelivery {
 		invitations.save(new Invitation(request.invitationID(), request.userID(), request.structureID(),
 				request.tokenDigest(), Instant.now().plus(VALIDITY), null, request.reintegration()));
 		record(request, AuditResult.SUCCESS);
-		deliveries.complete(request.requestID());
+
+		if (!deliveries.complete(claim)) {
+			throw new IllegalStateException("La réservation d’envoi n’est plus valide.");
+		}
+
 		return Status.SENT;
 	}
 
-	private Status postpone(Request request, boolean cancelled) {
+	private Status postpone(Claim claim, boolean cancelled) {
+		Request request = claim.request();
+		boolean updated = false;
 
 		try {
-			transaction.executeWithoutResult(status -> {
-
-				if (cancelled) {
-					deliveries.cancel(request.requestID());
-				} else {
-					deliveries.retry(request.requestID());
-				}
-
-			});
+			updated = Boolean.TRUE.equals(transaction.execute(
+					status -> cancelled ? deliveries.cancel(claim) : deliveries.retry(claim)));
 		} catch (RuntimeException failure) {
 			LOGGER.error("État de l’invitation {} conservé sans mise à jour ({})", request.requestID(),
 					failure.getClass().getSimpleName());
@@ -191,13 +215,20 @@ public class AccountInvitationDelivery {
 					failure.getClass().getSimpleName());
 		}
 
-		return cancelled ? Status.CANCELLED : Status.PENDING;
+		return updated ? (cancelled ? Status.CANCELLED : Status.PENDING) : deliveredStatus(request.requestID());
 	}
 
 	private Status deliveredStatus(UUID requestID) {
 
 		try {
-			return transaction.execute(status -> deliveries.wasSent(requestID)) ? Status.SENT : Status.CANCELLED;
+			return transaction.execute(status -> {
+
+				if (deliveries.wasSent(requestID)) {
+					return Status.SENT;
+				}
+
+				return deliveries.findById(requestID).isPresent() ? Status.PENDING : Status.CANCELLED;
+			});
 		} catch (RuntimeException failure) {
 			return Status.PENDING;
 		}

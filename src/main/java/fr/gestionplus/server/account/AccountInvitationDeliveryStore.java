@@ -20,17 +20,24 @@ public interface AccountInvitationDeliveryStore {
 
 	Optional<Request> findByInvitation(UUID invitationID);
 
-	Optional<Request> lockById(UUID requestID);
+	Optional<Claim> claim(UUID requestID);
+
+	Optional<Request> lockClaim(Claim claim);
 
 	List<UUID> findDue();
 
 	boolean wasSent(UUID requestID);
 
-	void complete(UUID requestID);
+	boolean complete(Claim claim);
 
-	void retry(UUID requestID);
+	boolean retry(Claim claim);
+
+	boolean cancel(Claim claim);
 
 	void cancel(UUID requestID);
+
+	record Claim(Request request, int attempt) {
+	}
 
 	record Request(UUID requestID, UUID invitationID, UUID previousInvitationID, UUID userID, UUID structureID,
 			UUID actorID, long actorVersion, long targetVersion, String email, AuditAction action,

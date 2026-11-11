@@ -145,6 +145,31 @@ class AccountManagementServiceTest {
 		when(structureMembershipStore.findByUserAndStructure(actorUserId, structureID)).thenReturn(Optional.empty());
 	}
 
+	@ParameterizedTest
+	@CsvSource({ "R_H,MANAGER,SECRETARY", "ADMIN,SECRETARY,MANAGER" })
+	void aHigherRoleRetainsItsAccountManagementAuthorityWhenCombined(UserRole higherRole, UserRole otherRole,
+			UserRole targetRole) {
+		prepare(Set.of(higherRole, otherRole), Set.of(targetRole));
+		when(responsibilityStore.isResponsibleFor(eq(actorUserId), any(), eq(structureID))).thenReturn(false);
+
+		accessService.revokeStructureAccess(targetUserId, structureID);
+
+		assertSuccessfulRevocation(Set.of(targetRole));
+	}
+
+	@ParameterizedTest
+	@CsvSource({ "R_H,MANAGER,SECRETARY,ACCOUNTANT", "ADMIN,SECRETARY,MANAGER,ADMIN" })
+	void combinedRolesStillRespectProtectionOfTheEntireTargetAccount(UserRole higherRole, UserRole otherRole,
+			UserRole targetRole, UserRole protectedRole) {
+		prepare(Set.of(higherRole, otherRole), Set.of(targetRole));
+		when(structureMembershipStore.findByUserAndTenant(targetUserId, tenantID))
+				.thenReturn(List.of(new StructureMembership(targetUserId, UUID.randomUUID(), Set.of(protectedRole))));
+
+		assertThrows(AccessDeniedException.class, () -> accessService.revokeStructureAccess(targetUserId, structureID));
+
+		assertNoRevocation();
+	}
+
 	private void assertNoRevocation() {
 		verify(structureMembershipStore, never()).deleteByUserAndStructure(any(), any());
 		verify(store, never()).disableAccount(any());

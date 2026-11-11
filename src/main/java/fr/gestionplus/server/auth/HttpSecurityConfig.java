@@ -2,7 +2,10 @@ package fr.gestionplus.server.auth;
 
 import java.time.Clock;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -16,8 +19,10 @@ import org.springframework.security.core.session.SessionRegistryImpl;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
+import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.csrf.CsrfException;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
+import org.springframework.web.filter.FormContentFilter;
 
 import fr.gestionplus.server.account.AccountStore;
 import fr.gestionplus.server.api.HttpApiError;
@@ -46,7 +51,9 @@ public class HttpSecurityConfig {
 	@Bean
 	public SecurityFilterChain securityFilterChain(HttpSecurity http, SessionRegistry registry,
 			AccountStore accountStore,
-			AuditService auditService, SessionLifetime lifetime, AccountMfaService mfa) throws Exception {
+			AuditService auditService, SessionLifetime lifetime, AccountMfaService mfa,
+			HttpRequestPolicyFilter requestPolicy, ObjectProvider<FormContentFilter> formContentFilters)
+			throws Exception {
 
 		HttpSecurityAudit audit = new HttpSecurityAudit(auditService);
 		SecurityContextLogoutHandler logoutHandler = new SecurityContextLogoutHandler();
@@ -107,6 +114,8 @@ public class HttpSecurityConfig {
 					HttpApiError.AUTHENTICATION_REQUIRED.write(event.getResponse());
 				}));
 
+		http.addFilterAfter(requestPolicy, SecurityContextHolderFilter.class);
+		formContentFilters.ifAvailable(filter -> http.addFilterAfter(filter, HttpRequestPolicyFilter.class));
 		http.addFilterBefore(new CurrentAccountSessionFilter(accountStore, audit, lifetime, mfa),
 				AuthorizationFilter.class);
 		return http.build();
@@ -118,6 +127,27 @@ public class HttpSecurityConfig {
 			@Value("${gestionplus.http.max-body-bytes:16384}") long maxBodyBytes,
 			@Value("${server.tomcat.max-parameter-count:32}") int maxParameters) {
 		return new HttpRequestPolicyFilter(new HttpSecurityAudit(audit), requireHttps, maxBodyBytes, maxParameters);
+	}
+
+	@Bean
+	FilterRegistrationBean<HttpRequestPolicyFilter> requestPolicyRegistration(HttpRequestPolicyFilter filter) {
+		FilterRegistrationBean<HttpRequestPolicyFilter> registration = new FilterRegistrationBean<>(filter);
+		registration.setEnabled(false);
+		return registration;
+	}
+
+	@Bean
+	@ConditionalOnBooleanProperty(name = "spring.mvc.formcontent.filter.enabled", matchIfMissing = true)
+	FormContentFilter formContentFilter() {
+		return new FormContentFilter();
+	}
+
+	@Bean
+	@ConditionalOnBooleanProperty(name = "spring.mvc.formcontent.filter.enabled", matchIfMissing = true)
+	FilterRegistrationBean<FormContentFilter> formContentRegistration(FormContentFilter filter) {
+		FilterRegistrationBean<FormContentFilter> registration = new FilterRegistrationBean<>(filter);
+		registration.setEnabled(false);
+		return registration;
 	}
 
 	private Object currentPrincipal() {
