@@ -24,9 +24,13 @@ public class LoginAttemptLimiter {
 
 	private static final Duration WINDOW = Duration.ofMinutes(15);
 	private static final Duration FIRST_RESTRICTION = Duration.ofMinutes(5);
+	private static final int FAILURES_PER_ADDRESS_WEIGHT = 10;
 	private static final int LIMIT = 10;
 	private static final int MAX_SCOPES = 8192;
 	private static final int MAX_ADDRESS_FAILURES = 30;
+	private static final long ACCOUNT_DELAY_STEP_MS = 200L;
+	private static final long ADDRESS_DELAY_STEP_MS = 500L;
+	private static final long MAX_DELAY_MS = 2000L;
 
 	private final Clock clock;
 	private final SecretKeySpec key;
@@ -49,22 +53,31 @@ public class LoginAttemptLimiter {
 		String accountKey = digest("account", userName);
 		String addressKey = digest("address", address);
 		History account = accountHistory(accountKey, now);
+		History source = addresses.get(addressKey);
 
-		if (account == null || account.inFlight || now.isBefore(account.blockedUntil)) {
+		if (account == null || account.inFlight
+				|| now.isBefore(account.blockedUntil)) {
 			return null;
 		}
 
-		History source = addresses.get(addressKey);
-
-		if (source != null) {
-			source.expire(now);
-		}
+		Instant lastFailure = null;
 
 		if (!account.failures.isEmpty()) {
-			int addressWeight = source == null ? 0 : source.failures.size() / LIMIT;
-			long delayMs = Math.min(2000, 200L * (account.failures.size() + addressWeight));
+			lastFailure = account.failures.getLast();
+		}
 
-			if (now.isBefore(account.failures.getLast().plusMillis(delayMs))) {
+		if (source != null && !source.failures.isEmpty()
+				&& (lastFailure == null || source.failures.getLast().isAfter(lastFailure))) {
+			lastFailure = source.failures.getLast();
+		}
+
+		if (lastFailure != null) {
+			int addressWeight = source == null ? 0 : source.failures.size() / FAILURES_PER_ADDRESS_WEIGHT;
+			int accountWeight = account.failures.size();
+			long delayMs = Math.min(MAX_DELAY_MS,
+					ACCOUNT_DELAY_STEP_MS * accountWeight + ADDRESS_DELAY_STEP_MS * addressWeight);
+
+			if (now.isBefore(lastFailure.plusMillis(delayMs))) {
 				return null;
 			}
 

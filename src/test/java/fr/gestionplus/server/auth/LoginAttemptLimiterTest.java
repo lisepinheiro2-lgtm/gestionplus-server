@@ -41,30 +41,20 @@ class LoginAttemptLimiterTest {
 	}
 
 	@Test
-	void countsFailuresAcrossAddressesWithoutBlockingOtherAccountsOnTheSameAddress() {
+	void delaysFreshIdentifiersFromAnAddressWithManyFailures() {
 
 		for (int failure = 0; failure < 10; failure++) {
-			at(3L * failure);
-			var attempt = limiter.begin("target", "192.0.2." + failure);
+			var attempt = limiter.begin("account" + failure, "192.0.2.1");
 			assertNotNull(attempt);
-
-			if (failure < 9) {
-				assertFalse(limiter.finish(attempt, true, true));
-			} else {
-				assertTrue(limiter.finish(attempt, true, true));
-			}
-
+			assertFalse(limiter.finish(attempt, true, false));
 		}
 
-		assertNull(limiter.begin("target", "192.0.2.40"));
-		var colleague = limiter.begin("colleague", "192.0.2.9");
-		assertNotNull(colleague);
-		assertFalse(limiter.finish(colleague, false, true));
+		when(clock.instant()).thenReturn(start.plusMillis(100));
+		assertNull(limiter.begin("fresh", "192.0.2.1"));
+		assertNotNull(limiter.begin("elsewhere", "192.0.2.2"));
 
-		at(326);
-		assertNull(limiter.begin("target", "192.0.2.40"));
-		at(327);
-		assertNotNull(limiter.begin("target", "192.0.2.40"));
+		when(clock.instant()).thenReturn(start.plusMillis(500));
+		assertNotNull(limiter.begin("fresh", "192.0.2.1"));
 	}
 
 	@Test
@@ -87,7 +77,7 @@ class LoginAttemptLimiterTest {
 	}
 
 	@Test
-	void addsDelayOnAnAddressWithManyFailuresOnlyForAnAlreadyTargetedAccount() {
+	void combinesAccountAndAddressWeightsInTheLoginDelay() {
 
 		for (int failure = 0; failure < 10; failure++) {
 			var attempt = limiter.begin("account" + failure, "192.0.2.1");
@@ -95,7 +85,7 @@ class LoginAttemptLimiterTest {
 			assertFalse(limiter.finish(attempt, true, true));
 		}
 
-		when(clock.instant()).thenReturn(start.plusMillis(200));
+		when(clock.instant()).thenReturn(start.plusMillis(500));
 		assertNull(limiter.begin("account0", "192.0.2.1"));
 		assertNotNull(limiter.begin("unaffected", "192.0.2.1"));
 		assertNotNull(limiter.begin("account0", "192.0.2.2"));
@@ -121,12 +111,13 @@ class LoginAttemptLimiterTest {
 	void doesNotDenyANewLoginWhenUnknownNamesFillTheTrackingCapacity() {
 
 		for (int failure = 0; failure < 8192; failure++) {
+			at(3L * failure);
 			var attempt = limiter.begin("unknown-" + failure, "192.0.2.1");
 			assertNotNull(attempt);
 			assertFalse(limiter.finish(attempt, true, false));
 		}
 
-		assertNotNull(limiter.begin("new-account", "192.0.2.1"));
+		assertNotNull(limiter.begin("new-account", "192.0.2.2"));
 	}
 
 	@Test

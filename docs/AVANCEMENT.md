@@ -1,6 +1,7 @@
 ---
-summary: "État local au 11 novembre 2026. Sécurité P1.01 à P1.12, tests rapportés et validations restantes."
+summary: "État local au 12 novembre 2026. Correction du contournement du délai dans le limiteur de tentatives de connexion ; sécurité P1.01 à P1.12, tests rapportés et validations restantes."
 read_when:
+  - "reprendre la correction du limiteur des tentatives de connexion du 12 novembre"
   - "reprendre les comptes authentification rôles permissions sessions et audit"
   - "distinguer code présent tests écrits résultats disponibles et fonctions prévues"
   - "préparer les décisions DEC01–DEC06 et l’isolation multi-structures"
@@ -8,6 +9,21 @@ read_when:
 ---
 
 # Avancement et feuille de route
+
+<a id="limiteur-connexion-2026-11-12"></a>
+
+## Limiteur des tentatives de connexion — 12 novembre 2026
+
+Correction du contournement du délai de `LoginAttemptLimiter`, identifié par une revue statique externe (Codex) puis vérifié par traçage du code avant toute modification : le poids de l'adresse IP n'influençait le délai que lorsque le compte visé avait déjà des échecs, si bien qu'une même adresse multipliant les identifiants inconnus échappait à tout ralentissement tout en déclenchant la vérification de mot de passe factice à chaque tentative.
+
+**Modification.** Dans `begin()` (src/main/java/fr/gestionplus/server/auth/LoginAttemptLimiter.java), le délai est désormais calculé dès qu'un échec récent existe, du compte ou de l'adresse, ancré sur l'échec le plus récent des deux. Deux contributions distinctes : `ACCOUNT_DELAY_STEP_MS` (200 ms par échec de compte) et `ADDRESS_DELAY_STEP_MS` (500 ms par unité de poids d'adresse, une unité par `FAILURES_PER_ADDRESS_WEIGHT` échecs, file plafonnée par `MAX_ADDRESS_FAILURES`), le tout sous `MAX_DELAY_MS` (2 s). Les nombres magiques antérieurs sont extraits en constantes ; `LIMIT` reste le seuil de blocage des comptes, distinct du diviseur de poids d'adresse. `finish()` est inchangé.
+
+**Tests** (src/test/java/fr/gestionplus/server/auth/LoginAttemptLimiterTest.java). Ajout de `delaysFreshIdentifiersFromAnAddressWithManyFailures` : rotation de dix identifiants depuis une même adresse, refus à 100 ms, passage à 500 ms, aucune conséquence pour une adresse vierge. Le test de capacité `doesNotDenyANewLoginWhenUnknownNamesFillTheTrackingCapacity` est adapté pour isoler le remplissage du registre du rythme des tentatives : horloge avancée de trois secondes par itération, vérification finale depuis une adresse vierge. Le test historique du délai par adresse est renommé `combinesAccountAndAddressWeightsInTheLoginDelay`, avec son délai porté à 500 ms et ses assertions alignées sur le contrat combiné compte + adresse.
+
+**Preuve rapportée.** L'utilisatrice rapporte les 6 tests de `LoginAttemptLimiterTest` au vert depuis Eclipse après correction. Aucune autre suite, aucun build complet, aucun serveur ni migration n'ont été exécutés pendant cette session ; les 648 réussites antérieures ne valident pas ces changements.
+
+**Limites connues à garder en vue.** À l'expiration du délai, une bouffée de tentatives simultanées d'identifiants différents peut passer : `inFlight` protège par compte, pas par adresse. Les dix premiers échecs d'une adresse restent sans délai, le poids étant nul en dessous de `FAILURES_PER_ADDRESS_WEIGHT`. Le registre reste en mémoire d'une instance, comme noté plus haut. Ces limites sont les frontières du choix de conception retenu — délai par adresse plutôt que blocage, pour préserver les adresses partagées — et non des régressions.
+
 
 <a id="corrections-avant-validation-2026-11-11"></a>
 
@@ -82,6 +98,7 @@ Les migrations V17 à V23 figurent dans les sources pour les appartenances, vers
 État initial relu le **27 octobre 2026 (Europe/Paris)**, complété par les décisions du 29 octobre et du 2 novembre. **Actualisation technique le 2 novembre 2026** : fichiers Java présents sur `main` et résultats JUnit ciblés montrés depuis Eclipse. **Complément au 3 novembre 2026** : avancement du code *local* signalé par captures Eclipse et validations JUnit ciblées ; les nouvelles classes et la migration V8 ne sont pas supposées déjà poussées sur GitHub. Les mises à jour documentaires ne lancent ni test, ni build, ni serveur, ni migration.
 
 <a id="inscription-et-rattachements-2026-11-09"></a>
+
 ## Comptes et accès aux structures — 9 novembre 2026
 
 **Décisions validées.** Un compte global par salarié, avec des rôles propres aux rattachements dans la même entreprise cliente. Le `SUPER_ADMIN` conserve son compte en l’absence de rattachement à une structure. La création d’un rattachement exige `MANAGE_USERS` et `MANAGE_USER_ROLES`, la supériorité stricte sur chaque rôle demandé et les contrôles de périmètre. L’accès à ces permissions pour `MANAGER` et `SECRETARY` lors d’un nouveau rattachement actualise la règle historique du 5 novembre. La première invitation part après enregistrement de tous les accès validés. Sept jours après son envoi effectif, le serveur invalide l’invitation non utilisée et, si le compte est toujours en attente, le désactive et retire atomiquement tous les rattachements et rôles préparés pour cette inscription. Le parcours est audité et doit résister à une activation concurrente.
@@ -96,6 +113,7 @@ Les migrations V17 à V23 figurent dans les sources pour les appartenances, vers
 **À développer.** Les recherches et la reprise autorisée de fiches dans Swing, l’inscription, les invitations, l’activation, l’expiration et la réactivation restent à réaliser. Le cycle du compte relève d’une responsabilité distincte de `StructureAccessService`. La coordination et les invitations concurrentes, le sort de `TenantMembership`, le mécanisme d’expiration, le lien exact fiche-compte et les invitations pour un compte déjà actif restent ouverts.
 
 <a id="audit-rattachements-2026-11-09"></a>
+
 ## Audit des rattachements aux structures — 9 novembre 2026
 
 - **Code serveur.** L’attribution et la révocation d’un rattachement enregistrent les rôles exacts dans un instantané immuable et typé. L’audit conserve les cibles compte et structure, ainsi que l’identité authentifiée, l’adresse IP et l’heure obtenues côté serveur. Les appels historiques à `record()` restent compatibles.
@@ -145,6 +163,7 @@ Les services existaient avant cette adaptation : `AccountManagementService.revok
 **Prochaine petite étape proposée, sur demande distincte :** valider la compilation puis l’exécution ciblée des tests sur environnement isolé, en tenant compte de la requête de verrouillage désormais présente et encore non vérifiée. Les résultats attendus des tests écrits sont le refus sans retrait ni audit de succès des opérations interdites, le retrait de la seule appartenance autorisée avec audit compte/structure, et la conservation des autres accès et liens tenant. Les contraintes SQL doivent échouer pour leur cause précise. Aucune correction de production ni exécution n’est autorisée par cette note. L’intégration Swing, la fermeture complète de structure et le mode ADMIN_EMERGENCY hors ligne restent à concevoir ou valider séparément.
 
 <a id="autorisations-2026-11-05"></a>
+
 ## Reprise prioritaire — autorisations et administration — 5 novembre 2026
 
 **Décisions fermes de conception ; aucune nouvelle preuve d’implémentation.** La [référence commune du 5 novembre](https://github.com/lisepinheiro2-lgtm/gestionplus-client/blob/main/docs/vision-ensemble.md#decisions-securite-2026-11-05) précise les anciennes décisions. **Sécuriser d’abord AuthorizationService et les autorisations côté serveur, avant de poursuivre l’authentification et l’intégration Swing.** Les anciennes prochaines actions et l’ordre des tableaux restent historiques lorsqu’ils contredisent cette priorité.
@@ -387,3 +406,4 @@ Journal public :
 | 5 novembre 2026 — tests et documentation | Adaptation aux contrats locaux actuels : huit tests modifiés, deux ajoutés, 87 méthodes déclarées non compilées/non exécutées. Contrôles de périmètre, hiérarchie, audit et fixtures tenants ; problèmes de production signalés sans correction. Empreintes de src comparées, production inchangée ; aucune nouvelle réussite applicative ni publication. |
 | 9 novembre 2026 — audit des rattachements | Instantanés des rôles attribués ou révoqués, protection contre le doublon concurrent, V7 à V12 appliquées localement et 356/356 tests réussis selon le lancement de l’utilisatrice. |
 | 11 novembre 2026 — sécurité P1.01 à P1.12 | État des développements locaux et corrections Eclipse récapitulé. Suite antérieure à P1.11–P1.12 signalée au vert par l’utilisatrice. Nouveaux tests HTTP et PostgreSQL rédigés, compilation et exécution à effectuer. Contrôle documentaire des contenus et liens. |
+| 12 novembre 2026 — limiteur de connexion | Correction du contournement du délai par rotation d'identifiants : ancre sur l'échec le plus récent, poids adresse indépendant du compte, constantes dédiées. Nouveau test de rotation, test de capacité adapté, test historique renommé ; 6/6 tests rapportés au vert par l'utilisatrice. |
