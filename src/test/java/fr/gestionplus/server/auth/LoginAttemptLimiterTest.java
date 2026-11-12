@@ -156,6 +156,68 @@ class LoginAttemptLimiterTest {
 				AuditMetadata.because(AuditReason.RATE_LIMITED));
 	}
 
+	@Test
+	void letsUntrackedAttemptsThroughWhileTheAddressRegistryHasRoom() {
+
+		var first = limiter.begin("unknown-0", "192.0.2.1");
+		assertNotNull(first);
+		assertFalse(limiter.finish(first, true, false));
+
+		var second = limiter.begin("unknown-1", "192.0.2.2");
+		assertNotNull(second);
+		assertFalse(limiter.finish(second, true, false));
+	}
+
+	@Test
+	void throttlesUntrackedAttemptsGloballyWhenTheAddressRegistryIsSaturated() {
+		saturateAddresses();
+
+		var first = limiter.begin("untracked-0", "203.0.113.1");
+		assertNotNull(first);
+		assertFalse(limiter.finish(first, true, false));
+
+		assertNull(limiter.begin("untracked-1", "203.0.113.2"));
+		assertNull(limiter.begin("untracked-2", "203.0.113.3"));
+
+		at(5);
+		var second = limiter.begin("untracked-3", "203.0.113.4");
+		assertNotNull(second);
+		assertFalse(limiter.finish(second, true, false));
+		assertNull(limiter.begin("untracked-4", "203.0.113.5"));
+
+		at(10);
+		var third = limiter.begin("untracked-5", "203.0.113.6");
+		assertNotNull(third);
+		assertFalse(limiter.finish(third, true, false));
+	}
+
+	@Test
+	void exemptsKnownAccountsWithRecordedFailuresFromTheGlobalThrottle() {
+		var known = limiter.begin("victim", "192.0.2.1");
+		assertNotNull(known);
+		assertFalse(limiter.finish(known, true, true));
+
+		saturateAddresses();
+
+		var passage = limiter.begin("untracked-0", "203.0.113.1");
+		assertNotNull(passage);
+		assertFalse(limiter.finish(passage, true, false));
+
+		at(1);
+		assertNotNull(limiter.begin("victim", "203.0.113.2"));
+		assertNull(limiter.begin("unknown-9000", "203.0.113.3"));
+	}
+
+	private void saturateAddresses() {
+
+		for (int failure = 0; failure < 8192; failure++) {
+			var attempt = limiter.begin("unknown-" + failure, "192.0.2." + failure);
+			assertNotNull(attempt);
+			assertFalse(limiter.finish(attempt, true, false));
+		}
+
+	}
+
 	private void at(long seconds) {
 		when(clock.instant()).thenReturn(start.plusSeconds(seconds));
 	}

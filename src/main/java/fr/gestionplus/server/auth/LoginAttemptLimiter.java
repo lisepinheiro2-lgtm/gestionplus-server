@@ -31,6 +31,8 @@ public class LoginAttemptLimiter {
 	private static final long ACCOUNT_DELAY_STEP_MS = 200L;
 	private static final long ADDRESS_DELAY_STEP_MS = 500L;
 	private static final long MAX_DELAY_MS = 2000L;
+	private static final long UNTRACKED_ATTEMPT_THROTTLE_MS = 5000L;
+	private Instant lastUntrackedAttempt = Instant.MIN;
 
 	private final Clock clock;
 	private final SecretKeySpec key;
@@ -69,6 +71,15 @@ public class LoginAttemptLimiter {
 		if (source != null && !source.failures.isEmpty()
 				&& (lastFailure == null || source.failures.getLast().isAfter(lastFailure))) {
 			lastFailure = source.failures.getLast();
+		}
+
+		if (isSaturated(addresses, now) && source == null && !account.knownAccount) {
+
+			if (now.isBefore(lastUntrackedAttempt.plusMillis(UNTRACKED_ATTEMPT_THROTTLE_MS))) {
+				return null;
+			}
+
+			lastUntrackedAttempt = now;
 		}
 
 		if (lastFailure != null) {
@@ -144,6 +155,10 @@ public class LoginAttemptLimiter {
 	private History getOrCreate(Map<String, History> histories, String key, Instant now) {
 		History history = histories.get(key);
 
+		if (isSaturated(histories, now)) {
+			return null;
+		}
+
 		if (history != null) {
 			history.expire(now);
 			return history;
@@ -203,5 +218,15 @@ public class LoginAttemptLimiter {
 
 			failures.addLast(now);
 		}
+	}
+
+	private boolean isSaturated(Map<String, History> histories, Instant now) {
+
+		if (histories.size() < MAX_SCOPES) {
+			return false;
+		}
+
+		histories.values().removeIf(value -> value.expire(now));
+		return histories.size() >= MAX_SCOPES;
 	}
 }

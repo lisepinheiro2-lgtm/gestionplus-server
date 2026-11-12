@@ -1,6 +1,9 @@
 ---
-summary: "État local au 12 novembre 2026. Correction du contournement du délai dans le limiteur de tentatives de connexion ; sécurité P1.01 à P1.12, tests rapportés et validations restantes."
+---
+summary: "État local au 12 novembre 2026. Limiteur de connexion : contournement corrigé, pause à gigue anti-énumération, ralentissement global des tentatives non traçables en saturation ; threads virtuels activés ; sécurité P1.01 à P1.12, tests rapportés et validations restantes."
 read_when:
+  - "reprendre le ralentissement global des tentatives non traçables en saturation du registre d’adresses"
+  - "reprendre la pause anti-énumération des rejets de connexion et les threads virtuels"
   - "reprendre la correction du limiteur des tentatives de connexion du 12 novembre"
   - "reprendre les comptes authentification rôles permissions sessions et audit"
   - "distinguer code présent tests écrits résultats disponibles et fonctions prévues"
@@ -9,6 +12,25 @@ read_when:
 ---
 
 # Avancement et feuille de route
+
+<a id="throttle-saturation-adresses-2026-11-12"></a>
+
+## Ralentissement global des tentatives non traçables — 12 novembre 2026
+
+Suite du point 2 de la revue statique externe (Codex), après traçage du code en deux phases. Phase 1 : la boucle d’éviction de `accountHistory` sacrifie la plus vieille entrée inconnue non en vol, si bien qu’un registre plein restitue à chaque identifiant inconnu un historique vierge — dégât localisé, historique non accumulé. Phase 2, plus sévère : quand le registre des adresses est saturé, `begin()` lit `null` pour toute nouvelle adresse (poids nul, aucun délai) et `finish()` renonce à enregistrer l’échec — toutes les nouvelles adresses passent sans délai ni trace tant que la saturation tient.
+
+**Décisions.** La saturation elle-même n’est pas évitable : un registre non borné serait un déni de service mémoire pire, et l’atteindre exige déjà ~8192 adresses avec des échecs en quinze minutes — une attaque distribuée massive, domaine de l’infrastructure. Refuser les tentatives non traçables sans condition piégerait les légitimes ; le comportement à la frontière retenu est un ralentissement global borné : tant que le registre d’adresses est saturé, une tentative non traçable — adresse sans historique et compte sans échec connu enregistré — est refusée si elle survient moins de 5 secondes (`UNTRACKED_ATTEMPT_THROTTLE_MS` = 5000 ms, valeur portée à 5 s par décision de l’utilisatrice au-delà des 2 s de `MAX_DELAY_MS`) après la précédente tentative non traçable passée, toutes adresses et comptes confondus, ancrée sur un unique timestamp (`lastUntrackedAttempt`, initialisé à `Instant.MIN`, zéro mémoire supplémentaire). Les refus ne repoussent pas l’ancre : seuls les passages la mettent à jour, pour qu’un martèlement ne transforme pas le ralentissement en verrouillage permanent des légitimes. Le refus emprunte le même chemin que le blocage `LIMIT` (`return null`) et sort avec la pause commune : le portail est invisible de l’extérieur, aucun message ni délai ne distingue un refus du throttle d’un autre rejet.
+
+**Modification.** Dans `LoginAttemptLimiter` : extraction de `isSaturated(Map, Instant)` — « encore plein après avoir retiré les expirés » — seule source de vérité, utilisée par `getOrCreate` et consultée par `begin()` ; bloc portail dans `begin()` après la lecture de l’adresse et avant le calcul du poids ; mise à jour de l’ancre uniquement sur passage. `finish()` inchangé.
+
+**Approximation assumée.** `begin()` ne voit que des empreintes : un compte connu sans échec récent porte la même signature qu’un compte inexistant, le drapeau `knownAccount` n’étant posé que dans `finish()`, sur échec. Le portail frappe donc aussi les comptes connus sans échec pendant une saturation — attente bornée, ils passent dès qu’un créneau s’ouvre — et épargne les comptes avec échecs enregistrés, déjà protégés par le poids du compte. Hors saturation, les comptes connus ne subissent rien de nouveau.
+
+**Tests** (src/test/java/fr/gestionplus/server/auth/LoginAttemptLimiterTest.java). Trois tests ajoutés : `letsUntrackedAttemptsThroughWhileTheAddressRegistryHasRoom` (aucune entrave hors saturation), `throttlesUntrackedAttemptsGloballyWhenTheAddressRegistryIsSaturated` (premier passage tamponné, refus global depuis deux adresses différentes, réouverture à 5 s pile — borne stricte — et refus martelés ne repoussant pas l’ancre, réouverture à 10 s), `exemptsKnownAccountsWithRecordedFailuresFromTheGlobalThrottle` (échappatoire du drapeau face à un inconnu refusé à la même instante). Helper `saturateAddresses()` : 8192 adresses distinctes avec un échec chacune, horloge immobile pour que rien n’expire. Le test de capacité historique reste vert : il sature le registre des comptes depuis une seule adresse, le portail n’y est jamais consulté.
+
+**Preuve rapportée.** L’utilisatrice rapporte `LoginAttemptLimiterTest` au vert depuis Eclipse avec les trois nouveaux tests. Aucune autre suite, aucun build, serveur ni migration n’ont été exécutés pendant cette session.
+
+**Limites connues à garder en vue.** Le portail ne connaît pas l’existence réelle des comptes (approximation par drapeau, ci-dessus). Le ralentissement global ne protège que la voie non traçable : les comptes connus martelés restent bornés par leur poids de compte, et le plancher CPU d’Argon2 reste non borné au niveau applicatif (sémaphore global en raffinement futur). Registres toujours en mémoire d’une instance.
+
 
 <a id="pause-rejets-connexion-2026-11-12"></a>
 
@@ -42,16 +64,6 @@ Correction du contournement du délai de `LoginAttemptLimiter`, identifié par u
 
 **Limites connues à garder en vue.** À l'expiration du délai, une bouffée de tentatives simultanées d'identifiants différents peut passer : `inFlight` protège par compte, pas par adresse. Les dix premiers échecs d'une adresse restent sans délai, le poids étant nul en dessous de `FAILURES_PER_ADDRESS_WEIGHT`. Le registre reste en mémoire d'une instance, comme noté plus haut. Ces limites sont les frontières du choix de conception retenu — délai par adresse plutôt que blocage, pour préserver les adresses partagées — et non des régressions.
 
----
-summary: "État local au 12 novembre 2026. Correction du limiteur de connexion et pause à gigue sur les rejets de connexion ; threads virtuels activés ; sécurité P1.01 à P1.12, tests rapportés et validations restantes."
-read_when:
-  - "reprendre la pause anti-énumération des rejets de connexion et les threads virtuels"
-  - "reprendre la correction du limiteur des tentatives de connexion du 12 novembre"
-  - "reprendre les comptes authentification rôles permissions sessions et audit"
-  - "distinguer code présent tests écrits résultats disponibles et fonctions prévues"
-  - "préparer les décisions DEC01–DEC06 et l’isolation multi-structures"
-  - "anticiper MFA limitations des connexions SSH TLS et ADMIN_EMERGENCY"
----
 
 <a id="corrections-avant-validation-2026-11-11"></a>
 
@@ -435,3 +447,5 @@ Journal public :
 | 9 novembre 2026 — audit des rattachements | Instantanés des rôles attribués ou révoqués, protection contre le doublon concurrent, V7 à V12 appliquées localement et 356/356 tests réussis selon le lancement de l’utilisatrice. |
 | 11 novembre 2026 — sécurité P1.01 à P1.12 | État des développements locaux et corrections Eclipse récapitulé. Suite antérieure à P1.11–P1.12 signalée au vert par l’utilisatrice. Nouveaux tests HTTP et PostgreSQL rédigés, compilation et exécution à effectuer. Contrôle documentaire des contenus et liens. |
 | 12 novembre 2026 — limiteur de connexion | Correction du contournement du délai par rotation d'identifiants : ancre sur l'échec le plus récent, poids adresse indépendant du compte, constantes dédiées. Nouveau test de rotation, test de capacité adapté, test historique renommé ; 6/6 tests rapportés au vert par l'utilisatrice. |
+| 12 novembre 2026 — pause anti-énumération | Vérification factice Argon2 remplacée par une pause à gigue (70–110 ms) sur les quatre chemins de rejet ; threads virtuels activés sur Java 25 ; `verifyDummyPassword` supprimée, `rejectAfterDummyCheck` renommée. Contrat de tests inversé et plage de tirage vérifiée ; suite complète verte selon le lancement de l'utilisatrice. |
+| 12 novembre 2026 — ralentissement global en saturation | Portail global de 5 s sur les tentatives non traçables quand le registre d’adresses est saturé ; ancre mise à jour aux seuls passages, refus sortant avec la pause commune ; trois tests ajoutés, `LoginAttemptLimiterTest` au vert ; double frontmatter du document corrigée. |
