@@ -14,13 +14,15 @@ public class LoginService {
 	private final UserAccountLookup userAccountLookup;
 	private final UserCredentialLookup userCredentialLookup;
 	private final CredentialService credentialService;
+	private final LoginDelay loginDelay;
 
 	public LoginService(UserAccountLookup userAccountLookup, UserCredentialLookup userCredentialLookup,
-			CredentialService credentialService) {
+			CredentialService credentialService, LoginDelay loginDelay) {
 
 		this.userAccountLookup = Objects.requireNonNull(userAccountLookup);
 		this.userCredentialLookup = Objects.requireNonNull(userCredentialLookup);
 		this.credentialService = Objects.requireNonNull(credentialService);
+		this.loginDelay = Objects.requireNonNull(loginDelay);
 	}
 
 	public Optional<UserAccount> authenticate(String userName, String rawPassword) {
@@ -36,23 +38,23 @@ public class LoginService {
 		Optional<UserAccount> found = userAccountLookup.findByUserName(userName);
 
 		if (found.isEmpty()) {
-			return rejectAfterDummyCheck(rawPassword, null, AuditReason.UNKNOWN_ACCOUNT);
+			return rejectAfterDelay(null, AuditReason.UNKNOWN_ACCOUNT);
 		}
 
 		UserAccount account = found.get();
 
 		if (account.getStatu() == UserAccountStatus.DISABLED) {
-			return rejectAfterDummyCheck(rawPassword, account.getUserID(), AuditReason.DISABLED_ACCOUNT);
+			return rejectAfterDelay(account.getUserID(), AuditReason.DISABLED_ACCOUNT);
 		}
 
 		if (account.getStatu() != UserAccountStatus.ACTIVE) {
-			return rejectAfterDummyCheck(rawPassword, account.getUserID(), AuditReason.ACCOUNT_NOT_ACTIVE);
+			return rejectAfterDelay(account.getUserID(), AuditReason.ACCOUNT_NOT_ACTIVE);
 		}
 
 		Optional<UserCredential> credential = userCredentialLookup.findByUserId(account.getUserID());
 
 		if (credential.isEmpty() || !account.getUserID().equals(credential.get().getUserId())) {
-			return rejectAfterDummyCheck(rawPassword, account.getUserID(), AuditReason.INVALID_CREDENTIALS);
+			return rejectAfterDelay(account.getUserID(), AuditReason.INVALID_CREDENTIALS);
 		}
 
 		if (!credentialService.verifyPassword(credential.get(), rawPassword)) {
@@ -62,8 +64,8 @@ public class LoginService {
 		return new LoginAttempt(account, account.getUserID(), null);
 	}
 
-	private LoginAttempt rejectAfterDummyCheck(String rawPassword, UUID targetId, AuditReason reason) {
-		credentialService.verifyDummyPassword(rawPassword);
+	private LoginAttempt rejectAfterDelay(UUID targetId, AuditReason reason) {
+		loginDelay.pause();
 		return new LoginAttempt(null, targetId, reason);
 	}
 

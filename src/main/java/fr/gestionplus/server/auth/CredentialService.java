@@ -11,12 +11,10 @@ public class CredentialService {
 
 	private final PasswordEncoder passwordEncoder;
 	private final PasswordPolicy policy;
-	private final String dummyPasswordHash;
 
 	public CredentialService(PasswordEncoder passwordEncoder, PasswordPolicy policy) {
 		this.passwordEncoder = Objects.requireNonNull(passwordEncoder);
 		this.policy = Objects.requireNonNull(policy);
-		dummyPasswordHash = passwordEncoder.encode(UUID.randomUUID().toString());
 	}
 
 	public UserCredential createCredential(UUID userId, String rawPassword) {
@@ -29,10 +27,6 @@ public class CredentialService {
 
 		String passwordHash = passwordEncoder.encode(rawPassword);
 		return new UserCredential(userId, passwordHash);
-	}
-
-	void verifyDummyPassword(String rawPassword) {
-		passwordEncoder.matches(rawPassword, dummyPasswordHash);
 	}
 
 	public boolean verifyPassword(UserCredential credential, String rawPassword) {

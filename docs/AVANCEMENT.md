@@ -10,6 +10,24 @@ read_when:
 
 # Avancement et feuille de route
 
+<a id="pause-rejets-connexion-2026-11-12"></a>
+
+## Pause à gigue sur les rejets de connexion — 12 novembre 2026
+
+Réexamen du point 3 de la revue statique externe (Codex), qui voyait dans la vérification de mot de passe factice un coût inutile. Vérification par lecture du code : ce coût était volontaire — il égalise la durée des rejets pour empêcher l'énumération des identifiants par mesure de temps de réponse. Le vrai sujet n'était donc pas le coût lui-même, mais son absence de borne globale au niveau applicatif. Après arbitrage, la vérification factice Argon2 est remplacée par une pause à gigue, l'exécution passant sur des threads virtuels pour que l'attente ne consomme plus les threads du serveur.
+
+**Modification.** `LoginDelay` (interface, pause sans paramètre) et `JitteredLoginDelay` (`@Component`, tirage uniforme entre `MIN_DELAY_MS` = 70 ms et `MAX_DELAY_MS` = 110 ms par `SecureRandom`, couture de test `nextDelayMillis()` package-private). `LoginService` reçoit la dépendance et pose la pause sur les quatre chemins de rejet (compte inconnu, désactivé, non actif, credential absent ou incohérent) ; `rejectAfterDummyCheck` est renommée `rejectAfterDelay` et perd son paramètre devenu inutile ; `CredentialService.verifyDummyPassword`, orpheline, est supprimée. L'identifiant vide reste rejeté sans pause : sa réponse ne dépend d'aucune consultation de compte, donc ne fuit rien.
+
+**Threads virtuels.** `spring.threads.virtual.enabled: true` dans `application.yaml`, sur Java 25 (le piège d'épinglage des threads porteurs par `synchronized`, JEP 491, est résolu depuis Java 24). Le plafond de 200 threads Tomcat ne borne plus les requêtes en attente ; le coût d'une pause devient négligeable en mémoire au lieu d'un calcul Argon2 par requête.
+
+**Tests** (src/test/java/fr/gestionplus/server/auth/). `LoginServiceTest` réécrit : le contrat ancien exigeait un Argon2 factice sur les comptes inconnus et désactivés, le nouveau l'interdit — `runsArgon2OnlyForTheRealCredentialCheck` vérifie une seule vérification réelle (mauvais mot de passe sur compte actif) et aucune sur les chemins de rejet ; `pausesEveryRejectionPathWithoutDelayingSuccessfulLogins` compte quatre pauses et aucune sur succès, mauvais mot de passe réel et identifiant vide. `JitteredLoginDelayTest` vérifie la plage 70–110 ms sur 10 000 tirages sans jamais dormir.
+
+**Preuve rapportée.** L'utilisatrice rapporte les classes `LoginServiceTest` et `JitteredLoginDelayTest` au vert après correction de deux échecs dus aux préconditions partagées des tests, puis la suite complète au vert avec les threads virtuels activés. Aucun serveur ni migration n'ont été lancés.
+
+**Décision documentée et hypothèse nommée.** L'anti-énumération passe d'un déguisement natif (la même fonction Argon2 que la vraie vérification) à un déguisement approximatif (gigue) — arbitrage explicite contre l'épuisement de ressources. La protection suppose des identifiants difficiles à deviner ; si cette hypothèse tombe, le pire cas rejoint l'état antérieur (chaque tentative sur un vrai compte coûte un Argon2), jamais pire.
+
+**Limites connues à garder en vue.** Le plancher CPU des attaques sur vrais comptes reste non borné au niveau applicatif (sémaphore global sur les calculs Argon2 en raffinement futur, à côté du burst concurrent par adresse). La suite verte prouve la non-régression, pas l'exécution réelle sur threads virtuels : MockMvc ne traverse pas les threads Tomcat.
+
 <a id="limiteur-connexion-2026-11-12"></a>
 
 ## Limiteur des tentatives de connexion — 12 novembre 2026
@@ -24,6 +42,16 @@ Correction du contournement du délai de `LoginAttemptLimiter`, identifié par u
 
 **Limites connues à garder en vue.** À l'expiration du délai, une bouffée de tentatives simultanées d'identifiants différents peut passer : `inFlight` protège par compte, pas par adresse. Les dix premiers échecs d'une adresse restent sans délai, le poids étant nul en dessous de `FAILURES_PER_ADDRESS_WEIGHT`. Le registre reste en mémoire d'une instance, comme noté plus haut. Ces limites sont les frontières du choix de conception retenu — délai par adresse plutôt que blocage, pour préserver les adresses partagées — et non des régressions.
 
+---
+summary: "État local au 12 novembre 2026. Correction du limiteur de connexion et pause à gigue sur les rejets de connexion ; threads virtuels activés ; sécurité P1.01 à P1.12, tests rapportés et validations restantes."
+read_when:
+  - "reprendre la pause anti-énumération des rejets de connexion et les threads virtuels"
+  - "reprendre la correction du limiteur des tentatives de connexion du 12 novembre"
+  - "reprendre les comptes authentification rôles permissions sessions et audit"
+  - "distinguer code présent tests écrits résultats disponibles et fonctions prévues"
+  - "préparer les décisions DEC01–DEC06 et l’isolation multi-structures"
+  - "anticiper MFA limitations des connexions SSH TLS et ADMIN_EMERGENCY"
+---
 
 <a id="corrections-avant-validation-2026-11-11"></a>
 

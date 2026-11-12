@@ -3,9 +3,12 @@ package fr.gestionplus.server.auth;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import java.util.Optional;
@@ -25,6 +28,7 @@ public class LoginServiceTest {
 	private CredentialService service;
 	private UserAccountLookup userAccountLookup;
 	private UserCredentialLookup userCredentialLookup;
+	private LoginDelay loginDelay;
 	private LoginService loginService;
 	private UUID userId;
 	private Employee employee;
@@ -36,6 +40,7 @@ public class LoginServiceTest {
 	void setUp() {
 		encoder = new PasswordSecurityConfig().passwordEncoder();
 		service = new CredentialService(encoder, new PasswordPolicy(rawPassword -> false));
+		loginDelay = mock(LoginDelay.class);
 		userId = UUID.randomUUID();
 		employee = new Employee(UUID.randomUUID(), "Test", "Employee", 35, "test@example.invalid", "0600000000", null);
 		credential = service.createCredential(userId, "jekel-test-password");
@@ -62,7 +67,7 @@ public class LoginServiceTest {
 			return Optional.empty();
 		};
 
-		loginService = new LoginService(userAccountLookup, userCredentialLookup, service);
+		loginService = new LoginService(userAccountLookup, userCredentialLookup, service, loginDelay);
 	}
 
 	@Test
@@ -92,21 +97,69 @@ public class LoginServiceTest {
 	}
 
 	@Test
-	void performsOneArgon2CheckForUnknownDisabledAndActiveAccounts() {
+	void pausesEveryRejectionPathWithoutDelayingSuccessfulLogins() {
+		assertTrue(loginService.authenticate("utilisateurInconnu", "ujkel").isEmpty());
+
+		userAccount = new UserAccount(userId, name, UserAccountStatus.DISABLED, Set.of(UserRole.EMPLOYEE),
+				employee.getEmployeeID(), employee.getLastName(), employee.getFirstName(), employee.getEmail(),
+				employee.getPhoneNumber());
+		assertFalse(loginService.authenticate(name, "jekel-test-password").isPresent());
+
+		userAccount = new UserAccount(userId, name, UserAccountStatus.PENDING_ACTIVATION, Set.of(UserRole.EMPLOYEE),
+				employee.getEmployeeID(), employee.getLastName(), employee.getFirstName(), employee.getEmail(),
+				employee.getPhoneNumber());
+		assertFalse(loginService.authenticate(name, "jekel-test-password").isPresent());
+
+        userAccount = new UserAccount(userId, name, UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE),
+                employee.getEmployeeID(), employee.getLastName(), employee.getFirstName(), employee.getEmail(),
+                employee.getPhoneNumber());
+
+        userCredentialLookup = id -> Optional.empty();
+        loginService = new LoginService(userAccountLookup, userCredentialLookup, service, loginDelay);
+        assertFalse(loginService.authenticate(name, "jekel-test-password").isPresent());
+
+		userAccount = new UserAccount(userId, name, UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE),
+				employee.getEmployeeID(), employee.getLastName(), employee.getFirstName(), employee.getEmail(),
+				employee.getPhoneNumber());
+
+		userCredentialLookup = id -> {
+
+			if (id.equals(userId)) {
+				return Optional.of(credential);
+			}
+
+			return Optional.empty();
+		};
+		loginService = new LoginService(userAccountLookup, userCredentialLookup, service, loginDelay);
+		assertFalse(loginService.authenticate(name, "kkllmm").isPresent());
+		assertTrue(loginService.authenticate(name, "jekel-test-password").isPresent());
+		assertTrue(loginService.authenticate("", "jekel-test-password").isEmpty());
+
+		verify(loginDelay, times(4)).pause();
+	}
+
+	@Test
+	void runsArgon2OnlyForTheRealCredentialCheck() {
 		PasswordEncoder measured = spy(encoder);
 		CredentialService measuredCredentials = new CredentialService(measured, new PasswordPolicy(password -> false));
-		LoginService measuredLogin = new LoginService(userAccountLookup, userCredentialLookup, measuredCredentials);
+		LoginService measuredLogin = new LoginService(userAccountLookup, userCredentialLookup, measuredCredentials,
+				loginDelay);
 
 		assertEquals(AuditReason.UNKNOWN_ACCOUNT, measuredLogin.evaluate("unknown", "unknown-password").reason());
-		assertEquals(AuditReason.INVALID_CREDENTIALS, measuredLogin.evaluate(name, "wrong-password").reason());
+
 		userAccount = new UserAccount(userId, name, UserAccountStatus.DISABLED, Set.of(UserRole.EMPLOYEE),
 				employee.getEmployeeID(), employee.getLastName(), employee.getFirstName(), employee.getEmail(),
 				employee.getPhoneNumber());
 		assertEquals(AuditReason.DISABLED_ACCOUNT, measuredLogin.evaluate(name, "disabled-password").reason());
 
-		verify(measured).matches(eq("unknown-password"), argThat(hash -> hash.startsWith("$argon2id$")));
-		verify(measured).matches(eq("disabled-password"), argThat(hash -> hash.startsWith("$argon2id$")));
-		verify(measured).matches("wrong-password", credential.getPasswordHash());
+        userAccount = new UserAccount(userId, name, UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE),
+                employee.getEmployeeID(), employee.getLastName(), employee.getFirstName(), employee.getEmail(),
+                employee.getPhoneNumber());
+        assertEquals(AuditReason.INVALID_CREDENTIALS, measuredLogin.evaluate(name, "wrong-password").reason());
+
+		verify(measured, times(1)).matches("wrong-password", credential.getPasswordHash());
+		verify(measured, never()).matches(eq("unknown-password"), anyString());
+		verify(measured, never()).matches(eq("disabled-password"), anyString());
 	}
 
 	@Test
@@ -117,7 +170,7 @@ public class LoginServiceTest {
 	@Test
 	void rejectsMissingCredential() {
 		userCredentialLookup = userId -> Optional.empty();
-		loginService = new LoginService(userAccountLookup, userCredentialLookup, service);
+		loginService = new LoginService(userAccountLookup, userCredentialLookup, service, loginDelay);
 
 		assertTrue(loginService.authenticate(name, "jekel-test-password").isEmpty());
 	}

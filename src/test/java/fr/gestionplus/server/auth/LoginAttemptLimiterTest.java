@@ -55,6 +55,7 @@ class LoginAttemptLimiterTest {
 
 		when(clock.instant()).thenReturn(start.plusMillis(500));
 		assertNotNull(limiter.begin("fresh", "192.0.2.1"));
+		assertNotNull(limiter.begin("account0", "192.0.2.2"));
 	}
 
 	@Test

@@ -11,6 +11,9 @@ server:
         same-site: lax
 
 spring:
+  threads:
+    virtual:
+      enabled: true
   application:
     name: gestionplus-server
 
