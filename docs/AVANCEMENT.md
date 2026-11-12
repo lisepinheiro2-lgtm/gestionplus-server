@@ -1,5 +1,4 @@
 ---
----
 summary: "État local au 12 novembre 2026. Limiteur de connexion : contournement corrigé, pause à gigue anti-énumération, ralentissement global des tentatives non traçables en saturation ; threads virtuels activés ; sécurité P1.01 à P1.12, tests rapportés et validations restantes."
 read_when:
   - "reprendre le ralentissement global des tentatives non traçables en saturation du registre d’adresses"
@@ -30,7 +29,7 @@ Suite du point 2 de la revue statique externe (Codex), après traçage du code e
 **Preuve rapportée.** L’utilisatrice rapporte `LoginAttemptLimiterTest` au vert depuis Eclipse avec les trois nouveaux tests. Aucune autre suite, aucun build, serveur ni migration n’ont été exécutés pendant cette session.
 
 **Limites connues à garder en vue.** Le portail ne connaît pas l’existence réelle des comptes (approximation par drapeau, ci-dessus). Le ralentissement global ne protège que la voie non traçable : les comptes connus martelés restent bornés par leur poids de compte, et le plancher CPU d’Argon2 reste non borné au niveau applicatif (sémaphore global en raffinement futur). Registres toujours en mémoire d’une instance.
-
+**Correction au même chantier.** Le premier commit plaçait le test de saturation avant la restitution de l’entrée existante dans `getOrCreate` : en saturation, les échecs des adresses déjà traçées n’étaient plus enregistrés et l’éviction sacrifiait une entrée inconnue à chaque tentative sur un compte existant. La vérification revient après la restitution de l’entrée existante ; l’expiration des échecs d’adresse dans `begin()`, perdue lors de la restructuration précédente, est rétablie. Deux tests verrouillent ces comportements (`recordsFailuresForTrackedAddressesWhileTheRegistryIsSaturated`, `doesNotLetExpiredAddressFailuresInflateTheDelay`)
 
 <a id="pause-rejets-connexion-2026-11-12"></a>
 
@@ -449,3 +448,4 @@ Journal public :
 | 12 novembre 2026 — limiteur de connexion | Correction du contournement du délai par rotation d'identifiants : ancre sur l'échec le plus récent, poids adresse indépendant du compte, constantes dédiées. Nouveau test de rotation, test de capacité adapté, test historique renommé ; 6/6 tests rapportés au vert par l'utilisatrice. |
 | 12 novembre 2026 — pause anti-énumération | Vérification factice Argon2 remplacée par une pause à gigue (70–110 ms) sur les quatre chemins de rejet ; threads virtuels activés sur Java 25 ; `verifyDummyPassword` supprimée, `rejectAfterDummyCheck` renommée. Contrat de tests inversé et plage de tirage vérifiée ; suite complète verte selon le lancement de l'utilisatrice. |
 | 12 novembre 2026 — ralentissement global en saturation | Portail global de 5 s sur les tentatives non traçables quand le registre d’adresses est saturé ; ancre mise à jour aux seuls passages, refus sortant avec la pause commune ; trois tests ajoutés, `LoginAttemptLimiterTest` au vert ; double frontmatter du document corrigée. |
+| 12 novembre 2026 — correction du ralentissement global | Restitution des entrées existantes en saturation dans `getOrCreate`, expiration des échecs d’adresse rétablie dans `begin()` ; deux tests ajoutés au vert ; double `---` de tête du document corrigée. |

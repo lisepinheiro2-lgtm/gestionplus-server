@@ -218,6 +218,45 @@ class LoginAttemptLimiterTest {
 
 	}
 
+	@Test
+	void recordsFailuresForTrackedAddressesWhileTheRegistryIsSaturated() {
+		var seed = limiter.begin("seed", "192.0.2.0");
+		assertNotNull(seed);
+		assertFalse(limiter.finish(seed, true, false));
+
+		saturateAddresses();
+
+		for (int failure = 1; failure < 10; failure++) {
+			at(failure);
+			var attempt = limiter.begin("unknown-" + failure, "192.0.2.0");
+			assertNotNull(attempt);
+			assertFalse(limiter.finish(attempt, true, false));
+		}
+
+		assertNull(limiter.begin("fresh", "192.0.2.0"));
+
+		at(10);
+		assertNotNull(limiter.begin("fresh", "192.0.2.0"));
+	}
+
+	@Test
+	void doesNotLetExpiredAddressFailuresInflateTheDelay() {
+
+		for (int failure = 0; failure < 10; failure++) {
+			var attempt = limiter.begin("account" + failure, "192.0.2.9");
+			assertNotNull(attempt);
+			assertFalse(limiter.finish(attempt, true, false));
+		}
+
+		at(901);
+		var fresh = limiter.begin("target", "192.0.2.8");
+		assertNotNull(fresh);
+		assertFalse(limiter.finish(fresh, true, false));
+
+		when(clock.instant()).thenReturn(start.plusMillis(901_400));
+		assertNotNull(limiter.begin("target", "192.0.2.9"));
+	}
+
 	private void at(long seconds) {
 		when(clock.instant()).thenReturn(start.plusSeconds(seconds));
 	}

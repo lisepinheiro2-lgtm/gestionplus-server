@@ -72,6 +72,10 @@ public class LoginAttemptLimiter {
 				&& (lastFailure == null || source.failures.getLast().isAfter(lastFailure))) {
 			lastFailure = source.failures.getLast();
 		}
+		
+        if (source != null) {
+            source.expire(now);
+        }
 
 		if (isSaturated(addresses, now) && source == null && !account.knownAccount) {
 
@@ -155,20 +159,12 @@ public class LoginAttemptLimiter {
 	private History getOrCreate(Map<String, History> histories, String key, Instant now) {
 		History history = histories.get(key);
 
-		if (isSaturated(histories, now)) {
-			return null;
-		}
-
 		if (history != null) {
 			history.expire(now);
 			return history;
 		}
 
-		if (histories.size() >= MAX_SCOPES) {
-			histories.values().removeIf(value -> value.expire(now));
-		}
-
-		if (histories.size() >= MAX_SCOPES) {
+		if (isSaturated(histories, now)) {
 			return null;
 		}
 
