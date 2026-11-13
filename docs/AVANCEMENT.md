@@ -1,6 +1,7 @@
 ---
-summary: "État local au 12 novembre 2026. Livraison des notifications de désactivation hors transaction (réservation durable, plafond de tentatives) ; limiteur de connexion corrigé, pause à gigue anti-énumération, ralentissement global des tentatives non traçables en saturation ; threads virtuels activés ; sécurité P1.01 à P1.12, tests rapportés et validations restantes."
+summary: "État local au 12 novembre 2026. Exigence du salarié dès la création des comptes en attente ; livraison des notifications de désactivation hors transaction (réservation durable, plafond de tentatives) ; limiteur de connexion corrigé, pause à gigue anti-énumération, ralentissement global des tentatives non traçables en saturation ; threads virtuels activés ; sécurité P1.01 à P1.12, tests rapportés et validations restantes."
 read_when:
+  - "reprendre l'exigence du salarié dès la création d'un compte en attente (impasse fonctionnelle levée)"
   - "reprendre la livraison des notifications de désactivation hors transaction et son plafond de tentatives"
   - "reprendre le ralentissement global des tentatives non traçables en saturation du registre d’adresses"
   - "reprendre la pause anti-énumération des rejets de connexion et les threads virtuels"
@@ -31,6 +32,22 @@ Suite du point 2 de la revue statique externe (Codex), après traçage du code e
 
 **Limites connues à garder en vue.** Le portail ne connaît pas l’existence réelle des comptes (approximation par drapeau, ci-dessus). Le ralentissement global ne protège que la voie non traçable : les comptes connus martelés restent bornés par leur poids de compte, et le plancher CPU d’Argon2 reste non borné au niveau applicatif (sémaphore global en raffinement futur). Registres toujours en mémoire d’une instance.
 **Correction au même chantier.** Le premier commit plaçait le test de saturation avant la restitution de l’entrée existante dans `getOrCreate` : en saturation, les échecs des adresses déjà traçées n’étaient plus enregistrés et l’éviction sacrifiait une entrée inconnue à chaque tentative sur un compte existant. La vérification revient après la restitution de l’entrée existante ; l’expiration des échecs d’adresse dans `begin()`, perdue lors de la restructuration précédente, est rétablie. Deux tests verrouillent ces comportements (`recordsFailuresForTrackedAddressesWhileTheRegistryIsSaturated`, `doesNotLetExpiredAddressFailuresInflateTheDelay`)
+
+<a id="exigence-salarie-creation-2026-11-12"></a>
+
+## Exigence du salarié dès la création de compte — 12 novembre 2026
+
+Suite du point 3 de la revue du soir (Codex). Traçage du code : `AccountProvisioningService.createPendingAccount()` autorisait les acteurs élevés (`ADMIN`, `R_H`, `SUPER_ADMIN`) à créer un compte en attente sans `employeeID`, tandis que `UserAccountEntity.activate()` refuse précisément cette absence — et aucun parcours ne permettait d'associer un salarié ensuite. Une porte d'entrée autorisait ce que la seule sortie interdit : un compte enregistré dans une impasse fonctionnelle. Vérification complémentaire : aucun appelant en production (aucune route HTTP, aucun service) — l'impasse était théorique, la décision porte sur le contrat avant raccordement.
+
+**Décision.** Option A, ancrée dans la décision documentée du 26 octobre (« Fiche salarié existante, e-mail et téléphone vérifiés » — même le compte invité sans identifiant choisi ni credential reste adossé à une fiche) : le `employeeID` est exigé dès la création, pour tous les acteurs. L'état intermédiaire sans salarié n'avait pas de parcours de sortie, donc pas de raison d'être. La variable `elevated` perd son exemption du salarié obligatoire ; elle conserve son exemption du contrôle de responsabilité (élevé : n'importe quel salarié de la structure ; SECRETARY : salarié existant ; MANAGER : ses salariés responsables).
+
+**Modification.** Suppression de la surcharge de `createPendingAccount()` sans `employeeID` ; refus explicite `employeeID == null` pour tous, juste après le contrôle `INVITE_USERS` ; simplification de la création (plus de ternaire). Test existant du refus d'un compte sans périmètre adapté à la nouvelle signature (`null` explicite).
+
+**Tests.** Nouveau `superAdminCannotCreateAnAccountWithoutAnEmployee` dans `StructureAccessPostgresqlIntegrationTest` : l'acteur par défaut du test est un `SUPER_ADMIN`, exactement le cas que l'ancien code laissait passer.
+
+**Preuve rapportée.** L'utilisatrice rapporte `StructureAccessPostgresqlIntegrationTest` au vert (32/32) puis la suite complète au vert (**692/692**) depuis Eclipse. Aucun serveur ni migration n'ont été lancés.
+
+**Limites connues à garder en vue.** Aucune route HTTP n'expose encore la création de comptes ; le contrat est prêt pour le futur raccordement. La surcharge supprimée n'avait aucun appelant en production.
 
 <a id="smtp-hors-transaction-2026-11-12"></a>
 
@@ -482,3 +499,4 @@ Journal public :
 | 12 novembre 2026 — correction du ralentissement global | Restitution des entrées existantes en saturation dans `getOrCreate`, expiration des échecs d’adresse rétablie dans `begin()` ; deux tests ajoutés au vert ; double `---` de tête du document corrigée. |
 | 12 novembre 2026 — pause sur les refus du limiteur | `GestionAuthenticationProvider` applique la pause commune avant le rejet `RATE_LIMITED` quand le limiteur refuse (oracle de timing présent depuis `b72c22c`) ; deux tests ajoutés, phrase documentaire fausse corrigée. Preuve : 9/9 exécutions de la classe de livraison puis suite complète au vert (691 réussites) selon le lancement de l'utilisatrice. |
 | 12 novembre 2026 — livraison des notifications hors transaction | SMTP sorti de la transaction, réservation durable (`next_attempt_at` + compteur `attempts`, migration V26), plafond de 3 tentatives puis abandon audité (`NOTIFICATION_ABANDON`), timeouts SMTP de 60 s ; `CsrfHttpTest` et `HttpProductionPolicyTest` complétés d'un `LoginDelay` simulé. Preuve : [à recoller]. |
+| 12 novembre 2026 — salarié exigé dès la création | Impasse fonctionnelle levée (option A) : `employeeID` obligatoire pour tous à la création d'un compte en attente, surcharge sans salarié supprimée, nouveau test `SUPER_ADMIN` refusé. Ancrage : décisions du 26 octobre. Preuve : 32/32 puis 692/692 réussites rapportées. |

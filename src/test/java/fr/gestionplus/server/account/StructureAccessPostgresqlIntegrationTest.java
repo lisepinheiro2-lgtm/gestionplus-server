@@ -531,10 +531,16 @@ class StructureAccessPostgresqlIntegrationTest extends AuditStorageIntegrationTe
 		service.addStructureAccess(pendingID, structureId, Set.of(UserRole.TEAM_LEAD));
 
 		assertEquals(UserAccountStatus.PENDING_ACTIVATION, accountStore.findById(pendingID).orElseThrow().getStatu());
-		assertThrows(AccessDeniedException.class, () -> provisioningService.createPendingAccount(structureId,
+		assertThrows(AccessDeniedException.class, () -> provisioningService.createPendingAccount(structureId, null,
 				"Exemple", "Test", "other@example.invalid", "0600000000"));
 		assertThrows(AccessDeniedException.class,
 				() -> service.addStructureAccess(pendingID, createStructure("Autre"), Set.of(UserRole.EMPLOYEE)));
+	}
+
+	@Test
+	void superAdminCannotCreateAnAccountWithoutAnEmployee() {
+		assertThrows(AccessDeniedException.class, () -> provisioningService.createPendingAccount(structureId, null,
+				"Exemple", "Test", "other@example.invalid", "0600000000"));
 	}
 
 	@Test

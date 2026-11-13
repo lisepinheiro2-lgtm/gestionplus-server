@@ -83,10 +83,14 @@ public class AccountProvisioningService {
 			throw denied();
 		}
 
+		if (employeeID == null) {
+			throw denied();
+		}
+
 		boolean elevated = actorRoles.contains(UserRole.ADMIN) || actorRoles.contains(UserRole.R_H)
 				|| actorRoles.contains(UserRole.SUPER_ADMIN);
 
-		if (!elevated && (employeeID == null || !actorRoles.contains(UserRole.SECRETARY)
+		if (!elevated && (!actorRoles.contains(UserRole.SECRETARY)
 				&& (!actorRoles.contains(UserRole.MANAGER)
 						|| !responsibilityStore.isResponsibleFor(actorUserId, employeeID, structureID)))) {
 			throw denied();
