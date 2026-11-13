@@ -12,12 +12,12 @@ import fr.gestionplus.server.audit.AuditedAccessDeniedException;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
 
-final class AccountLocks {
+public final class AccountLocks {
 
 	private AccountLocks() {
 	}
 
-	static void requireCurrentSession(UserAccount current, UserAccount principal) {
+	public static void requireCurrentSession(UserAccount current, UserAccount principal) {
 
 		if (current.getStatu() != UserAccountStatus.ACTIVE
 				|| current.getSessionVersion() != principal.getSessionVersion()) {
@@ -26,7 +26,7 @@ final class AccountLocks {
 
 	}
 
-	static Map<UUID, UserAccount> lock(AccountStore store, Supplier<? extends RuntimeException> denied,
+	public static Map<UUID, UserAccount> lock(AccountStore store, Supplier<? extends RuntimeException> denied,
 			UUID... userIDs) {
 
 		Map<UUID, UserAccount> accounts = new HashMap<>();

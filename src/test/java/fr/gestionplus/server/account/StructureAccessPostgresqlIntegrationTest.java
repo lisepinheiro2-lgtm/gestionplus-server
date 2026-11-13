@@ -962,4 +962,18 @@ class StructureAccessPostgresqlIntegrationTest extends AuditStorageIntegrationTe
 		assertEquals(1, ids.size());
 		return auditStore.findById(ids.getFirst()).orElseThrow();
 	}
+
+	@Test
+	void rejectsAChangeOfResponsibleManagerWhenTheActorSessionIsStale() {
+		UserAccount nextManager = createAccount(UserRole.EMPLOYEE);
+		joinTenant(nextManager.getUserID());
+		service.addStructureAccess(nextManager.getUserID(), structureId, Set.of(UserRole.MANAGER));
+		accountStore.advanceSessionVersion(actor.getUserID());
+		authenticate(actor);
+
+		assertThrows(AccessDeniedException.class, () -> responsibilityService
+				.changeResponsibleManager(structureId, target.getEmployeeID(), nextManager.getUserID()));
+		assertTrue(auditIds(AuditAction.EMPLOYEE_MANAGER_CHANGE).isEmpty());
+
+	}
 }

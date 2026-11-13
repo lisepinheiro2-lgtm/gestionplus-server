@@ -20,7 +20,7 @@ public class AuthenticatedUserProvider {
 
 		if (authentication == null || !(authentication.getPrincipal() instanceof UserAccount)
 				|| !authentication.isAuthenticated()) {
-			throw new AuthenticationCredentialsNotFoundException("Vous ne passerez paaaaas !!!");
+			throw new AuthenticationCredentialsNotFoundException("Connexion impossible");
 		}
 
 		return (UserAccount) authentication.getPrincipal();

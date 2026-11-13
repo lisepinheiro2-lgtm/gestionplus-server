@@ -1,5 +1,6 @@
 package fr.gestionplus.server.employee;
 
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -7,6 +8,8 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import fr.gestionplus.server.account.AccountLocks;
+import fr.gestionplus.server.account.AccountStore;
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditResult;
 import fr.gestionplus.server.audit.AuditService;
@@ -28,16 +31,18 @@ public class EmployeeResponsibilityService {
 	private final AuthorizationService authorizationService;
 	private final AuthenticatedUserProvider authenticatedUserProvider;
 	private final AuditService auditService;
+	private final AccountStore store;
 
 	public EmployeeResponsibilityService(EmployeeStore employeeStore, EmployeeResponsibilityStore responsibilityStore,
 			OrganizationalStructureStore structureStore, AuthorizationService authorizationService,
-			AuthenticatedUserProvider authenticatedUserProvider, AuditService auditService) {
+			AuthenticatedUserProvider authenticatedUserProvider, AuditService auditService, AccountStore store) {
 		this.employeeStore = employeeStore;
 		this.responsibilityStore = responsibilityStore;
 		this.structureStore = structureStore;
 		this.authorizationService = authorizationService;
 		this.authenticatedUserProvider = authenticatedUserProvider;
 		this.auditService = auditService;
+		this.store = Objects.requireNonNull(store);
 	}
 
 	@AuditedOperation(value = AuditAction.EMPLOYEE_MANAGER_CHANGE, structure = 0, employee = 1, account = 2)
@@ -51,6 +56,9 @@ public class EmployeeResponsibilityService {
 				|| structureStore.findByIdForUpdate(structureID).isEmpty()) {
 			throw new AccessDeniedException("Changement de responsable impossible ou non autorisé.");
 		}
+
+		UserAccount currentActor = AccountLocks.lock(store, this::denied, actorUserID).get(actorUserID);
+		AccountLocks.requireCurrentSession(currentActor, principal);
 
 		Set<UserRole> actorRoles = authorizationService.rolesInStructureForSession(principal, structureID);
 
@@ -73,5 +81,9 @@ public class EmployeeResponsibilityService {
 				Set.of(new AuditTarget(AuditTargetType.EMPLOYEE, employeeID),
 						new AuditTarget(AuditTargetType.ACCOUNT, managerUserID),
 						new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID)));
+	}
+
+	private AccessDeniedException denied() {
+		return new AccessDeniedException("Changement de responsable impossible ou non autorisé.");
 	}
 }
