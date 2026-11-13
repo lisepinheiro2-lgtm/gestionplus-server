@@ -35,5 +35,3 @@ spring:
 
   flyway:
     enabled: true
-    user: ${DB_MIGRATION_USER:${spring.datasource.username}}
-    password: ${DB_MIGRATION_PASSWORD:${spring.datasource.password}}
