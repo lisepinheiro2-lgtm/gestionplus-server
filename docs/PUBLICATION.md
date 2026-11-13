@@ -21,7 +21,7 @@ Ce guide accompagne une publication publique du **code en développement**. Il n
 
 ## Ce qui appartient au dépôt public
 
-Inclure les sources et tests `src/`, les six migrations qu'il contient, `pom.xml`, les scripts `mvnw` et `mvnw.cmd`, `.mvn/wrapper/maven-wrapper.properties`, `.gitattributes`, `.gitignore`, `README.md` et les documents publics de `docs/` : `index.md`, `AVANCEMENT.md`, `DEVELOPPEMENT.md` et `PUBLICATION.md`.
+Inclure les sources et tests `src/`, y compris les migrations de `src/main/resources/db/migration/`, `pom.xml`, les scripts `mvnw` et `mvnw.cmd`, `.mvn/wrapper/maven-wrapper.properties`, `.gitattributes`, `.gitignore`, `README.md` et les documents publics de `docs/` : `index.md`, `AVANCEMENT.md`, `DEVELOPPEMENT.md` et `PUBLICATION.md`.
 
 Les configurations applicatives actuelles sont versionnables parce qu'elles contiennent des adresses locales et des références à des variables, sans valeurs secrètes. Les données d'une base PostgreSQL ne sont pas transférées avec ces sources.
 

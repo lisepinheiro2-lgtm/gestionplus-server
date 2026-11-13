@@ -18,11 +18,11 @@ La racine Java est `src/main/java/fr/gestionplus/server/`.
 | Dossier | Responsabilité actuelle |
 | --- | --- |
 | `auth/` | Comptes, états, credentials, connexion métier, rôles, permissions et raccordement Spring Security. |
-| `account/` | Contrat de stockage des comptes et service de création directe actuellement désactivé. |
+| `account/` | Cycle de vie des comptes (création en attente, activation, désactivation), verrous et versions de session, invitations avec livraison SMTP, accès aux structures, transfert d'administration et succession du `SUPER_ADMIN`. |
 | `employee/` et `organization/` | Modèles métier et contrats de stockage des salariés et unités. |
 | `persistence/` | Entités, repositories Spring Data et adaptateurs vers les modèles métier. |
 | `integration/` | Vérification des mots de passe compromis via un service externe. |
-| `audit/` | Premières pièces de la traçabilité ; persistance et raccordement encore incomplets. |
+|  `audit/` | Traçabilité : événements, résolution de l'entreprise (`tenant`), persistance PostgreSQL, repli en mémoire, interception des opérations annotées `@AuditedOperation`. |
 
 Commencer par `LoginService` pour le parcours métier de connexion, puis ses interfaces Lookup et leurs adaptateurs JPA. Lire `HttpSecurityConfig` pour connaître l'accès HTTP réellement configuré. Les migrations se trouvent dans `src/main/resources/db/migration/` ; les tests dans `src/test/`.
 
