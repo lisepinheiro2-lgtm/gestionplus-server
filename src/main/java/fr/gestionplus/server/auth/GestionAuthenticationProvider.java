@@ -22,12 +22,14 @@ public class GestionAuthenticationProvider implements AuthenticationProvider {
 	private final LoginService loginService;
 	private final AccountMfaService mfa;
 	private final LoginAttemptLimiter limiter;
+	private final LoginDelay loginDelay;
 
 	public GestionAuthenticationProvider(LoginService loginService, AccountMfaService mfa,
-			LoginAttemptLimiter limiter) {
+			LoginAttemptLimiter limiter, LoginDelay loginDelay) {
 		this.loginService = Objects.requireNonNull(loginService);
 		this.mfa = Objects.requireNonNull(mfa);
 		this.limiter = Objects.requireNonNull(limiter);
+		this.loginDelay = Objects.requireNonNull(loginDelay);
 	}
 
 	@Override
@@ -45,6 +47,7 @@ public class GestionAuthenticationProvider implements AuthenticationProvider {
 		LoginAttemptLimiter.Attempt reservation = limiter.begin(userName, details.sourceAddress());
 
 		if (reservation == null) {
+			loginDelay.pause();
 			throw new RejectedLogin(null, AuditReason.RATE_LIMITED);
 		}
 

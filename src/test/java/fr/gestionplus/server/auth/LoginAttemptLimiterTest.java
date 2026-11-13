@@ -28,6 +28,10 @@ import fr.gestionplus.server.audit.AuditService;
 import fr.gestionplus.server.audit.AuditTarget;
 import fr.gestionplus.server.audit.AuditTargetType;
 import fr.gestionplus.server.auth.GestionAuthenticationProvider.RejectedLogin;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 
 class LoginAttemptLimiterTest {
 
@@ -128,7 +132,7 @@ class LoginAttemptLimiterTest {
 		when(login.evaluate("target", "incorrect"))
 				.thenReturn(new LoginService.LoginAttempt(null, userID, AuditReason.INVALID_CREDENTIALS));
 		GestionAuthenticationProvider provider = new GestionAuthenticationProvider(
-				login, mock(AccountMfaService.class), limiter);
+				login, mock(AccountMfaService.class), limiter, mock(LoginDelay.class));
 		var credentials = UsernamePasswordAuthenticationToken.unauthenticated("target", "incorrect");
 		credentials.setDetails(new GestionAuthenticationProvider.LoginDetails("192.0.2.1", null));
 
@@ -255,6 +259,45 @@ class LoginAttemptLimiterTest {
 
 		when(clock.instant()).thenReturn(start.plusMillis(901_400));
 		assertNotNull(limiter.begin("target", "192.0.2.9"));
+	}
+
+	@Test
+	void pausesBeforeRejectingWhenTheLimiterRefusesTheAttempt() {
+		LoginDelay delay = mock(LoginDelay.class);
+		LoginService login = mock(LoginService.class);
+		GestionAuthenticationProvider provider = new GestionAuthenticationProvider(
+				login, mock(AccountMfaService.class), limiter, delay);
+		var credentials = UsernamePasswordAuthenticationToken.unauthenticated("target", "incorrect");
+		credentials.setDetails(new GestionAuthenticationProvider.LoginDetails("192.0.2.1", null));
+
+		var first = limiter.begin("target", "192.0.2.1");
+		assertNotNull(first);
+		assertFalse(limiter.finish(first, true, true));
+
+		when(clock.instant()).thenReturn(start.plusMillis(100));
+
+		assertThrows(RejectedLogin.class, () -> provider.authenticate(credentials));
+		verify(delay, times(1)).pause();
+		verify(login, never()).evaluate(anyString(), anyString());
+	}
+
+	@Test
+	void doesNotPauseWhenTheLimiterAcceptsTheAttempt() {
+		LoginDelay delay = mock(LoginDelay.class);
+		AccountMfaService mfa = mock(AccountMfaService.class);
+		when(mfa.verifyForLogin(any(), any())).thenReturn(AccountMfaService.Verification.NOT_REQUIRED);
+		UserAccount account = new UserAccount(UUID.randomUUID(), "target", UserAccountStatus.ACTIVE, Set.of(),
+				UUID.randomUUID(), "Doe", "Jane", "jane@example.com", "0000000000");
+		LoginService login = mock(LoginService.class);
+		when(login.evaluate("target", "correct"))
+				.thenReturn(new LoginService.LoginAttempt(account, account.getUserID(), null));
+		GestionAuthenticationProvider provider = new GestionAuthenticationProvider(
+				login, mfa, limiter, delay);
+		var credentials = UsernamePasswordAuthenticationToken.unauthenticated("target", "correct");
+		credentials.setDetails(new GestionAuthenticationProvider.LoginDetails("192.0.2.1", null));
+
+		assertNotNull(provider.authenticate(credentials));
+		verify(delay, never()).pause();
 	}
 
 	private void at(long seconds) {
