@@ -11,6 +11,7 @@ import org.springframework.context.annotation.Role;
 import org.springframework.core.Ordered;
 
 import fr.gestionplus.server.organization.OrganizationalStructureStore;
+import fr.gestionplus.server.organization.StructureMembershipStore;
 import fr.gestionplus.server.organization.TenantOrganizationStore;
 
 @Configuration
@@ -28,7 +29,8 @@ public class AuditConfiguration {
 
 	@Bean
 	public AuditService auditService(AuditPersistence persistence, AuditContextProvider contextProvider,
-			OrganizationalStructureStore structures, TenantOrganizationStore tenants) {
-		return new AuditService(persistence::write, contextProvider, structures, tenants);
+			OrganizationalStructureStore structures, TenantOrganizationStore tenants,
+			StructureMembershipStore memberships) {
+		return new AuditService(persistence::write, contextProvider, structures, tenants, memberships);
 	}
 }
