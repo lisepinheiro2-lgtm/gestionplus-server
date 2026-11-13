@@ -64,6 +64,7 @@ import fr.gestionplus.server.auth.GestionAuthenticationProvider;
 import fr.gestionplus.server.auth.GestionAuthenticationProvider.LoginAssurance;
 import fr.gestionplus.server.auth.HttpSecurityConfig;
 import fr.gestionplus.server.auth.LoginAttemptLimiter;
+import fr.gestionplus.server.auth.LoginDelay;
 import fr.gestionplus.server.auth.LoginService;
 import fr.gestionplus.server.auth.LoginService.LoginAttempt;
 import fr.gestionplus.server.auth.UserAccount;
@@ -88,16 +89,15 @@ class CsrfHttpTest {
 
 	@MockitoBean
 	private LoginService loginService;
-
 	@MockitoBean
 	private AccountStore accountStore;
-
 	@MockitoBean
 	private AuditService auditService;
-
 	@MockitoBean
 	private AccountMfaService mfa;
-
+    @MockitoBean
+    private LoginDelay loginDelay;
+    
 	private final String userName = "alice";
 	private final String password = "test-password";
 

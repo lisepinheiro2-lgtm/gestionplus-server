@@ -11,6 +11,8 @@ public interface AccountDeactivationNotifications {
 
 	Optional<Notification> lockNext();
 
+	void reserve(UUID notificationID);
+
 	void retry(UUID notificationID);
 
 	void remove(UUID notificationID);
@@ -19,9 +21,11 @@ public interface AccountDeactivationNotifications {
 		ACCOUNT_DEACTIVATION, ADMIN_REMOVED, ADMIN_GRANTED
 	}
 
-	record Notification(UUID notificationID, UUID actorUserID, UUID targetUserID, UUID structureID, Kind kind) {
+	record Notification(UUID notificationID, UUID actorUserID, UUID targetUserID, UUID structureID, Kind kind,
+			int attempts) {
+
 		public Notification(UUID notificationID, UUID actorUserID, UUID targetUserID, UUID structureID) {
-			this(notificationID, actorUserID, targetUserID, structureID, Kind.ACCOUNT_DEACTIVATION);
+			this(notificationID, actorUserID, targetUserID, structureID, Kind.ACCOUNT_DEACTIVATION, 0);
 		}
 	}
 }

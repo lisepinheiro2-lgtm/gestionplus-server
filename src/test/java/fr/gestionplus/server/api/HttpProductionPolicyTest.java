@@ -38,6 +38,7 @@ import fr.gestionplus.server.auth.AccountMfaService;
 import fr.gestionplus.server.auth.GestionAuthenticationProvider;
 import fr.gestionplus.server.auth.HttpSecurityConfig;
 import fr.gestionplus.server.auth.LoginAttemptLimiter;
+import fr.gestionplus.server.auth.LoginDelay;
 import fr.gestionplus.server.auth.LoginService;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
@@ -60,6 +61,8 @@ class HttpProductionPolicyTest {
 	private AccountMfaService mfa;
 	@MockitoBean
 	private LoginService login;
+	@MockitoBean
+	private LoginDelay loginDelay;
 
 	@Test
 	void rejectsPlainHttpEvenWhenTheClientClaimsThatAProxyUsedHttps() throws Exception {

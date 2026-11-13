@@ -40,14 +40,15 @@ public class PostgresqlAccountDeactivationNotifications implements AccountDeacti
 	@Override
 	public Optional<Notification> lockNext() {
 		return jdbcTemplate.query("""
-				SELECT notification_id, actor_id, target_id, structure_id, kind
+				SELECT notification_id, actor_id, target_id, structure_id, kind, attempts
 				FROM account_deactivation_notifications
 				WHERE next_attempt_at <= CURRENT_TIMESTAMP
 				ORDER BY next_attempt_at, notification_id
 				LIMIT 1 FOR UPDATE SKIP LOCKED
 				""", (row, rowNumber) -> new Notification(row.getObject("notification_id", UUID.class),
 				row.getObject("actor_id", UUID.class), row.getObject("target_id", UUID.class),
-				row.getObject("structure_id", UUID.class), Kind.valueOf(row.getString("kind")))).stream().findFirst();
+				row.getObject("structure_id", UUID.class), Kind.valueOf(row.getString("kind")),
+				row.getInt("attempts"))).stream().findFirst();
 	}
 
 	@Override
@@ -62,5 +63,15 @@ public class PostgresqlAccountDeactivationNotifications implements AccountDeacti
 	@Override
 	public void remove(UUID notificationID) {
 		jdbcTemplate.update("DELETE FROM account_deactivation_notifications WHERE notification_id = ?", notificationID);
+	}
+
+	@Override
+	public void reserve(UUID notificationID) {
+		jdbcTemplate.update("""
+				UPDATE account_deactivation_notifications
+				SET next_attempt_at = CURRENT_TIMESTAMP + INTERVAL '5 minutes',
+				    attempts = attempts + 1
+				WHERE notification_id = ?
+				""", notificationID);
 	}
 }

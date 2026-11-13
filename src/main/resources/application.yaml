@@ -22,6 +22,12 @@ spring:
     username: ${DB_USER}
     password: ${DB_PASSWORD}
 
+  mail:
+    properties:
+    mail.smtp.connectiontimeout: 60000
+    mail.smtp.writetimeout: 60000
+    mail.smtp.timeout: 60000
+
   jpa:
     open-in-view: false
     hibernate:
