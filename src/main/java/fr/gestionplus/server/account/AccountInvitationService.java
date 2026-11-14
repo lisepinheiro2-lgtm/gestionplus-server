@@ -53,6 +53,7 @@ public class AccountInvitationService {
 	private final Clock clock;
 	private final TransactionTemplate replacementTransaction;
 	private final TransactionTemplate deliveryTransaction;
+	private final TransactionTemplate activationTransaction;
 
 	AccountInvitationService(AccountStore accountStore, AccountInvitationStore invitationStore,
 			AccountInvitationDeliveryStore deliveries, AccountInvitationDelivery deliveryWorker,
@@ -77,6 +78,7 @@ public class AccountInvitationService {
 		replacementTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
 		deliveryTransaction = new TransactionTemplate(transactionManager);
 		deliveryTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_NOT_SUPPORTED);
+		activationTransaction = new TransactionTemplate(transactionManager);
 	}
 
 	@AuditedOperation(value = AuditAction.INVITATION_CREATE, account = 0, structure = 1)
@@ -233,7 +235,6 @@ public class AccountInvitationService {
 	}
 
 	@AuditedOperation(value = AuditAction.INVITATION_TOKEN_USE, invitation = 0)
-	@Transactional
 	public void completeActivation(UUID invitationID, String token, String proof, String userName, String rawPassword) {
 
 		if (invitationID == null || token == null || !token.matches("[A-Za-z0-9_-]{43}") || proof == null
@@ -241,39 +242,47 @@ public class AccountInvitationService {
 			throw AccountInvitationScope.denied();
 		}
 
-		Invitation candidate = invitationStore.findByID(invitationID)
-				.filter(current -> current.tokenDigest() != null || current.completedAt() != null)
-				.orElseThrow(() -> activationUnavailable(invitationID, token));
-		UserAccount account = accountStore.findByIdForUpdate(candidate.userID())
-				.orElseThrow(AccountInvitationScope::denied);
-		Invitation invitation = invitationStore.findByID(invitationID).orElseThrow(AccountInvitationScope::denied);
+		credentialService.validatePassword(rawPassword);
 
-		if (account.getStatu() != UserAccountStatus.PENDING_ACTIVATION || !isUsable(invitation, clock.instant())
-				|| !MessageDigest.isEqual(InvitationTokenIssuer.digest(token).getBytes(StandardCharsets.US_ASCII),
-						invitation.tokenDigest().getBytes(StandardCharsets.US_ASCII))) {
-			throw AccountInvitationScope.denied();
-		}
+		activationTransaction.executeWithoutResult(status -> {
 
-		requireReady(account, invitation.structureID());
-		ActivationIdentityVerifier verifier = identityVerifiers.getIfAvailable();
+			Invitation candidate = invitationStore.findByID(invitationID)
+					.filter(current -> current.tokenDigest() != null || current.completedAt() != null)
+					.orElseThrow(() -> activationUnavailable(invitationID, token));
+			UserAccount account = accountStore.findByIdForUpdate(candidate.userID())
+					.orElseThrow(AccountInvitationScope::denied);
+			Invitation invitation = invitationStore.findByID(invitationID)
+					.orElseThrow(AccountInvitationScope::denied);
 
-		if (verifier == null || !verifier.verify(invitationID, account.getUserID(), account.getPhoneNumber(), proof)) {
-			throw AccountInvitationScope.denied();
-		}
+			if (account.getStatu() != UserAccountStatus.PENDING_ACTIVATION
+					|| !isUsable(invitation, clock.instant())
+					|| !MessageDigest.isEqual(InvitationTokenIssuer.digest(token).getBytes(StandardCharsets.US_ASCII),
+							invitation.tokenDigest().getBytes(StandardCharsets.US_ASCII))) {
+				throw AccountInvitationScope.denied();
+			}
 
-		UserCredential credential = credentialService.createCredential(account.getUserID(), rawPassword);
+			requireReady(account, invitation.structureID());
+			ActivationIdentityVerifier verifier = identityVerifiers.getIfAvailable();
 
-		if (!isUsable(invitation, clock.instant())) {
-			throw AccountInvitationScope.denied();
-		}
+			if (verifier == null
+					|| !verifier.verify(invitationID, account.getUserID(), account.getPhoneNumber(), proof)) {
+				throw AccountInvitationScope.denied();
+			}
 
-		accountStore.activateAccount(account.getUserID(), userName, credential);
-		deliveries.findPending(account.getUserID()).ifPresent(request -> deliveries.cancel(request.requestID()));
-		invitationStore.save(new Invitation(invitationID, account.getUserID(), invitation.structureID(), null, null,
-				clock.instant(), invitation.reintegration()));
-		record(AuditAction.INVITATION_TOKEN_USE, AuditResult.SUCCESS, invitation);
-		record(invitation.reintegration() ? AuditAction.ACCOUNT_REACTIVATE : AuditAction.ACCOUNT_ACTIVATE,
-				AuditResult.SUCCESS, invitation);
+			UserCredential credential = credentialService.encodePassword(account.getUserID(), rawPassword);
+
+			if (!isUsable(invitation, clock.instant())) {
+				throw AccountInvitationScope.denied();
+			}
+
+			accountStore.activateAccount(account.getUserID(), userName, credential);
+			deliveries.findPending(account.getUserID()).ifPresent(request -> deliveries.cancel(request.requestID()));
+			invitationStore.save(new Invitation(invitationID, account.getUserID(), invitation.structureID(), null,
+					null, clock.instant(), invitation.reintegration()));
+			record(AuditAction.INVITATION_TOKEN_USE, AuditResult.SUCCESS, invitation);
+			record(invitation.reintegration() ? AuditAction.ACCOUNT_REACTIVATE : AuditAction.ACCOUNT_ACTIVATE,
+					AuditResult.SUCCESS, invitation);
+		});
 	}
 
 	private RuntimeException activationUnavailable(UUID invitationID, String token) {

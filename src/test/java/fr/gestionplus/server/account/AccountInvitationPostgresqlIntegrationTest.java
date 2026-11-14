@@ -1103,7 +1103,7 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 	private void allowActivation(UUID userID, SentInvitation message) {
 		when(verifier.verify(message.invitationID(), userID, account(userID).getPhoneNumber(), "verified-proof"))
 				.thenReturn(true);
-		when(credentialService.createCredential(userID, "valid-test-password"))
+		when(credentialService.encodePassword(userID, "valid-test-password"))
 				.thenReturn(new UserCredential(userID, "new-hash"));
 	}
 
