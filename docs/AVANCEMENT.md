@@ -1,12 +1,13 @@
 ---
-summary: "État local au 12 novembre 2026. Identités de migration et d'exécution séparées par profil de déploiement ; rattachement des événements d'audit à l'entreprise pour les cibles compte ; désactivation du titulaire sortant sans rôle local lors d'une succession ; verrou du compte de l'acteur sur le changement de responsable ; exigence du salarié dès la création des comptes en attente ; livraison des notifications de désactivation hors transaction (réservation durable, plafond de tentatives) ; limiteur de connexion corrigé, pause à gigue anti-énumération, ralentissement global des tentatives non traçables en saturation ; threads virtuels activés ; sécurité P1.01 à P1.12, tests rapportés et validations restantes."
+summary: "État local au 12 novembre 2026. Envois de mails isolés de l'ordonnanceur (plafond de 3 simultanés) ; identités de migration et d'exécution séparées par profil de déploiement ; rattachement des événements d'audit à l'entreprise pour les cibles compte ; désactivation du titulaire sortant sans rôle local lors d'une succession ; verrou du compte de l'acteur sur le changement de responsable ; exigence du salarié dès la création des comptes en attente ; livraison des notifications de désactivation hors transaction (réservation durable, plafond de tentatives) ; limiteur de connexion corrigé, pause à gigue anti-énumération, ralentissement global des tentatives non traçables en saturation ; threads virtuels activés ; sécurité P1.01 à P1.12, tests rapportés et validations restantes."
 read_when:
-  - "reprendre la désactivation du titulaire sortant sans rôle local lors d'une succession SUPER_ADMIN"
+  - "reprendre l'isolation des envois de mails de l'ordonnanceur (MailDeliveryExecutor, plafond de 3)"
   - "reprendre la séparation des identités de migration et d'exécution et la répétition générale du déploiement"
   - "reprendre le rattachement des événements d'audit à cible compte à leur entreprise"
   - "reprendre le verrou du compte de l'acteur sur le changement de responsable et l'élargissement d'AccountLocks"
   - "reprendre l'exigence du salarié dès la création d'un compte en attente (impasse fonctionnelle levée)"
   - "reprendre la livraison des notifications de désactivation hors transaction et son plafond de tentatives"
+  - "reprendre la désactivation du titulaire sortant sans rôle local lors d'une succession SUPER_ADMIN"
   - "reprendre le ralentissement global des tentatives non traçables en saturation du registre d’adresses"
   - "reprendre la pause anti-énumération des rejets de connexion et les threads virtuels"
   - "reprendre la correction du limiteur des tentatives de connexion du 12 novembre"
@@ -36,6 +37,22 @@ Suite du point 2 de la revue statique externe (Codex), après traçage du code e
 
 **Limites connues à garder en vue.** Le portail ne connaît pas l’existence réelle des comptes (approximation par drapeau, ci-dessus). Le ralentissement global ne protège que la voie non traçable : les comptes connus martelés restent bornés par leur poids de compte, et le plancher CPU d’Argon2 reste non borné au niveau applicatif (sémaphore global en raffinement futur). Registres toujours en mémoire d’une instance.
 **Correction au même chantier.** Le premier commit plaçait le test de saturation avant la restitution de l’entrée existante dans `getOrCreate` : en saturation, les échecs des adresses déjà traçées n’étaient plus enregistrés et l’éviction sacrifiait une entrée inconnue à chaque tentative sur un compte existant. La vérification revient après la restitution de l’entrée existante ; l’expiration des échecs d’adresse dans `begin()`, perdue lors de la restructuration précédente, est rétablie. Deux tests verrouillent ces comportements (`recordsFailuresForTrackedAddressesWhileTheRegistryIsSaturated`, `doesNotLetExpiredAddressFailuresInflateTheDelay`)
+
+<a id="envois-mail-hors-ordonnanceur-2026-11-12"></a>
+
+## Envois de mails isolés de l'ordonnanceur — 12 novembre 2026
+
+Fermeture du point Codex n° 2 de la nouvelle revue, confirmé par traçage : les quatre tâches `@Scheduled` (méthodes lancées automatiquement à intervalles) sont en `fixedDelay` et partagent un thread d'ordonnanceur unique ; `AccountInvitationDelivery.retryPending()` traitait jusqu'à 100 invitations dues en une passe, chacune avec un envoi SMTP séquentiel — un envoi lent (pire cas 180 s depuis les timeouts) gelait aussi l'expiration des invitations, les notifications de désactivation et le secours d'audit. Même maladie dans `AccountDeactivationNotificationDelivery.deliverNext()`.
+
+**Décision.** Option « chef de gare » : la passe planifiée ne fait plus les envois, elle les délègue. Nouveau `MailDeliveryExecutor` (guichet à jetons) : sémaphore (compteur de permissions) plafonné à 3 envois simultanés (`MAX_CONCURRENT_SENDS`), exécuteur à threads virtuels (un fil d'exécution léger par tâche soumise), `trySubmit()` qui refuse immédiatement (`tryAcquire`, jamais d'attente) quand il n'y a plus de jeton, jeton rendu dans un `finally` (exécuté même en cas d'exception — des envois en échec ne ferment pas le guichet pour toujours), arrêt propre à l'extinction du serveur (`@PreDestroy`). La file d'attente reste en base, jamais en mémoire : une invitation non soumise reste due et est re-proposée à la passe suivante (5 s) — `break` sans risque de famine. Réservation dans l'ouvrier, pas dans la passe : pour les notifications, le corps de `deliverNext()` descend dans `deliverDue()` exécutée par l'ouvrier — réserver dans la passe alors que le guichet est plein aurait consommé une tentative (`attempts + 1`, repoussement de 5 min) sans essai d'envoi. La protection anti-double-envoi (réservation `next_attempt_at` + compteur, vérifiée dans les deux stores) reste la source de vérité.
+
+**Modification.** Nouvelle classe `MailDeliveryExecutor` (package `account`). Dans `AccountInvitationDelivery` : dépendance ajoutée en dernière position du constructeur, boucle de `retryPending()` soumettant chaque envoi via `trySubmit(() -> deliver(requestID))` avec `break` en cas de refus. Dans `AccountDeactivationNotificationDelivery` : dépendance ajoutée, `deliverNext()` réduit à la soumission, corps transféré dans la nouvelle méthode privée `deliverDue()`.
+
+**Tests.** Nouveau `MailDeliveryExecutorTest` : 4ᵉ tâche refusée pendant que trois tournent, jeton rendu après achèvement, jeton rendu après échec de la tâche (attente par sondage pour éviter la course entre fin de tâche et restitution). Dans les tests existants des deux livraisons, l'exécuteur est simulé en exécution immédiate sur le même thread — les vérifications d'ordre restent déterministes.
+
+**Preuve rapportée.** L'utilisatrice rapporte 701/701 tests réussis depuis Eclipse. Commit `0c24e77`.
+
+**Limites connues à garder en vue.** Le plafond de 3 est arbitré, non mesuré ; la lecture des invitations reste bornée à 100 par passe. L'arrêt du serveur attend les envois en cours, bornés par les timeouts SMTP (180 s au pire). Le point Codex n° 4 (vérification HIBP sous verrou) reste ouvert.
 
 <a id="succession-titulaire-sans-role-local-2026-11-12"></a>
 
@@ -571,3 +588,4 @@ Journal public :
 | 12 novembre 2026 — guides d'entrée actualisés | Point Codex n° 7 : `PUBLICATION.md` ne compte plus les migrations mais renvoie à leur dossier ; lignes `account/` et `audit/` de `DEVELOPEMENT.md` réécrites d'après le contenu réel des packages. |
 | 12 novembre 2026 — identités de migration et d'exécution séparées | Point Codex n° 6 : tentative de clés Flyway dans le YAML de base falsifiée par 148 échecs Testcontainers ; forme retenue — YAML minimal et clés strictes sans repli dans le profil `prod`. Preuve : 697/697 réussites rapportées. |
 | 12 novembre 2026 — succession sans rôle local | Fermeture du point Codex n° 3 : un titulaire ne détenant que SUPER_ADMIN restait ACTIVE après sa succession (court-circuit du calcul `disabled` sur liste de transferts vide) ; désactivation décidée sur les accès restants, `disable()` tolérant une structure nulle, test conçu pour échouer sans la correction. Preuve : 698/698 réussites rapportées. |
+| 12 novembre 2026 — envois de mails isolés de l'ordonnanceur | Fermeture du point Codex n° 2 : les deux tâches de livraison délèguent leurs envois SMTP à un exécuteur dédié plafonné à 3 envois simultanés (sémaphore, threads virtuels, jeton rendu en `finally`) ; la file reste en base, réservation dans l'ouvrier. Preuve : 701/701 réussites rapportées. |
