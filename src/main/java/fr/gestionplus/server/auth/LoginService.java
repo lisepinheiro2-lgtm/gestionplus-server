@@ -57,9 +57,9 @@ public class LoginService {
 			return rejectAfterDelay(account.getUserID(), AuditReason.INVALID_CREDENTIALS);
 		}
 
-		if (!credentialService.verifyPassword(credential.get(), rawPassword)) {
-			return new LoginAttempt(null, account.getUserID(), AuditReason.INVALID_CREDENTIALS);
-		}
+        if (!credentialService.verifyPassword(credential.get(), rawPassword)) {
+            return rejectAfterDelay(account.getUserID(), AuditReason.INVALID_CREDENTIALS);
+        }
 
 		return new LoginAttempt(account, account.getUserID(), null);
 	}
