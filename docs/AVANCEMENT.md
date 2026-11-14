@@ -23,6 +23,18 @@ read_when:
 
 # Avancement et feuille de route
 
+<a id="mesures-apres-pause-mauvais-mot-de-passe-2026-11-14"></a>
+
+## Mesures après ajout de la pause sur le mauvais mot de passe — 14 novembre 2026
+
+**Demande et sources.** Nouvelle exécution des deux benchmarks et documentation demandées par l’utilisatrice après enregistrement de sa correction. État mesuré : `947db46`, dépôt propre au lancement. Dans `LoginService`, le mauvais mot de passe passe maintenant par `rejectAfterDelay(...)` après Argon2 ; la pause reste 70–110 ms. Aucun code modifié pendant cette vérification.
+
+**Exécution.** Lanceur versionné, JDK 25, modes `Argon2 -Offline` puis `Login -Offline`, successifs, de 21 h 23 à 21 h 26, heure de Paris. Deux compilations isolées réussies, trois JVM Argon2 terminées avec code nul, 1 200 vérifications mesurées hors chauffe ; une JVM HTTP et PostgreSQL 16.15 jetable, 600 mesures hors chauffe, 700 audits attendus en comptant la chauffe et zéro limitation. La suite JUnit habituelle n’a pas été exécutée. Serveur fermé, port libéré, conteneur et auxiliaire Testcontainers supprimés ; sources inchangées après mesure.
+
+**Résultats et limites.** Argon2 incorrect : médiane 20,75 ms, p95 24,41 ms. POST `/login` médian : succès 46,70 ms ; mauvais mot de passe 131,02 ms (p95 152,52 ms) ; inconnu 98,72 ms ; désactivé 103,55 ms. Le mauvais mot de passe était à 41,43 ms dans le relevé précédent : l’ajout de la pause est cohérent avec le nouveau temps, mais un écart local de 32,31 ms subsiste avec l’inconnu, dans l’autre sens. Les plages observées se recouvrent désormais sans démontrer une égalisation des distributions. Comparaison descriptive sur un poste avec activité de fond non contrôlée ; aucun TLS, proxy, WAN ou test concurrent, exploitabilité distante non mesurée.
+
+**Preuves et suite.** [Rapport comparatif, protocole et preuves brutes](benchmarks/authentication/after-login-delay-2026-11-14-947db46/RESULTATS.md), avec commit et empreintes des sources. Les références précédentes restent conservées. L’alignement des chemins de rejet reste à décider et à remesurer ; aucun autre ajustement de sécurité appliqué ici.
+
 <a id="rejection-guichet-verdict-audit-2026-11-12"></a>
 
 ## Jeton du guichet rendu en réjection et barrières sur le verdict d'audit — 12 novembre 2026
@@ -664,3 +676,4 @@ Journal public :
 | 12 novembre 2026 — barrières de test sur le verdict d'audit | Fermeture du point P2 de la revue Codex suivante : les barrières attendent le verdict d'audit (`FAILURE`/`DENIED`) du premier cycle au lieu de la simple réservation (`claim`), supprimant les courses d'ordonnancement avec le faux SMTP ; incident documenté sur le filtre par action (`RESEND`/`REPLACE` invisibles). Preuve : 705/705 réussites rapportées. |
 | 14 novembre 2026 — mesure du parcours de connexion | Mesure locale demandée à Codex (état `e9fbd78`, serveur réel + PostgreSQL 16 en conteneur, aucun réglage modifié) : 150 mesures par cas après chauffe. Constat : mauvais mot de passe ≈ 41 ms médian contre identifiant inconnu ≈ 97 ms, plages non recouvrantes — cause vérifiée dans le code : le chemin « mauvais mot de passe » n'a ni pause ni coût factice, les autres chemins de rejet ont la pause 70–110 ms. Oracle d'énumération local établi, exploitabilité réseau non mesurée. Recalibrage (pause + Argon2 sur tous les chemins de rejet) programmé. |
 | 14 novembre 2026 — outillage et preuves de mesure intégrés | À la demande de l’utilisatrice, ajout des [benchmarks manuels et de leur mode d’emploi](benchmarks/authentication/README.md), des comptes `fictitious_benchmark_…` créés uniquement dans PostgreSQL jetable et des [preuves de référence Argon2 et HTTP](benchmarks/authentication/reference-2026-11-14/README.md). Mode isolé retenu, sans accès par URL à un serveur existant. Compilation seule autorisée et réussie avec le lanceur `-CompileOnly -Offline` (139 sources et deux programmes), sans test, benchmark, serveur, conteneur ni migration. Les résultats historiques restent distincts de cette validation de compilation ; aucune création de compte sur la base habituelle et aucune nouvelle mesure. |
+| 14 novembre 2026 — nouvelle mesure après la pause sur le mauvais mot de passe | Exécution demandée après enregistrement de `947db46` : 1 200 vérifications Argon2 et 600 mesures HTTP hors chauffe, code nul pour les deux modes, 700 audits conformes et aucune limitation. Mauvais mot de passe : 131,02 ms médian contre 98,72 ms pour l’inconnu ; écart restant 32,31 ms malgré le recouvrement des plages. [Rapport et preuves séparés](benchmarks/authentication/after-login-delay-2026-11-14-947db46/RESULTATS.md), référence conservée, services jetables fermés et aucune modification de code. |

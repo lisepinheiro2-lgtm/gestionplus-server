@@ -4,6 +4,8 @@ Ces outils manuels permettent de comparer les performances d’une machine à l�
 
 Les [mesures de référence du 14 novembre 2026](reference-2026-11-14/README.md) comprennent les rapports, les CSV et les résumés JSON d’Argon2 seul et du parcours HTTP. Leur validité reste attachée au code et à l’environnement indiqués. L’ajout des outils réutilisables n’est pas une nouvelle mesure.
 
+Les [nouvelles mesures après correction du mauvais mot de passe](after-login-delay-2026-11-14-947db46/RESULTATS.md), exécutées à 21 h 23–21 h 26 sur `947db46`, conservent 1 200 vérifications Argon2 et 600 tentatives HTTP hors chauffe. Le POST « mauvais mot de passe » prend 131,02 ms en médiane, contre 98,72 ms pour l’inconnu : la pause s’ajoute désormais à Argon2, avec un écart local restant d’environ 32 ms. Les relevés précédents restent archivés pour comparaison.
+
 ## Deux mesures disponibles
 
 | Mode | Ce qui est exécuté | Ce qui est chronométré |
@@ -82,4 +84,6 @@ Les programmes temporaires d’origine ont été exécutés le 14 novembre 2026 
 
 Le **14 novembre 2026 à 21 h 13, heure de Paris**, une compilation seule a été explicitement autorisée et exécutée avec `pwsh -NoProfile -File ./tools/benchmarks/Run-AuthenticationBenchmark.ps1 -CompileOnly -Offline`, JDK 25 et dépendances en cache : **BUILD SUCCESS**, 139 sources du serveur et les deux programmes compilés dans la copie isolée. La syntaxe PowerShell, les JSON, les liens locaux et les effectifs des CSV archivés ont aussi été contrôlés.
 
-Aucun test, benchmark, serveur, conteneur ou migration n’a été lancé pendant cette vérification d’intégration. La compilation ne valide pas le comportement des programmes adaptés à l’exécution ; une nouvelle mesure avec ces versions reste à autoriser séparément.
+Aucun test, benchmark, serveur, conteneur ou migration n’a été lancé pendant cette vérification d’intégration de 21 h 13.
+
+À la demande explicite de l’utilisatrice, les deux modes versionnés ont ensuite été compilés et exécutés à **21 h 23–21 h 26**, après enregistrement de la correction `947db46`. Les trois JVM Argon2 et le parcours HTTP terminent avec un code nul ; 1 200 vérifications et 600 tentatives hors chauffe sont conservées. Les 700 événements d’audit HTTP, chauffe comprise, ont les résultats attendus, sans limitation. Le serveur, le conteneur PostgreSQL et son auxiliaire de nettoyage sont arrêtés et supprimés ; le port du serveur est libéré. Cette exécution valide les parcours décrits par le benchmark, sans exécution de la suite JUnit ni validation d’un déploiement réel. Voir le [rapport et les preuves](after-login-delay-2026-11-14-947db46/RESULTATS.md).

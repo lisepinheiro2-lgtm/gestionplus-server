@@ -1,0 +1,15 @@
+{
+  "fork": "3",
+  "startedAtUtc": "2026-11-14T20:23:56.020473100Z",
+  "javaVersion": "25.0.2",
+  "availableProcessors": 12,
+  "maxHeapMiB": 4076,
+  "algorithm": "argon2id",
+  "parameters": "m=16384,t=2,p=1",
+  "warmupChecks": 100,
+  "samplesPerCase": 200,
+  "measuredGcCount": 36,
+  "measuredGcTimeMillis": 21,
+  "correct": {"minMs": 18.136100, "medianMs": 20.250400, "p95Ms": 22.774000, "maxMs": 28.957700, "meanMs": 20.507857},
+  "wrong": {"minMs": 18.329300, "medianMs": 20.325400, "p95Ms": 22.799700, "maxMs": 27.894800, "meanMs": 20.548649}
+}

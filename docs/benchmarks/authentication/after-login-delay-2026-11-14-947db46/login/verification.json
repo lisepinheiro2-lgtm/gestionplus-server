@@ -1,0 +1,11 @@
+{
+  "checkedAtUtc": "2026-11-14T20:27:30.5213392Z",
+  "completedMarkerPresent": true,
+  "remainingBenchmarkContainers": [],
+  "remainingOwnedRyukContainers": [],
+  "remainingBenchmarkListeners": 0,
+  "changedSourceFilesSinceSnapshot": [],
+  "sourceCommit": "947db46a7c392ed9e15749787998b3f52e6f76d2",
+  "gitStatusAfterMeasurements": [],
+  "allMeasurementsCompletedSuccessfully": true
+}

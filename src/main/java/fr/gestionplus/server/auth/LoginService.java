@@ -38,30 +38,35 @@ public class LoginService {
 		Optional<UserAccount> found = userAccountLookup.findByUserName(userName);
 
 		if (found.isEmpty()) {
-			return rejectAfterDelay(null, AuditReason.UNKNOWN_ACCOUNT);
+			return rejectAfterDummyVerification(null, AuditReason.UNKNOWN_ACCOUNT, rawPassword);
 		}
 
 		UserAccount account = found.get();
 
 		if (account.getStatu() == UserAccountStatus.DISABLED) {
-			return rejectAfterDelay(account.getUserID(), AuditReason.DISABLED_ACCOUNT);
+			return rejectAfterDummyVerification(account.getUserID(), AuditReason.DISABLED_ACCOUNT, rawPassword);
 		}
 
 		if (account.getStatu() != UserAccountStatus.ACTIVE) {
-			return rejectAfterDelay(account.getUserID(), AuditReason.ACCOUNT_NOT_ACTIVE);
+			return rejectAfterDummyVerification(account.getUserID(), AuditReason.ACCOUNT_NOT_ACTIVE, rawPassword);
 		}
 
 		Optional<UserCredential> credential = userCredentialLookup.findByUserId(account.getUserID());
 
 		if (credential.isEmpty() || !account.getUserID().equals(credential.get().getUserId())) {
+			return rejectAfterDummyVerification(account.getUserID(), AuditReason.INVALID_CREDENTIALS, rawPassword);
+		}
+
+		if (!credentialService.verifyPassword(credential.get(), rawPassword)) {
 			return rejectAfterDelay(account.getUserID(), AuditReason.INVALID_CREDENTIALS);
 		}
 
-        if (!credentialService.verifyPassword(credential.get(), rawPassword)) {
-            return rejectAfterDelay(account.getUserID(), AuditReason.INVALID_CREDENTIALS);
-        }
-
 		return new LoginAttempt(account, account.getUserID(), null);
+	}
+
+	private LoginAttempt rejectAfterDummyVerification(UUID targetId, AuditReason reason, String rawPassword) {
+		credentialService.verifyDummyPassword(rawPassword);
+		return rejectAfterDelay(targetId, reason);
 	}
 
 	private LoginAttempt rejectAfterDelay(UUID targetId, AuditReason reason) {

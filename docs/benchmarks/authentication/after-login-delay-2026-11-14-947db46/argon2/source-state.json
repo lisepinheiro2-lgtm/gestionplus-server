@@ -1,0 +1,9 @@
+{
+  "mode": "Argon2",
+  "sourceCommit": "947db46a7c392ed9e15749787998b3f52e6f76d2",
+  "sourceStatus": [],
+  "startedAtUtc": "2026-11-14T20:23:22.1966505Z",
+  "operatingSystem": "Microsoft Windows 10.0.26300",
+  "logicalProcessors": 12,
+  "compileOnly": false
+}

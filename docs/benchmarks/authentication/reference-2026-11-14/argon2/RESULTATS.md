@@ -52,7 +52,7 @@ Aucun paramètre Argon2 ni aucune plage de gigue n’a été changé.
 - Relevés bruts : [JVM 1](samples-fork-1.csv), [JVM 2](samples-fork-2.csv), [JVM 3](samples-fork-3.csv).
 - Résumés : [JVM 1](summary-fork-1.json), [JVM 2](summary-fork-2.json), [JVM 3](summary-fork-3.json).
 
-Ces preuves ont été transférées dans le dépôt après la mesure. Le programme réutilisable reçoit désormais des contrôles d’arguments et de non-écrasement des résultats et utilise directement la fabrique `PasswordSecurityConfig.passwordEncoder()`. Sa compilation seule a été validée après intégration, sans nouvelle mesure. Les empreintes des programmes d’origine sont conservées dans [original-programs.json](../original-programs.json).
+Ces preuves ont été transférées dans le dépôt après la mesure. Le programme réutilisable reçoit désormais des contrôles d’arguments et de non-écrasement des résultats et utilise directement la fabrique `PasswordSecurityConfig.passwordEncoder()`. Sa compilation seule a été validée lors du transfert initial à 21 h 13, sans nouvelle mesure à ce stade. Une [nouvelle exécution](../../after-login-delay-2026-11-14-947db46/RESULTATS.md) a ensuite été réalisée et archivée séparément. Les empreintes des programmes d’origine sont conservées dans [original-programs.json](../original-programs.json).
 
 ## Références
 

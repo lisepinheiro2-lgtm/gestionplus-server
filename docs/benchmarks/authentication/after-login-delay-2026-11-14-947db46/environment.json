@@ -1,0 +1,14 @@
+{
+  "operatingSystem": "Microsoft Windows 11 Professionnel",
+  "cpu": "AMD Ryzen 5 5600X 6-Core Processor",
+  "logicalProcessors": 12,
+  "totalVisibleMemoryGiB": 15.916267395019531,
+  "freePhysicalMemoryGiBBeforeRuns": 2.3645858764648438,
+  "jdk": "Oracle JDK 25.0.2",
+  "backgroundLoad": "No competing application test process or container observed before the runs; desktop background activity not controlled",
+  "sourceCommit": "947db46a7c392ed9e15749787998b3f52e6f76d2",
+  "executionOrder": [
+    "Argon2: three sequential JVMs",
+    "Login: one JVM and a new disposable PostgreSQL container"
+  ]
+}

@@ -1,0 +1,145 @@
+{
+  "measuredSamples": 600,
+  "warmupSamples": 100,
+  "perRound": [
+    {
+      "round": 1,
+      "case": "disabled_user",
+      "count": 50,
+      "medianMs": 103.62185,
+      "p95Ms": 123.1256,
+      "minMs": 85.0614,
+      "maxMs": 125.3792
+    },
+    {
+      "round": 1,
+      "case": "success",
+      "count": 50,
+      "medianMs": 48.2359,
+      "p95Ms": 67.7376,
+      "minMs": 42.5045,
+      "maxMs": 82.8954
+    },
+    {
+      "round": 1,
+      "case": "unknown_user",
+      "count": 50,
+      "medianMs": 96.2892,
+      "p95Ms": 117.6125,
+      "minMs": 78.9921,
+      "maxMs": 118.0613
+    },
+    {
+      "round": 1,
+      "case": "wrong_password",
+      "count": 50,
+      "medianMs": 134.308,
+      "p95Ms": 158.9708,
+      "minMs": 109.6424,
+      "maxMs": 161.5153
+    },
+    {
+      "round": 2,
+      "case": "disabled_user",
+      "count": 50,
+      "medianMs": 103.38675,
+      "p95Ms": 119.9324,
+      "minMs": 82.137,
+      "maxMs": 122.1057
+    },
+    {
+      "round": 2,
+      "case": "success",
+      "count": 50,
+      "medianMs": 44.748149999999995,
+      "p95Ms": 50.5477,
+      "minMs": 40.0412,
+      "maxMs": 52.8532
+    },
+    {
+      "round": 2,
+      "case": "unknown_user",
+      "count": 50,
+      "medianMs": 99.1263,
+      "p95Ms": 117.9209,
+      "minMs": 77.2464,
+      "maxMs": 119.0586
+    },
+    {
+      "round": 2,
+      "case": "wrong_password",
+      "count": 50,
+      "medianMs": 130.83145000000002,
+      "p95Ms": 149.4655,
+      "minMs": 109.8359,
+      "maxMs": 150.1464
+    },
+    {
+      "round": 3,
+      "case": "disabled_user",
+      "count": 50,
+      "medianMs": 103.5495,
+      "p95Ms": 121.3742,
+      "minMs": 82.0393,
+      "maxMs": 121.8757
+    },
+    {
+      "round": 3,
+      "case": "success",
+      "count": 50,
+      "medianMs": 47.02715,
+      "p95Ms": 57.0348,
+      "minMs": 40.4572,
+      "maxMs": 58.4875
+    },
+    {
+      "round": 3,
+      "case": "unknown_user",
+      "count": 50,
+      "medianMs": 99.63974999999999,
+      "p95Ms": 116.4324,
+      "minMs": 77.1871,
+      "maxMs": 119.7556
+    },
+    {
+      "round": 3,
+      "case": "wrong_password",
+      "count": 50,
+      "medianMs": 129.1181,
+      "p95Ms": 152.5202,
+      "minMs": 109.5286,
+      "maxMs": 154.4557
+    }
+  ],
+  "comparisonWithReference": [
+    {
+      "case": "success",
+      "previousMedianMs": 47.43415,
+      "currentMedianMs": 46.69815,
+      "differenceMs": -0.7360000000000042
+    },
+    {
+      "case": "wrong_password",
+      "previousMedianMs": 41.42595,
+      "currentMedianMs": 131.02345,
+      "differenceMs": 89.5975
+    },
+    {
+      "case": "unknown_user",
+      "previousMedianMs": 97.0326,
+      "currentMedianMs": 98.71805,
+      "differenceMs": 1.685450000000003
+    },
+    {
+      "case": "disabled_user",
+      "previousMedianMs": 104.5079,
+      "currentMedianMs": 103.5495,
+      "differenceMs": -0.9584000000000117
+    }
+  ],
+  "wrongMinusUnknownMedianMs": 32.30539999999999,
+  "wrongMinusDisabledMedianMs": 27.473950000000002,
+  "wrongAndUnknownObservedOverlapMinMs": 109.5286,
+  "wrongAndUnknownObservedOverlapMaxMs": 119.7556,
+  "comparisonIsDescriptiveNotAControlledCausalExperiment": true
+}

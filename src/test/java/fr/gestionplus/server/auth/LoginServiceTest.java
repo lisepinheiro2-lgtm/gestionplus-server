@@ -110,13 +110,13 @@ public class LoginServiceTest {
 				employee.getPhoneNumber());
 		assertFalse(loginService.authenticate(name, "jekel-test-password").isPresent());
 
-        userAccount = new UserAccount(userId, name, UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE),
-                employee.getEmployeeID(), employee.getLastName(), employee.getFirstName(), employee.getEmail(),
-                employee.getPhoneNumber());
+		userAccount = new UserAccount(userId, name, UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE),
+				employee.getEmployeeID(), employee.getLastName(), employee.getFirstName(), employee.getEmail(),
+				employee.getPhoneNumber());
 
-        userCredentialLookup = id -> Optional.empty();
-        loginService = new LoginService(userAccountLookup, userCredentialLookup, service, loginDelay);
-        assertFalse(loginService.authenticate(name, "jekel-test-password").isPresent());
+		userCredentialLookup = id -> Optional.empty();
+		loginService = new LoginService(userAccountLookup, userCredentialLookup, service, loginDelay);
+		assertFalse(loginService.authenticate(name, "jekel-test-password").isPresent());
 
 		userAccount = new UserAccount(userId, name, UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE),
 				employee.getEmployeeID(), employee.getLastName(), employee.getFirstName(), employee.getEmail(),
@@ -139,7 +139,7 @@ public class LoginServiceTest {
 	}
 
 	@Test
-	void runsArgon2OnlyForTheRealCredentialCheck() {
+	void theDummyVerificationBalancesEveryRejectionPath() {
 		PasswordEncoder measured = spy(encoder);
 		CredentialService measuredCredentials = new CredentialService(measured, new PasswordPolicy(password -> false));
 		LoginService measuredLogin = new LoginService(userAccountLookup, userCredentialLookup, measuredCredentials,
@@ -152,14 +152,17 @@ public class LoginServiceTest {
 				employee.getPhoneNumber());
 		assertEquals(AuditReason.DISABLED_ACCOUNT, measuredLogin.evaluate(name, "disabled-password").reason());
 
-        userAccount = new UserAccount(userId, name, UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE),
-                employee.getEmployeeID(), employee.getLastName(), employee.getFirstName(), employee.getEmail(),
-                employee.getPhoneNumber());
-        assertEquals(AuditReason.INVALID_CREDENTIALS, measuredLogin.evaluate(name, "wrong-password").reason());
+		userAccount = new UserAccount(userId, name, UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE),
+				employee.getEmployeeID(), employee.getLastName(), employee.getFirstName(), employee.getEmail(),
+				employee.getPhoneNumber());
+		assertEquals(AuditReason.INVALID_CREDENTIALS, measuredLogin.evaluate(name, "wrong-password").reason());
 
 		verify(measured, times(1)).matches("wrong-password", credential.getPasswordHash());
 		verify(measured, never()).matches(eq("unknown-password"), anyString());
 		verify(measured, never()).matches(eq("disabled-password"), anyString());
+		verify(measured, times(1)).encode("unknown-password");
+		verify(measured, times(1)).encode("disabled-password");
+		verify(measured, never()).encode("wrong-password");
 	}
 
 	@Test

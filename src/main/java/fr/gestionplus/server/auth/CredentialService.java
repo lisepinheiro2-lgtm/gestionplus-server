@@ -36,6 +36,10 @@ public class CredentialService {
 		return new UserCredential(userId, passwordHash);
 	}
 
+	public void verifyDummyPassword(String rawPassword) {
+		passwordEncoder.encode(rawPassword);
+	}
+
 	public boolean verifyPassword(UserCredential credential, String rawPassword) {
 
 		if (credential == null || rawPassword == null || rawPassword.isBlank()) {
