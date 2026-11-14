@@ -1,0 +1,143 @@
+{
+  "sourceCommit": "39326a995bf94652a27e69991e118f438bf0362f",
+  "measuredLoginSamples": 600,
+  "warmupLoginSamples": 100,
+  "comparisons": [
+    {
+      "case": "wrong_password",
+      "previousMedianMs": 131.02345,
+      "currentMedianMs": 127.5526,
+      "p95Ms": 146.4445
+    },
+    {
+      "case": "unknown_user",
+      "previousMedianMs": 98.71805,
+      "currentMedianMs": 120.25265,
+      "p95Ms": 143.7515
+    },
+    {
+      "case": "disabled_user",
+      "previousMedianMs": 103.5495,
+      "currentMedianMs": 123.69885,
+      "p95Ms": 144.047
+    }
+  ],
+  "perRound": [
+    {
+      "round": 1,
+      "case": "disabled_user",
+      "count": 50,
+      "medianMs": 122.33825,
+      "p95Ms": 145.712,
+      "minMs": 105.2443,
+      "maxMs": 150.2386
+    },
+    {
+      "round": 1,
+      "case": "success",
+      "count": 50,
+      "medianMs": 44.349050000000005,
+      "p95Ms": 68.0086,
+      "minMs": 40.0178,
+      "maxMs": 74.4179
+    },
+    {
+      "round": 1,
+      "case": "unknown_user",
+      "count": 50,
+      "medianMs": 123.43289999999999,
+      "p95Ms": 150.6222,
+      "minMs": 100.1417,
+      "maxMs": 158.4249
+    },
+    {
+      "round": 1,
+      "case": "wrong_password",
+      "count": 50,
+      "medianMs": 128.61845,
+      "p95Ms": 146.4445,
+      "minMs": 108.9061,
+      "maxMs": 149.1475
+    },
+    {
+      "round": 2,
+      "case": "disabled_user",
+      "count": 50,
+      "medianMs": 125.47445,
+      "p95Ms": 142.7463,
+      "minMs": 103.3656,
+      "maxMs": 148.3528
+    },
+    {
+      "round": 2,
+      "case": "success",
+      "count": 50,
+      "medianMs": 41.349599999999995,
+      "p95Ms": 51.6723,
+      "minMs": 37.6376,
+      "maxMs": 59.7016
+    },
+    {
+      "round": 2,
+      "case": "unknown_user",
+      "count": 50,
+      "medianMs": 116.86375,
+      "p95Ms": 137.0985,
+      "minMs": 100.3118,
+      "maxMs": 143.7515
+    },
+    {
+      "round": 2,
+      "case": "wrong_password",
+      "count": 50,
+      "medianMs": 137.40550000000002,
+      "p95Ms": 147.7026,
+      "minMs": 106.6525,
+      "maxMs": 150.4775
+    },
+    {
+      "round": 3,
+      "case": "disabled_user",
+      "count": 50,
+      "medianMs": 122.5353,
+      "p95Ms": 143.4675,
+      "minMs": 101.3374,
+      "maxMs": 147.4365
+    },
+    {
+      "round": 3,
+      "case": "success",
+      "count": 50,
+      "medianMs": 40.16485,
+      "p95Ms": 51.4921,
+      "minMs": 36.7924,
+      "maxMs": 53.8688
+    },
+    {
+      "round": 3,
+      "case": "unknown_user",
+      "count": 50,
+      "medianMs": 117.94409999999999,
+      "p95Ms": 138.1754,
+      "minMs": 101.1901,
+      "maxMs": 145.4069
+    },
+    {
+      "round": 3,
+      "case": "wrong_password",
+      "count": 50,
+      "medianMs": 125.21735000000001,
+      "p95Ms": 142.0413,
+      "minMs": 104.4461,
+      "maxMs": 150.4069
+    }
+  ],
+  "wrongMinusUnknownMedianMs": 7.2999499999999955,
+  "wrongMinusDisabledMedianMs": 3.853750000000005,
+  "disabledMinusUnknownMedianMs": 3.4461999999999904,
+  "oldRejectionMedianSpreadMs": 32.3054,
+  "currentRejectionMedianSpreadMs": 7.2999499999999955,
+  "allThreeObservedRangeOverlapMinMs": 104.4461,
+  "allThreeObservedRangeOverlapMaxMs": 150.2386,
+  "comparisonLimitedToLocalSequentialRun": true
+}

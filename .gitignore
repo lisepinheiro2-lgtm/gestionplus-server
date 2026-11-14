@@ -69,6 +69,8 @@ settings-security.xml
 !/docs/benchmarks/authentication/reference-2026-11-14/login/samples.csv
 !/docs/benchmarks/authentication/after-login-delay-2026-11-14-947db46/argon2/samples-fork-*.csv
 !/docs/benchmarks/authentication/after-login-delay-2026-11-14-947db46/login/samples.csv
+!/docs/benchmarks/authentication/after-dummy-argon2-2026-11-14-39326a9/argon2/samples-fork-*.csv
+!/docs/benchmarks/authentication/after-dummy-argon2-2026-11-14-39326a9/login/samples.csv
 *.xls
 *.xlsx
 *.dump

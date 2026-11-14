@@ -1,0 +1,698 @@
+[
+  {
+    "path": ".mvn/wrapper/maven-wrapper.properties",
+    "sha256": "1AB96D08531C63667C46B26524958688FB9805358642BE28579F6D6ADFBECE8D"
+  },
+  {
+    "path": "mvnw",
+    "sha256": "CAE96CEF89EBEA3531221F4AE17C23CF8EDF67D00EAE8306D4186AE1BBED4D02"
+  },
+  {
+    "path": "mvnw.cmd",
+    "sha256": "46EEDB8419BD14FE70D5BB2916D7B6F51806E51B39D5B76A42610384CA929C1C"
+  },
+  {
+    "path": "pom.xml",
+    "sha256": "59495B4D6B2777D5236AC8365FC64CC9F0E62E779C89EEDDE03AC4699420BA76"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/GestionplusServerApplication.java",
+    "sha256": "5328C927183E3D3BE79027DC49B148E718D80622349AC192629BB0A1DB9514CF"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/AccountAccessLifecycle.java",
+    "sha256": "D0CB025903C422D581BF07D0A9661BA3E6B06627E0A2D54B9AA19B13A8C0334E"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/AccountActivationConflictException.java",
+    "sha256": "99C159FCADB6EA5248F95CA7EB04B1099F49DAD7C4DFDB2A89695D1239495F7E"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/AccountDeactivationNotificationDelivery.java",
+    "sha256": "7C69D14BC143F646AF114A39B7577B13EC7905F3A85609F3874C6D4349EA9342"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/AccountDeactivationNotifications.java",
+    "sha256": "BFD73AE21D4657BEB68E0EE4B71633F587B84965E7C9395EB8538EB18D39D284"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/AccountInvitationDelivery.java",
+    "sha256": "A21014A1839E4AB409B350FA02FD60E02C8BDC04C6DEFF2DBD6324EEC0CF763E"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/AccountInvitationDeliveryStore.java",
+    "sha256": "0F5EFFDD47A316F645B9DDDD885B6ED4D2B503E266E0723F7A8091F65FAAD311"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/AccountInvitationExpiry.java",
+    "sha256": "1A3BAC81EC9081D20F461F827148F0B8AC04CD05E89374AAC6862547C317E62E"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/AccountInvitationScope.java",
+    "sha256": "5FFA0D20EA48912CCB641CCC6D6350EA8FBCDFA1D9E8B6BAF0AF5383B5EC5A4B"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/AccountInvitationSender.java",
+    "sha256": "CF8BD7C620C2DC72AEC61B77B1F0C78B9971992169C58D3E9D486461809C6D7A"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/AccountInvitationService.java",
+    "sha256": "38F40CC721893E424BAF21CE0EDDE53C39CAB1D0B81E9BA5B7A2F4D6326B1BDD"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/AccountInvitationStore.java",
+    "sha256": "D04BF2FA7239F3C689A861F3137A9C867C6D02C1F428E03122C7D59C99C4A26C"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/AccountLocks.java",
+    "sha256": "CB08C50D049B5357BFAE0E302F1845912521A4176EF32C5788297C0613A9857E"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/AccountProvisioningService.java",
+    "sha256": "85B7B1ED9CDE4BB4AB241A7A70DDB890FA85F24F5529DAE78060F2C9FB62C776"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/AccountStore.java",
+    "sha256": "438C3A8CBE8E46A9DED798C191E7C7D20F5C4127C2D82DC2101104C280AE489D"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/ActivationIdentityVerifier.java",
+    "sha256": "7B0FC9FB1967852280C00917BAF7D0B3409A481FCA2B549555BCAE46DDBA5242"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/InvitationDeliveryPendingException.java",
+    "sha256": "7E42D9F6D7F4DC7E565DCF8FB15CF2A63459776933BA04628D46BA036E7EA521"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/InvitationTokenIssuer.java",
+    "sha256": "7D04273A0732FBB379BE9EE2C33861B53B528FC8ED32B37ECD060B8366B83442"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/MailDeliveryExecutor.java",
+    "sha256": "5A2E554D5649D12575594EF3FD231EC3611B861672FBEBF5708FD5C316FF3C44"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/PrivilegedAccountSnapshot.java",
+    "sha256": "9A4DA7E1345122590BE08AF42F232F3BA5F07C1326EF136524FE165F62CDDE7A"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/PrivilegedConfirmationService.java",
+    "sha256": "B1D80C3CDF4C7D4A47361FD6D138D49119887BCCA780FAC7928BC0B5308778EF"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/PrivilegedConfirmationVerifier.java",
+    "sha256": "3C90A1FFCEA645F9EC44590ABD6554F63C4C87A409DF5BEA61DC344EB416A2AA"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/StructureAccessService.java",
+    "sha256": "08ECCD28479A0F0B38612165BBABFE11D5ED632E160FE446488320F0B38F3E54"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/StructureAdminTransferService.java",
+    "sha256": "0E8A29CD77670C8F8585AE77E7F05573102361893EEDC2F39359C11DAB904E98"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/account/SuperAdminSuccessionService.java",
+    "sha256": "82D7DFF6A331472CAE8CB6A083A271CD126B4AFF440AABFCF785B99F5208AAEB"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/api/ApiErrorController.java",
+    "sha256": "33E1AD13AA6F43B132B6AF6CB374C23170C839E70F00CC078F472A43CC74B510"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/api/ApiExceptionHandler.java",
+    "sha256": "2AA04910F080201AF6DA1AB21FB3264DEAA2D97C5E56562ECA18150C46400D80"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/api/AuthSessionController.java",
+    "sha256": "AF3DE793A2E27E60E5D04A911289D55D80CB7B26A2979F483C837F95F94A4DB1"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/api/CsrfController.java",
+    "sha256": "CB8BAAC594F073858B0E6A63CAF14B31F1DF6AD66D8A50B665EB1CBF18192262"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/api/HttpApiError.java",
+    "sha256": "3B38ACAA4AC7C0566255C369E52699203BD97D6549CE914B0CC68F1043B2BC28"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/audit/AuditAction.java",
+    "sha256": "4CB9DB6C3E0BF4360184132D560575C31C64DE3CD6D5FCB8A6E37A94CE53542F"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/audit/AuditConfiguration.java",
+    "sha256": "B73237EF586DE230AE4D26FAB35910F109EC5178AE1B2B394EDE99125864EAE1"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/audit/AuditContextProvider.java",
+    "sha256": "18E927664F9B0C87EC4AEAED56BACF6F0A5C77342E0BEE3C93FF1C81A82A8535"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/audit/AuditEvent.java",
+    "sha256": "DBE6F1D324EAA30F0B62A933E3120CD9289D62AF803872A061D79AF10DBE34D2"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/audit/AuditFailureInterceptor.java",
+    "sha256": "A05509908E8CF717DB7379E591FE3FD67FFF4F1E74E950A48418283B618A0C1B"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/audit/AuditFallback.java",
+    "sha256": "960C05774B94CF9F549A8392D07F0174708C7778F53990950E8135831D41345F"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/audit/AuditMetadata.java",
+    "sha256": "B9A7A7266AAB9AD9F67D0B80DE4C7F0206E97FB3D066AB052D6F1C22651481E0"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/audit/AuditPersistence.java",
+    "sha256": "182B1167C6CACD49D8ECBB96AA94F09BAA18B0AA1959A6E7864694C871AF18A9"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/audit/AuditReason.java",
+    "sha256": "175B10ACA5BD879DCBA05220978312625BEA24EE709607030A14B4A203E733E6"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/audit/AuditResult.java",
+    "sha256": "9BC5D3ED8B551525637D8F6280FCA7F90C510765D7A6B84FE131E5F5B4491D27"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/audit/AuditService.java",
+    "sha256": "8E706BC677A371143CCE4EF80CA2B09CCC6A08C05420F003670F7DC98833FF40"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/audit/AuditStore.java",
+    "sha256": "DA9CEFFA68400C4E0858BCBB7E438199E70C64593B03267B3DF69276D2ABFD36"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/audit/AuditTarget.java",
+    "sha256": "5C293B265BB87C7AC799A720C9CFC3DD6C1B2C5155C3A08F08889BA1CD37A251"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/audit/AuditTargetSource.java",
+    "sha256": "A44B00977DEBBAFD413B361303670C1E8BA657A902D0495C5BECE15712EEB063"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/audit/AuditTargetType.java",
+    "sha256": "5B81D30BDE0E0CBE000AA66A5B5CFE38534EF84D8C2B09BFA0BAED8A28428DDA"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/audit/AuditedAccessDeniedException.java",
+    "sha256": "7B33D809C4DF6F1EF967BC5140D69A19EDE2417533AED52A56B71DBA489B41AC"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/audit/AuditedOperation.java",
+    "sha256": "480C33C374CF77902FE5F783C1DC2E95C80CB65496494DF6BB19A947C10BE15E"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/audit/SpringAuditContextProvider.java",
+    "sha256": "D0A3976EC9F968C3888D586E0782708EAA5745D131113470712F3FEFFF8F7CC0"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/AccountMfaService.java",
+    "sha256": "BE32DC1771A06AF5738D21F32958F9A32AD3ACE42E94E63CD588A13FF5CE3485"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/AccountMfaStore.java",
+    "sha256": "649AFF0B7C42883A47A1DA02E89DB9A1DF388FE1D3C863961926CB0A3A8B1737"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/AuthenticatedUserProvider.java",
+    "sha256": "46B01D5BD60D4C76EEA721D02B0420842DCCB125F23146C518D9BC6A4ABE68BA"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/AuthorizationService.java",
+    "sha256": "B70B5E960CDD3108356D540F29A5217D36DDC8449237EA00BFEE03D86460B089"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/BufferedHttpRequest.java",
+    "sha256": "CEA5A966F1C7C6429C28CDF5CB69E2B0C0495215372226E3AA878AB4A31CB1A7"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/CompromisedPasswordChecker.java",
+    "sha256": "F422EEA40D172283A2C4936D6B6878980DF84B9D7753EFB1943AEED8F86A7AD9"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/CredentialService.java",
+    "sha256": "59E5309E8F2FABCDEB1CA10EAB7EDC9F1D07EBB06BBBBC515B153C1BCB6B4092"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/CurrentAccountSessionFilter.java",
+    "sha256": "C231F1720849BF0133347D534D3DD5650FEF399A8C8CD43525DD8CB13CB84489"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/GestionAuthenticationProvider.java",
+    "sha256": "E42A8329B813D9D74D0D080EE9E319FDA2EBA55D31BBBD624C0B61ABEE5977CC"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/HttpRequestPolicyFilter.java",
+    "sha256": "23F32516412583BBE717D69CA55098F87A6C238F3F9365175DFC316C1EA8F562"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/HttpSecurityAudit.java",
+    "sha256": "E71F9E4A6B4F5B3B43671C611C3170BB4B39E8ACE32A5C4A2BFAC80BC53A4493"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/HttpSecurityConfig.java",
+    "sha256": "368FE8490EE1CD0FA3F8DDC06B1757EB2F0204E5AC810FC4B53DC3FD054AB993"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/JitteredLoginDelay.java",
+    "sha256": "03C34216ED25084953BA46E24DDB13948FF441E4150E4956B2941A3612127797"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/LoginAttemptLimiter.java",
+    "sha256": "760042A4505C6CA3B1D8E3F2C475058FC16297CE47EDE4C822C0439565D68731"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/LoginDelay.java",
+    "sha256": "6AC6DDB9A23B3FD1E7C021BA34DC097C793EEAF9727CCE8E78EC674D85ED8260"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/LoginService.java",
+    "sha256": "A11E1D8A31A52A7EB4A73F2BA0B96FE0CB55297803669F69B56FCE08DC0DA23C"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/MfaEnrollmentVerifier.java",
+    "sha256": "F7DB68922AFC6DCA49D3B69A28AD56B3F2AFAE5B7D1CF2BA7C123CB688CC2968"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/MfaProductionConfiguration.java",
+    "sha256": "C35FE095241432C1D43FFC310DF9A55D9AF3600207D2DC86A6A5452C0F8865AD"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/MfaSecretCipher.java",
+    "sha256": "343D13F8F3FFA291B91A6DCAAC3C871B23D08A03FFB6F5E7FEC029C5C3EA1915"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/PasswordChangeService.java",
+    "sha256": "E6AB1CC38E8DAF886925E77A1B97FDB93D40CA8EF9FDD90F569D0358645FDC94"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/PasswordPolicy.java",
+    "sha256": "3A3EE794A6F043B1D074F20E3F5EC18CAE89C8485B4C351774A1CAFC63066751"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/PasswordSecurityConfig.java",
+    "sha256": "E2425D3240A83F468F05D5CD38C585BDC16E827B5023B41E7E5FB22F69CC9AF2"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/Permission.java",
+    "sha256": "79F75D44853D72A3DA664334B2A16C2E9A4863CCF704967DEFCFF7C4ECEA0402"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/RoleHierarchyPolicy.java",
+    "sha256": "BE4445B7B1496644279D90F2F990F2F8EE48B8DA4A5FAD7B189379E25C6CCFE0"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/RoleMfaPolicy.java",
+    "sha256": "3F76B14BD5053C4CF22C531E9BB9F8BD8AFF4EBF3B58264621A14A494264A230"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/RolePermissionPolicy.java",
+    "sha256": "0F9E0B9BF9BC0B76F70679E7C69D64D319ED81F9C367075CEA82100FA5180944"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/SessionLifetime.java",
+    "sha256": "127E1BAA3E77C561B6F964B1A749CEAEFDAC312CB41D0199A746C302F9331F81"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/SessionRevocationService.java",
+    "sha256": "3D2FE09B5B03A24819FFB7D48B5A8D9F10CDC4FF0EFDFAFF7A3F915FF3667DF7"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/TotpCodes.java",
+    "sha256": "FC791231C874828AF446D65A4BDEFC884F062651AFA7C90E1E53202E8D1F6769"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/UserAccount.java",
+    "sha256": "1625CA2F6365672742E2C41D1A98E51ED0E6ED2F00EE284513900FF9709169BC"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/UserAccountLookup.java",
+    "sha256": "80002C64AFEE031827B0644F0374AF113C34E32AC3B3C392753A070B31958236"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/UserAccountStatus.java",
+    "sha256": "1CD990151A329CBE4EF7C4FC0188486BECE913284E199C2CD5A3C17300DA9F4A"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/UserCredential.java",
+    "sha256": "884BE890CE331DFBBCD2D29F7AB2FA3B3912FEAF90518097DF57F7FF438DE352"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/UserCredentialLookup.java",
+    "sha256": "1E88186EBB7353B7FF735D783242D5BB7631B9F30884EC6F4BDA271C4F38E4DF"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/auth/UserRole.java",
+    "sha256": "F7AD20A404C3BCAFEED14FB1DBCEE72412ECCF27E8FA97B3BDB49019E3F28DCF"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/employee/Employee.java",
+    "sha256": "99832494113EBA459B138DC84FF4CEC41B19649C7E76A9D6879C8D059CA246BF"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/employee/EmployeeResponsibilityService.java",
+    "sha256": "4ADEFBD5663AB0B790B308FBCF33CB34EDABA5150552929D76525A6DF13553C7"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/employee/EmployeeResponsibilityStore.java",
+    "sha256": "DF961A369ED1563DE6444F0269F54B97B0A9DE367AE486BA655EAF5A5526A1CE"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/employee/EmployeeStore.java",
+    "sha256": "9AE988DA57FA22FA83D603288680EA3E0229A35BC4E7DF885F7FCCA900033A2F"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/integration/MailAccountInvitationSender.java",
+    "sha256": "46E13C622FE454AA15F1D72617604132D9706EDEF7F689B3EF9F612F3DC55B00"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/integration/PwnedPasswordsChecker.java",
+    "sha256": "FB5DAD0784A0A3F60604563626C9C56659D15E190E2BBFAE4862154AFF57AA9B"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/organization/OrganizationalStructure.java",
+    "sha256": "FD46622661F04DAE8F7D13A515F1651F1FF887D01F6631520D891EC6998F4CDD"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/organization/OrganizationalStructureStore.java",
+    "sha256": "0A7FACE0FD04BD783E8F386DE77B84F95E78A8D58A9B9D2D0FA304C68504B58F"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/organization/OrganizationalUnit.java",
+    "sha256": "6FD82DCE6FDC8CCD3DF79E74231D9E6B0A699EF28BD514D0F121738651336FA7"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/organization/OrganizationalUnitStore.java",
+    "sha256": "77274596DEC26B0BC8AA943F83DDC3D1411777410233E91BED647247A17E2E98"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/organization/StructureMembership.java",
+    "sha256": "91270ACC46357FC70045601AD59A83E0A3A416CEBE753425D4F0777756B7F0AA"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/organization/StructureMembershipStore.java",
+    "sha256": "D6F879FE4B98F63DDD259CF5EA0E5BD64DAEE9126C12FF4F23A8FE0268C34FB9"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/organization/TenantMembership.java",
+    "sha256": "38DD35D447CB8B8A8945A34551EF4D508AF8CA8AF11BD88D7006EF36A1926B16"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/organization/TenantMembershipStore.java",
+    "sha256": "04259660F0510862C747C7A45C4BF658F60089594A0C132A8020A1C2D0492DD3"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/organization/TenantOrganization.java",
+    "sha256": "C6642244F22ACDFB81782A38728C078E1DBC92BE953706B6677E51D04CB2D5D8"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/organization/TenantOrganizationStore.java",
+    "sha256": "E66F9C9CFDD5916A8A0B57086093E93CF37C092F37F17E97C1FE53A1006566E8"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/organization/UnitAssignement.java",
+    "sha256": "90A59E1A3F900A7DF0E62F2A35835B83368C74EAAB94F522F4B566721CCC8369"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/AuditEventEntity.java",
+    "sha256": "2E46AE70AEC25D98AA6790609102A7969D114B1022D644294C0C6C38007FDFFA"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/AuditEventJpaRepository.java",
+    "sha256": "4F7EB533FDAEA8640449A80CC6725AC20AE693645D7D37468A2104AE0B3BD30B"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/AuditFileJournal.java",
+    "sha256": "B9FD5E476A989B1E593E433371ED524C1003F290887B2D03FEA1DC1DABCBE548"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/AuditTargetEmbeddable.java",
+    "sha256": "01CD39D16BB9AC67E2C371CF4483C371DB73BAD020B5C27229CD50FBBD429006"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/EmployeeEntity.java",
+    "sha256": "D975983B8AD0132B621A458EB1234E6BA88006B438B95F7D85C766D72B42C76A"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/EmployeeJpaRepository.java",
+    "sha256": "0A70BCA9780C274A5858C473F867B72888AF0E4CA9FA44DB390CE9FA62F582BD"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/EncryptedAuditCodec.java",
+    "sha256": "13CABDFDF2B676D207346FC8395F53F216DC5E68E30715D58500D3E23BF30E94"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/JpaAccountStore.java",
+    "sha256": "1838F9A21BC3F8A5FB0AFB67BC9F2F5B80985C02EDEAFDA92810FAADCCB4D3FF"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/JpaAuditStore.java",
+    "sha256": "AA5260F3419271FBBA18ABDBC49E5A7CE25EE071E9F9EF6DDF646DC13488723A"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/JpaEmployeeStore.java",
+    "sha256": "9E6747DF672230404DE7DD5E518CAD6AC8B79295B3AF36B96B3E6A36A51C29E1"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/JpaOrganizationalStructureStore.java",
+    "sha256": "E4BD1777A4F9BC6B7E3AF98D38E4E08EC2A4ADE050DD4E7C7F458AEDD25D802D"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/JpaOrganizationalUnitStore.java",
+    "sha256": "D827D4CB2425948E1705A8971A16AAB2E92C57BAFACE104565891E1191DCA022"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/JpaStructureMembershipStore.java",
+    "sha256": "AA01699D35A512C54F4D974C32C1CC47A0BC29C8C39FFA71B2062E61638EEFC9"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/JpaTenantMembershipStore.java",
+    "sha256": "000BA6BFA0F2C045D566E116A854298B6A6C87B3B3AF2EAA9035EC75C1E55C36"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/JpaTenantOrganizationStore.java",
+    "sha256": "89F8DE759364DFDDC3BE8791FCB29BA343D7E186174D6B23764C2FBECB1CE37F"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/JpaUserAccountLookup.java",
+    "sha256": "11690C51BB17405C3839695E991CD70E95F92DD9F4E5E748C7E5CB2D1BE987BE"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/JpaUserCredentialLookup.java",
+    "sha256": "95E8E52737FA0469B2FB5838A325E8EFEB3E74ECBF9A03DAD7CE6CB274EB928B"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/OrganizationalStructureEntity.java",
+    "sha256": "DE4DD635FA388100E5E2555D99F8797029762BAABD95EF8D69CD15E40F8842F8"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/OrganizationalStructureJpaRepository.java",
+    "sha256": "B9CDB207ED18DAE083C44BBA016F390A15A1842BDE84CE99010CAECB17CCF694"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/OrganizationalUnitEntity.java",
+    "sha256": "0C0E89DD538850B6781ADF6C41D0CE8700C07D4DA49CDF3F9CB919C92C41F09A"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/OrganizationalUnitJpaRepository.java",
+    "sha256": "BDDF48AF9423248FE2E5E17F104DFD2B2077C8186A295FFFA4D88A6CB994E214"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/PostgresqlAccountDeactivationNotifications.java",
+    "sha256": "7E759BF9ECAA62841BDC023453C79D4D481B945D14D20E59A8CE8EE7881F8441"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/PostgresqlAccountInvitationDeliveryStore.java",
+    "sha256": "45E1E8331A8A28DEC64631FE4A60CF8B2AA8B5010170FE89C488EC029BA6EFC6"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/PostgresqlAccountInvitationStore.java",
+    "sha256": "479280BA7AB0E27F8A10B86BCBEFBB5190F20D67E7C0D091D035B201D5D4AFC2"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/PostgresqlAccountMfaStore.java",
+    "sha256": "22CB604F3F58F34ECB5616E5B4598ACED41A21D8DB00B5189C22A574322101AD"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/PostgresqlAuditFallback.java",
+    "sha256": "927B5FD48FD4FD494A9C7243CA92F5314CEA172E8CF444283D925AD0E5CF73C8"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/PostgresqlEmployeeResponsibilityStore.java",
+    "sha256": "686939966DAA65DFA585DD08FE62D5B4EA82B7B82E4174A89642BF11B957444B"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/StructureMembershipEntity.java",
+    "sha256": "53A98532737ADE97B9F0D8E0ED54A48E1D6FA95AA107FBC71DB3C63FF442AA3C"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/StructureMembershipId.java",
+    "sha256": "0A68449E39A59A9A85CA1B1BCADB81D52F5BA99C4A7AC38FEE38813ED2985897"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/StructureMembershipJpaRepository.java",
+    "sha256": "C425FF0C54A6AFFB47227572AEC4D4E80115BD8702DD0822044F8930D520B8F8"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/TenantMembershipEntity.java",
+    "sha256": "99CA5F3D17B783A856D30ACB20DA8CAB91597247428CE6589856E425D1D2ADAA"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/TenantMembershipId.java",
+    "sha256": "FBC8E96636D65E3447E704B7106567FB6AFBF1E70731A50D513619E83F8B0113"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/TenantMembershipJpaRepository.java",
+    "sha256": "0AF0F6C48E31245106140145A5882733339B66249039ED1FBDBB500CF5B1C9F9"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/TenantOrganizationEntity.java",
+    "sha256": "E321AA7A46C776F6951655A44284B923B2B8569FA5103A5B39153462ECA0ACB0"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/TenantOrganizationJpaRepository.java",
+    "sha256": "4B45653961D490FB9ABD6ACF72CF61883862257971313015C1027CFA1DB8CB4B"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/UserAccountEntity.java",
+    "sha256": "12FF1C7C07E35811469D1204954992954D25A1125C2D9D4BC493214BBE79693F"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/UserAccountJpaRepository.java",
+    "sha256": "ECAB2240E6B6269E81FB421EFCA477A33C609663731AB5B39BAC7D3CE87C88EE"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/UserCredentialEntity.java",
+    "sha256": "9F2ECB1A99676B4A023F7969A1F1C92795A91119B5E1E533025D71BF94B10AD3"
+  },
+  {
+    "path": "src/main/java/fr/gestionplus/server/persistence/UserCredentialJpaRepository.java",
+    "sha256": "80499D732A2B5DBD861733DC4480DA9AEC38C7942008FEA16C315B7A7FFB7093"
+  },
+  {
+    "path": "src/main/resources/application-prod.yaml",
+    "sha256": "E60F103A3B6A63D11203B5AF313013D1B563BF44C997693A67BE3E166E959DB9"
+  },
+  {
+    "path": "src/main/resources/application.yaml",
+    "sha256": "A0A12E3D79DACBF237EA0C05E1CA3FAAA48762285589BB0DF87623B93D11161C"
+  },
+  {
+    "path": "src/main/resources/db/migration/V10__unique_structure_admin.sql",
+    "sha256": "F6AD9FB7ADFC45259C6813DD78D603C3CCA5A06AD70F0239EEAA256F6BD18F5C"
+  },
+  {
+    "path": "src/main/resources/db/migration/V11__create_tenant_memberships.sql",
+    "sha256": "98A72A96BEDC33D9C673E65D46BAEF4DFC02971B6EBA40245CBB823D88E6C967"
+  },
+  {
+    "path": "src/main/resources/db/migration/V12__add_audit_event_metadata.sql",
+    "sha256": "F5B2B604AF18DDDC9C0E1E198DFFB54AABB4FF0873925A0E5EC0FEB91E93CCF9"
+  },
+  {
+    "path": "src/main/resources/db/migration/V13__add_user_account_identity.sql",
+    "sha256": "5514DA74A0CCC23CD413B8DA6E662746CE6F7CC35CB476EDDA5D817B20912CF4"
+  },
+  {
+    "path": "src/main/resources/db/migration/V14__require_user_account_identity.sql",
+    "sha256": "9DF4912425FDAAEF981398CCBFFD79AAB1DD5B2EBC3124386638029E845C331C"
+  },
+  {
+    "path": "src/main/resources/db/migration/V15__unique_user_account_employee.sql",
+    "sha256": "F844EA5B9FDA6878EAB8EBE1300BCF0FD9F273D37FD6CF49CF0A9B03E6A7AD9B"
+  },
+  {
+    "path": "src/main/resources/db/migration/V16__scope_employees_and_units_to_structures.sql",
+    "sha256": "4E8E24BEB30C78382C5D266654F7B2E987F582448696E93E04987620CFC975D7"
+  },
+  {
+    "path": "src/main/resources/db/migration/V17__enforce_tenant_membership_and_session_version.sql",
+    "sha256": "827D81CE35BDCFCE92A539A33816DADA6A9A772E72C39D7E110314AF019FC0F0"
+  },
+  {
+    "path": "src/main/resources/db/migration/V18__add_employee_responsibilities.sql",
+    "sha256": "8FDECD5F745EF7AFB42FF182CCC0CF8E5F813A7EC428EF9E383C74A18C5BF5A7"
+  },
+  {
+    "path": "src/main/resources/db/migration/V19__queue_account_deactivation_notifications.sql",
+    "sha256": "90EF1D3735CF81A19A08150D276D627F0C1C79AAFD2AE059CE56948EF67F95ED"
+  },
+  {
+    "path": "src/main/resources/db/migration/V1__create_auth_tables.sql",
+    "sha256": "DC37B6125B33B50A67C63B0E24D22726C235CE5C925B43EF71B7CB3959100385"
+  },
+  {
+    "path": "src/main/resources/db/migration/V20__store_account_invitations.sql",
+    "sha256": "11E1C1F4ECEF7FEA4E46C0506CD904A71C0D11C96FEE77058309EF1CF74272C9"
+  },
+  {
+    "path": "src/main/resources/db/migration/V21__queue_admin_transfer_notifications.sql",
+    "sha256": "6FA5391D3588A32453CF1519CE63B4CBC47B57C815E55C79E7E7B03E4286C088"
+  },
+  {
+    "path": "src/main/resources/db/migration/V22__scope_audit_and_create_transactional_journal.sql",
+    "sha256": "DF6ED718D4CE80350568D84B1F9E5D4E491C8F3485F9132A40433FE79097929B"
+  },
+  {
+    "path": "src/main/resources/db/migration/V23__store_totp_factors_and_recovery_codes.sql",
+    "sha256": "718BA7E6B4E39332331BF9E3ED6E42E99A9EA837C7058C92239F47EEA1BA74B6"
+  },
+  {
+    "path": "src/main/resources/db/migration/V24__validate_existing_structure_memberships.sql",
+    "sha256": "0F9F945A68B915558C222B358A58F6C83D5E1B916941ACA2896D24EEAD3ACE73"
+  },
+  {
+    "path": "src/main/resources/db/migration/V25__queue_account_invitation_deliveries.sql",
+    "sha256": "24835D00C2932BE5769BBACAB951737BBBA0CDE7510A9DC66AEE7C13C68AB1AD"
+  },
+  {
+    "path": "src/main/resources/db/migration/V26__bound_deactivation_notification_attempts.sql",
+    "sha256": "2B4049316AD9AFD6F1665FAB4AC11019E53899394F4A30EF33FAF9B7B22F0F39"
+  },
+  {
+    "path": "src/main/resources/db/migration/V2__user_account_status.sql",
+    "sha256": "FB5C8C6DB0AFB69D7A970FC510EFE801FDE91BD42CFDA827E9D37BB4E27FE59C"
+  },
+  {
+    "path": "src/main/resources/db/migration/V3__create_employees_table.sql",
+    "sha256": "586C0FDCC60C779E8571D6FFE442A04EF82FDD8B0B91FFCAD109E0A48C12F917"
+  },
+  {
+    "path": "src/main/resources/db/migration/V4__user_account_employee.sql",
+    "sha256": "40D8AB0AAB3AA8A0DA168772DDA4D499D3A5BF897BE5D2EE02542A77C0347844"
+  },
+  {
+    "path": "src/main/resources/db/migration/V5__create_organizational_units_table.sql",
+    "sha256": "F2B3F9A68FE8FF264F40A2ED5E81947398AFE8EEED4F2C9DC1877DF28CD4842A"
+  },
+  {
+    "path": "src/main/resources/db/migration/V6__employee_organizational_unit.sql",
+    "sha256": "A961143A27ED4974E6586E061C2F3E2A0A85BF602F5A18A61114A82E5298753E"
+  },
+  {
+    "path": "src/main/resources/db/migration/V7__create_audit_tables.sql",
+    "sha256": "28C5A87A2525D9F3E72DAE4E64BCAFD1B184957E0D4AC033B4581B89A3BE916C"
+  },
+  {
+    "path": "src/main/resources/db/migration/V8__create_structures_and_memberships.sql",
+    "sha256": "025D9E4E1A87827EC600DABC598B907B92B2C3528A51CE2B56255070189A5205"
+  },
+  {
+    "path": "src/main/resources/db/migration/V9__create_tenant_organizations.sql",
+    "sha256": "0D4A6EA32B69C59102404DA969D33383F93F4D737226923925DD920CE388AB86"
+  },
+  {
+    "path": "tools/benchmarks/java/Argon2LocalBenchmark.java",
+    "sha256": "C3BF69B5240006BAA2576438C460607827BEE42F984222D8111CEF1C4215122B"
+  },
+  {
+    "path": "tools/benchmarks/java/LocalLoginPathBenchmark.java",
+    "sha256": "B2102ABAEE6C6787A5A7A6FE29022E8C98F8AE46F3EA136D6C0E9223FB45AC01"
+  },
+  {
+    "path": "tools/benchmarks/Run-AuthenticationBenchmark.ps1",
+    "sha256": "2315DD50695F6BC9332A1DC71FB1DC6E956D8D4D9517C3D6C8173CE63C0B13ED"
+  }
+]
