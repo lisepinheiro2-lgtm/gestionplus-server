@@ -43,8 +43,9 @@ class AccountInvitationDeliveryTest {
 	private final InvitationTokenIssuer tokens = mock(InvitationTokenIssuer.class);
 	private final AuditService audit = mock(AuditService.class);
 	private final PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
+	private final MailDeliveryExecutor executor = mock(MailDeliveryExecutor.class);
 	private final AccountInvitationDelivery worker = new AccountInvitationDelivery(deliveries, invitations, accounts,
-			scope, memberships, sender, tokens, audit, transactions);
+			scope, memberships, sender, tokens, audit, transactions, executor);
 	private final String token = "a".repeat(43);
 	private final Request request = new Request(UUID.randomUUID(), UUID.randomUUID(), null, UUID.randomUUID(),
 			UUID.randomUUID(), UUID.randomUUID(), 0, 0, "test@example.invalid", AuditAction.INVITATION_CREATE, false,

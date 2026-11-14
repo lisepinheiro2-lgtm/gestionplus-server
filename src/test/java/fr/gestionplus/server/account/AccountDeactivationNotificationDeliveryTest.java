@@ -3,6 +3,7 @@ package fr.gestionplus.server.account;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -42,9 +43,10 @@ class AccountDeactivationNotificationDeliveryTest {
 	private final AccountStore accountStore = mock(AccountStore.class);
 	private final JavaMailSender mailSender = mock(JavaMailSender.class);
 	private final AuditService audit = mock(AuditService.class);
+	private final MailDeliveryExecutor executor = synchronousExecutor();
 	private final AccountDeactivationNotificationDelivery delivery = new AccountDeactivationNotificationDelivery(
 			notifications, accountStore, mailSender, "gestionplus@example.invalid", audit,
-			mock(PlatformTransactionManager.class));
+			mock(PlatformTransactionManager.class), executor);
 
 	@Test
 	void sendsToTheActorAndRemovesTheDeliveredNotification() {
@@ -134,5 +136,14 @@ class AccountDeactivationNotificationDeliveryTest {
 		when(notifications.lockNext()).thenReturn(Optional.of(notification));
 		when(accountStore.findById(notification.actorUserID())).thenReturn(Optional.of(actor));
 		return notification;
+	}
+
+	private MailDeliveryExecutor synchronousExecutor() {
+		MailDeliveryExecutor executor = mock(MailDeliveryExecutor.class);
+		doAnswer(invocation -> {
+			((Runnable) invocation.getArgument(0)).run();
+			return true;
+		}).when(executor).trySubmit(any());
+		return executor;
 	}
 }

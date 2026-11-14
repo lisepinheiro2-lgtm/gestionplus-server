@@ -47,11 +47,12 @@ public class AccountInvitationDelivery {
 	private final InvitationTokenIssuer tokens;
 	private final AuditService audit;
 	private final TransactionTemplate transaction;
+	private final MailDeliveryExecutor executor;
 
 	AccountInvitationDelivery(AccountInvitationDeliveryStore deliveries, AccountInvitationStore invitations,
 			AccountStore accounts, AccountInvitationScope scope, StructureMembershipStore memberships,
 			AccountInvitationSender sender, InvitationTokenIssuer tokens, AuditService audit,
-			PlatformTransactionManager transactionManager) {
+			PlatformTransactionManager transactionManager, MailDeliveryExecutor executor) {
 		this.deliveries = deliveries;
 		this.invitations = invitations;
 		this.accounts = accounts;
@@ -62,6 +63,7 @@ public class AccountInvitationDelivery {
 		this.audit = audit;
 		transaction = new TransactionTemplate(transactionManager);
 		transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		this.executor = executor;
 	}
 
 	@Scheduled(fixedDelayString = "${gestionplus.activation.delivery-delay:5000}", initialDelayString = "${gestionplus.activation.delivery-initial-delay:5000}")
@@ -70,7 +72,11 @@ public class AccountInvitationDelivery {
 		try {
 
 			for (UUID requestID : deliveries.findDue()) {
-				deliver(requestID);
+
+				if (!executor.trySubmit(() -> deliver(requestID))) {
+					break;
+				}
+
 			}
 
 		} catch (RuntimeException failure) {

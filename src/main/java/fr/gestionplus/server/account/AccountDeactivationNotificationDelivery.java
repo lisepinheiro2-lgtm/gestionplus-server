@@ -41,11 +41,12 @@ public class AccountDeactivationNotificationDelivery {
 	private final String from;
 	private final AuditService audit;
 	private final TransactionTemplate transaction;
+	private final MailDeliveryExecutor executor;
 
 	public AccountDeactivationNotificationDelivery(AccountDeactivationNotifications notifications,
 			AccountStore accountStore, JavaMailSender mailSender,
 			@Value("${gestionplus.notifications.from}") String from, AuditService audit,
-			PlatformTransactionManager transactionManager) {
+			PlatformTransactionManager transactionManager, MailDeliveryExecutor executor) {
 		this.notifications = notifications;
 		this.accountStore = accountStore;
 		this.mailSender = mailSender;
@@ -53,10 +54,15 @@ public class AccountDeactivationNotificationDelivery {
 		this.audit = audit;
 		transaction = new TransactionTemplate(transactionManager);
 		transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		this.executor = executor;
 	}
 
 	@Scheduled(fixedDelay = 5000)
 	public void deliverNext() {
+		executor.trySubmit(this::deliverDue);
+	}
+
+	private void deliverDue() {
 
 		try {
 			Notification notification = reserveNext();
