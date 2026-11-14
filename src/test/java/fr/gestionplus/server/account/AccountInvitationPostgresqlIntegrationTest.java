@@ -1,19 +1,20 @@
 package fr.gestionplus.server.account;
 
-import static org.junit.jupiter.api.Assertions.fail;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
@@ -139,11 +140,11 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 		allowDelivery();
 	}
 
-    @AfterEach
-    void clearAuthentication() {
-        SecurityContextHolder.clearContext();
-        jdbcTemplate.update("DELETE FROM account_invitation_deliveries");
-    }
+	@AfterEach
+	void clearAuthentication() {
+		SecurityContextHolder.clearContext();
+		jdbcTemplate.update("DELETE FROM account_invitation_deliveries");
+	}
 
 	@Test
 	void reintegrationKeepsDisabledUntilDeliveryAndRequiresTheHolderToActivate() {
@@ -694,6 +695,25 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 	}
 
 	@Test
+	void anUnknownInvitationIsRejectedBeforeAnyPasswordCheck() {
+		assertThrows(AccessDeniedException.class, () -> invitations.completeActivation(UUID.randomUUID(),
+				"x".repeat(43), "verified-proof", "activated_someone", "valid-test-password"));
+		verify(credentialService, never()).validatePassword(anyString());
+	}
+
+	@Test
+	void aWrongTokenIsRejectedBeforeAnyPasswordCheck() {
+		UUID userID = preparePendingAccount();
+		SentInvitation message = sendInitial(userID);
+
+		assertThrows(AccessDeniedException.class, () -> invitations.completeActivation(message.invitationID(),
+				"y".repeat(43), "verified-proof", "activated_" + userID, "valid-test-password"));
+		verify(credentialService, never()).validatePassword(anyString());
+		assertEquals(UserAccountStatus.PENDING_ACTIVATION, account(userID).getStatu());
+		assertNotNull(invitationStore.findByAccount(userID).orElseThrow().tokenDigest());
+	}
+
+	@Test
 	void smtpRunsWithoutATransactionOrBusinessLocks() {
 		UUID userID = preparePendingAccount();
 		doAnswer(call -> {
@@ -1028,7 +1048,8 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 		UUID userID = preparePendingAccount();
 		SentInvitation message = sendInitial(userID);
 		allowActivation(userID, message);
-		controlTime(invitationStore.findByAccount(userID).orElseThrow().expiresAt());
+        Instant deadline = invitationStore.findByAccount(userID).orElseThrow().expiresAt();
+        AtomicReference<Instant> now = controlTime(deadline);
 		String sessionID = UUID.randomUUID().toString();
 		sessionRegistry.registerNewSession(sessionID, account(userID));
 		SecurityContextHolder.clearContext();
@@ -1036,6 +1057,7 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 		try (ExecutorService worker = Executors.newSingleThreadExecutor()) {
 			Future<Boolean> activation = new TransactionTemplate(transactionManager).execute(transaction -> {
 				invitations.expireInvitation(message.invitationID());
+				now.set(deadline.minusSeconds(1));
 				int pid = jdbcTemplate.queryForObject("SELECT pg_backend_pid()", Integer.class);
 				Future<Boolean> pending = worker.submit(() -> activateIfAllowed(userID, message));
 				awaitBlockedBy(pid, pending);

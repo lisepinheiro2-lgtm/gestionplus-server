@@ -242,6 +242,16 @@ public class AccountInvitationService {
 			throw AccountInvitationScope.denied();
 		}
 
+		Invitation claimed = invitationStore.findByID(invitationID)
+				.filter(current -> current.tokenDigest() != null || current.completedAt() != null)
+				.orElseThrow(() -> activationUnavailable(invitationID, token));
+
+		if (!isUsable(claimed, clock.instant())
+				|| !MessageDigest.isEqual(InvitationTokenIssuer.digest(token).getBytes(StandardCharsets.US_ASCII),
+						claimed.tokenDigest().getBytes(StandardCharsets.US_ASCII))) {
+			throw AccountInvitationScope.denied();
+		}
+
 		credentialService.validatePassword(rawPassword);
 
 		activationTransaction.executeWithoutResult(status -> {
