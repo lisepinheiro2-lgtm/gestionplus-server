@@ -65,6 +65,8 @@ settings-security.xml
 /data/
 /backups/
 *.csv
+!/docs/benchmarks/authentication/reference-2026-11-14/argon2/samples-fork-*.csv
+!/docs/benchmarks/authentication/reference-2026-11-14/login/samples.csv
 *.xls
 *.xlsx
 *.dump

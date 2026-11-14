@@ -1,0 +1,122 @@
+{
+  "measuredSamples": 600,
+  "warmupSamples": 100,
+  "jvmOptions": [
+    "-Xms128m",
+    "-Xmx768m"
+  ],
+  "perRound": [
+    {
+      "round": 1,
+      "case": "disabled_user",
+      "count": 50,
+      "medianMs": 105.70575,
+      "p95Ms": 122.1949,
+      "minMs": 83.6952,
+      "maxMs": 159.8882
+    },
+    {
+      "round": 1,
+      "case": "success",
+      "count": 50,
+      "medianMs": 49.76335,
+      "p95Ms": 68.4687,
+      "minMs": 41.5482,
+      "maxMs": 70.7051
+    },
+    {
+      "round": 1,
+      "case": "unknown_user",
+      "count": 50,
+      "medianMs": 97.90180000000001,
+      "p95Ms": 117.0707,
+      "minMs": 78.1516,
+      "maxMs": 118.9171
+    },
+    {
+      "round": 1,
+      "case": "wrong_password",
+      "count": 50,
+      "medianMs": 42.0958,
+      "p95Ms": 62.869,
+      "minMs": 35.1,
+      "maxMs": 65.3681
+    },
+    {
+      "round": 2,
+      "case": "disabled_user",
+      "count": 50,
+      "medianMs": 100.91565,
+      "p95Ms": 120.6311,
+      "minMs": 82.3383,
+      "maxMs": 121.7953
+    },
+    {
+      "round": 2,
+      "case": "success",
+      "count": 50,
+      "medianMs": 45.325599999999994,
+      "p95Ms": 68.957,
+      "minMs": 39.3353,
+      "maxMs": 210.0603
+    },
+    {
+      "round": 2,
+      "case": "unknown_user",
+      "count": 50,
+      "medianMs": 93.12880000000001,
+      "p95Ms": 117.012,
+      "minMs": 79.0642,
+      "maxMs": 118.4202
+    },
+    {
+      "round": 2,
+      "case": "wrong_password",
+      "count": 50,
+      "medianMs": 41.44025,
+      "p95Ms": 47.1142,
+      "minMs": 35.4906,
+      "maxMs": 57.3438
+    },
+    {
+      "round": 3,
+      "case": "disabled_user",
+      "count": 50,
+      "medianMs": 105.6776,
+      "p95Ms": 121.4424,
+      "minMs": 80.28,
+      "maxMs": 127.9904
+    },
+    {
+      "round": 3,
+      "case": "success",
+      "count": 50,
+      "medianMs": 45.449349999999995,
+      "p95Ms": 73.2234,
+      "minMs": 38.6888,
+      "maxMs": 117.0002
+    },
+    {
+      "round": 3,
+      "case": "unknown_user",
+      "count": 50,
+      "medianMs": 97.8661,
+      "p95Ms": 114.2874,
+      "minMs": 77.6288,
+      "maxMs": 118.3047
+    },
+    {
+      "round": 3,
+      "case": "wrong_password",
+      "count": 50,
+      "medianMs": 40.0506,
+      "p95Ms": 48.0657,
+      "minMs": 31.2114,
+      "maxMs": 52.5739
+    }
+  ],
+  "wrongPasswordMaximumMs": 65.3681,
+  "unknownUserMinimumMs": 77.6288,
+  "measuredWrongAndUnknownRangesOverlap": false,
+  "conclusionsLimitedToThisLocalSequentialRun": true
+}

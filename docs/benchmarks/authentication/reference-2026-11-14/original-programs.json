@@ -1,0 +1,10 @@
+[
+  {
+    "file": "Argon2LocalBenchmark.java",
+    "sha256": "F184A2B15E3745B6BFED4487F8B8C8854E13BC052880A139701C92EE34C2376E"
+  },
+  {
+    "file": "LocalLoginPathBenchmark.java",
+    "sha256": "6E2F1C4A5CE3CC60933095219F6E966B8788E34B7CF84497C5C4E39CFDB49197"
+  }
+]

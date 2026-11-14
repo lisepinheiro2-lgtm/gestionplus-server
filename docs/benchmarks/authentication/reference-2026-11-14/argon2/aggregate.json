@@ -1,0 +1,21 @@
+{
+  "measuredChecks": 1200,
+  "warmupChecks": 300,
+  "forks": 3,
+  "correct": {
+    "count": 600,
+    "minMs": 19.4167,
+    "medianMs": 22.75875,
+    "p95Ms": 26.4106,
+    "maxMs": 32.1004,
+    "meanMs": 23.017126
+  },
+  "wrong": {
+    "count": 600,
+    "minMs": 19.1116,
+    "medianMs": 22.72545,
+    "p95Ms": 26.1506,
+    "maxMs": 31.6117,
+    "meanMs": 23.031409
+  }
+}

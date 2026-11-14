@@ -1,0 +1,21 @@
+{
+  "sourceCommit": "e9fbd78cb6fa3f620cd2163ca7a34e36a76481a5",
+  "sourceWorkingTreeChanges": [],
+  "date": "2026-11-14",
+  "purpose": "Isolated real HTTP login benchmark",
+  "database": "New disposable PostgreSQL 16 container only",
+  "migrations": "V1 through V26 applied only to that disposable database",
+  "serverBind": "127.0.0.1, random port",
+  "protocol": "HTTP/1.1 loopback, production gigue and limiter unchanged",
+  "measuredCases": [
+    "success",
+    "wrong_password",
+    "unknown_user",
+    "disabled_user"
+  ],
+  "warmupPerCase": 25,
+  "rounds": 3,
+  "samplesPerCasePerRound": 50,
+  "totalMeasuredLogins": 600,
+  "executionStatus": "COMPLETED_600_MEASURED_100_WARMUP"
+}

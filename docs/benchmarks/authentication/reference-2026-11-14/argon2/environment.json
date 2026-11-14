@@ -1,0 +1,18 @@
+{
+  "cpu": "AMD Ryzen 5 5600X 6-Core Processor",
+  "physicalCores": 6,
+  "logicalProcessors": 12,
+  "totalMemoryGiB": 15.92,
+  "freeMemoryGiBBeforeRun": 2.59,
+  "operatingSystem": "Microsoft Windows 11 Professionnel",
+  "jdk": "Oracle JDK 25.0.2+10-LTS-69",
+  "springSecurityCrypto": "7.1.2",
+  "bouncyCastle": "1.86",
+  "encoderFactory": "Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8()",
+  "scope": "Standalone sequential matches benchmark; no Spring context, database, network or application tests",
+  "forks": 3,
+  "warmupChecksPerFork": 100,
+  "measuredChecksPerCasePerFork": 200,
+  "vmOptions": "JVM defaults",
+  "backgroundLoad": "Desktop background load not controlled"
+}

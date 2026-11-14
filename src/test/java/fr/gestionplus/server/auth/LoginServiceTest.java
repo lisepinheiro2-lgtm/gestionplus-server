@@ -135,7 +135,7 @@ public class LoginServiceTest {
 		assertTrue(loginService.authenticate(name, "jekel-test-password").isPresent());
 		assertTrue(loginService.authenticate("", "jekel-test-password").isEmpty());
 
-		verify(loginDelay, times(4)).pause();
+		verify(loginDelay, times(5)).pause();
 	}
 
 	@Test
