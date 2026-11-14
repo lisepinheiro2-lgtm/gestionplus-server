@@ -19,6 +19,7 @@ Ce serveur fait partie du même projet Gestion+ que le client Swing. Leur réuni
 | Comprendre le produit, la couverture des domaines et les frontières client/serveur | [Vision d’ensemble](https://github.com/lisepinheiro2-lgtm/gestionplus-client/blob/main/docs/vision-ensemble.md) |
 | Retrouver les décisions structures, droits, archives/facturation, concurrence, hors ligne et documents du 29 octobre | [Synthèse serveur DEC01–DEC06](AVANCEMENT.md#décisions-métier-transversales--29-octobre-2026) et [référence commune](https://github.com/lisepinheiro2-lgtm/gestionplus-client/blob/main/docs/vision-ensemble.md#decisions-metier-2026-10-29) |
 | Reprendre le chantier, distinguer implémenté, en cours et prévu | [Avancement et feuille de route](AVANCEMENT.md) |
+| Retrouver les sept classes de tests d’invitation et la portée de leur refactorisation | [Découpage du 14 novembre](AVANCEMENT.md#tests-invitations-refactorisation-2026-11-14) |
 | Reprendre les tests adaptés du 5 novembre et les problèmes de production laissés ouverts | [Tests écrits, fichiers et limites](AVANCEMENT.md#tests-autorisations-2026-11-05) |
 | Comprendre les preuves de tests et les validations manquantes | [Résultats et limites](AVANCEMENT.md#tests--sources-et-résultats-sont-deux-informations-différentes) |
 | Explorer les classes, configurations et prérequis locaux | [Guide développeur](DEVELOPPEMENT.md) |
@@ -28,11 +29,11 @@ Ce serveur fait partie du même projet Gestion+ que le client Swing. Leur réuni
 
 ## État et lecture des preuves
 
-Le serveur reste un chantier. Avancement conserve les jalons des **27 octobre au 3 novembre 2026**, les décisions du **5 novembre** et le bilan des **tests adaptés le 5 novembre : 87 méthodes déclarées non compilées et non exécutées**. La présence d’une classe, d’une migration ou d’un test ne démontre pas un parcours utilisable et sécurisé. Les sessions, invitations, permissions de portée et l’intégration complète au client restent à compléter ou à valider selon les blocs décrits.
+Le serveur reste un chantier. [Avancement](AVANCEMENT.md) couvre les états historiques depuis le 27 octobre, les correctifs des 11–12 novembre, les mesures locales du 14 novembre et le découpage des tests d’invitation sur `ad3a59c`. L’utilisatrice confirme les sept classes au vert et 705/705 réussites après ce découpage. Le contrôle des 33 noms de méthodes reste une vérification statique distincte, sans exécution de JUnit pendant l’actualisation documentaire. Les mesures de latence ne démontrent pas l’indistinguabilité complète des rejets. Les parcours HTTP métier et l’intégration Swing restent à construire ou à valider selon les blocs décrits.
 
 La démonstration autonome Swing reste distincte. La sécurité de l’usage connecté doit être imposée côté serveur ; l’absence de connexion n’autorise pas un repli privilégié local.
 
-Ce sommaire a été préparé le **28 octobre 2026**, complété le **29 octobre** pour les décisions métier et actualisé le **5 novembre** après l’adaptation des tests serveur. Aucun test, build, démarrage ou migration exécuté pendant cette actualisation. Les résultats historiques gardent leurs dates et ne valident pas les nouvelles versions des tests.
+Ce sommaire, préparé le 28 octobre puis complété les 29 octobre et 5 novembre, est actualisé le **14 novembre 2026** après comparaison des documents et des sources. Aucun test, build, démarrage ou migration exécuté pendant cette actualisation. Les résultats historiques gardent leurs dates et ne valident pas les nouvelles versions des tests.
 
 ## Suivi public et suivi privé
 

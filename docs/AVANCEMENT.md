@@ -1,6 +1,7 @@
 ---
-summary: "État local au 12 novembre 2026. Vérification des mots de passe hors verrou (HIBP avant la transaction) ; envois de mails isolés de l'ordonnanceur (plafond de 3 simultanés) ; envois initiaux d'invitations passés par le même guichet (refus = reprise planifiée) ; pré-vérification de l'invitation avant l'appel HIBP de l'activation ; jeton du guichet rendu en cas de réjection et barrières de test sur le verdict d'audit ; équilibrage du canal auxiliaire de latence de la connexion (pause à gigue et un Argon2, vrai ou factice, sur chaque rejet, oracle de temporisation fermé et mesuré) ; identités de migration et d'exécution séparées par profil de déploiement ; rattachement des événements d'audit à l'entreprise pour les cibles compte ; désactivation du titulaire sortant sans rôle local lors d'une succession ; verrou du compte de l'acteur sur le changement de responsable ; exigence du salarié dès la création des comptes en attente ; livraison des notifications de désactivation hors transaction (réservation durable, plafond de tentatives) ; limiteur de connexion corrigé, pause à gigue anti-énumération, ralentissement global des tentatives non traçables en saturation ; threads virtuels activés ; sécurité P1.01 à P1.12, tests rapportés et validations restantes."
+summary: "État documentaire au 14 novembre 2026 : sécurité P1.01 à P1.12, correctifs des invitations et livraisons, limitations de connexion, mesures locales après Argon2 factice et pause, découpage des tests d’invitation sur ad3a59c et limites des preuves disponibles."
 read_when:
+  - "reprendre les sept classes de tests d’invitation après le découpage sur ad3a59c"
   - "retrouver les mesures des rejets après équilibrage par Argon2 factice et pause sur 39326a9"
   - "reprendre la restitution du jeton du guichet en réjection et les barrières de test sur le verdict d'audit"
   - "reprendre la pré-vérification de l'invitation et du jeton avant l'appel HIBP de l'activation"
@@ -23,6 +24,26 @@ read_when:
 ---
 
 # Avancement et feuille de route
+
+<a id="tests-invitations-refactorisation-2026-11-14"></a>
+
+## Tests d’invitation répartis par thème — 14 novembre 2026
+
+**État des sources.** Le commit `ad3a59c6be770d4d2608fd78a2aa645aefd8efbd` remplace `AccountInvitationPostgresqlIntegrationTest` par sept classes thématiques et une base abstraite commune. La base [AbstractAccountInvitationPostgresqlIntegrationTest](../src/test/java/fr/gestionplus/server/account/AbstractAccountInvitationPostgresqlIntegrationTest.java) regroupe le contexte Spring/PostgreSQL isolé, les dépendances simulées, les fixtures, les purges et les aides d’attente.
+
+| Classe sous `src/test/java/fr/gestionplus/server/account/` | Périmètre | Méthodes annotées recensées |
+| --- | --- | ---: |
+| [AccountInvitationLifecyclePostgresqlIntegrationTest](../src/test/java/fr/gestionplus/server/account/AccountInvitationLifecyclePostgresqlIntegrationTest.java) | Cycle de vie | 5 |
+| [AccountInvitationActivationPostgresqlIntegrationTest](../src/test/java/fr/gestionplus/server/account/AccountInvitationActivationPostgresqlIntegrationTest.java) | Activation et pré-vérification avant HIBP | 5 |
+| [AccountInvitationExpirationPostgresqlIntegrationTest](../src/test/java/fr/gestionplus/server/account/AccountInvitationExpirationPostgresqlIntegrationTest.java) | Expiration et concurrence avec l’activation | 4 |
+| [AccountInvitationInitialDeliveryPostgresqlIntegrationTest](../src/test/java/fr/gestionplus/server/account/AccountInvitationInitialDeliveryPostgresqlIntegrationTest.java) | Envoi initial et guichet limité | 4 |
+| [AccountInvitationDeliveryRetryPostgresqlIntegrationTest](../src/test/java/fr/gestionplus/server/account/AccountInvitationDeliveryRetryPostgresqlIntegrationTest.java) | Réservations, reports et reprises de livraison | 7 |
+| [AccountInvitationResendAndReplacementPostgresqlIntegrationTest](../src/test/java/fr/gestionplus/server/account/AccountInvitationResendAndReplacementPostgresqlIntegrationTest.java) | Renvoi et remplacement | 3 |
+| [AccountInvitationCancellationPostgresqlIntegrationTest](../src/test/java/fr/gestionplus/server/account/AccountInvitationCancellationPostgresqlIntegrationTest.java) | Annulation et changements des droits | 5 |
+
+**Contrôle statique.** Les 33 méthodes annotées `@Test` ou `@ParameterizedTest` de l’ancienne classe sont retrouvées par leur nom dans les sept classes, sans nom ajouté ni manquant. Ce comptage ne décrit pas le nombre d’exécutions JUnit, notamment pour les tests paramétrés, et ne démontre ni l’équivalence complète du comportement ni une réussite après découpage.
+
+**Validation rapportée après refactorisation.** L’utilisatrice confirme que les sept classes passent au vert et que la suite reste à **705/705 réussites** après le découpage `ad3a59c`. Ce résultat est rapporté par l’utilisatrice ; aucun test ni build n’est exécuté pendant la présente actualisation documentaire. Le bilan de 705/705 à l’étape `e9fbd78` reste une preuve antérieure distincte. Les anciennes mentions de `AccountInvitationPostgresqlIntegrationTest` restent des repères historiques ; le tableau ci-dessus indique les fichiers actuels.
 
 <a id="mesures-apres-argon2-factice-2026-11-14"></a>
 
@@ -237,7 +258,7 @@ Suite du point 1 de la revue du soir (Codex), priorité haute. Traçage du code 
 
 **Tests** (src/test/java/fr/gestionplus/server/account/AccountDeactivationNotificationDeliveryTest.java). Montage à six dépendances (audit et gestionnaire de transactions simulés). Ordre réservation-avant-envoi vérifié (`InOrder`) — jamais d'envoi sans réservation préalable ; report sur échec d'envoi et destinataire introuvable ; envoi aux tentatives 0, 1, 2 (test paramétré) et abandon à 3 sans aucun envoi, audit vérifié ; aucun appel quand rien n'est dû. Les contextes réduits de `CsrfHttpTest` et `HttpProductionPolicyTest` fournissent `LoginDelay` simulé (quatrième dépendance du fournisseur d'authentification).
 
-**Preuve rapportée.** [à recoller avec ton bilan Eclipse]
+**Preuve rapportée.** Le Journal public de ce document rapporte 9/9 exécutions de la classe de livraison puis 691 réussites pour la suite complète, selon le lancement de l’utilisatrice. Ce résultat daté ne constitue pas une nouvelle exécution lors de cette actualisation documentaire.
 
 **Limites connues à garder en vue.** Le doublon reste possible sur crash dans la fenêtre d'envoi (garantie « au moins une fois » assumée). Les timeouts de 60 s restent à confronter à une mesure réelle. Le renvoi manuel après abandon reste à concevoir (parcours d'administration). Le nommage `AccountDeactivationNotifications` (file sans suffixe `Store`) est une incohérence historique — renommage éventuel remis à plus tard, hors chantier comportemental.
 
@@ -691,3 +712,4 @@ Journal public :
 | 14 novembre 2026 — outillage et preuves de mesure intégrés | À la demande de l’utilisatrice, ajout des [benchmarks manuels et de leur mode d’emploi](benchmarks/authentication/README.md), des comptes `fictitious_benchmark_…` créés uniquement dans PostgreSQL jetable et des [preuves de référence Argon2 et HTTP](benchmarks/authentication/reference-2026-11-14/README.md). Mode isolé retenu, sans accès par URL à un serveur existant. Compilation seule autorisée et réussie avec le lanceur `-CompileOnly -Offline` (139 sources et deux programmes), sans test, benchmark, serveur, conteneur ni migration. Les résultats historiques restent distincts de cette validation de compilation ; aucune création de compte sur la base habituelle et aucune nouvelle mesure. |
 | 14 novembre 2026 — nouvelle mesure après la pause sur le mauvais mot de passe | Exécution demandée après enregistrement de `947db46` : 1 200 vérifications Argon2 et 600 mesures HTTP hors chauffe, code nul pour les deux modes, 700 audits conformes et aucune limitation. Mauvais mot de passe : 131,02 ms médian contre 98,72 ms pour l’inconnu ; écart restant 32,31 ms malgré le recouvrement des plages. [Rapport et preuves séparés](benchmarks/authentication/after-login-delay-2026-11-14-947db46/RESULTATS.md), référence conservée, services jetables fermés et aucune modification de code. |
 | 14 novembre 2026 — mesure après Argon2 factice et pause | Sur `39326a9`, deux modes exécutés en isolé, 1 200 vérifications Argon2 et 600 mesures HTTP hors chauffe, 700 audits conformes et aucun refus du limiteur. Médianes des rejets : mauvais mot de passe 127,55 ms, inconnu 120,25 ms, désactivé 123,70 ms ; écart global 7,30 ms contre 32,31 ms à l’étape précédente, sans preuve d’indistinguabilité complète. [Rapport et preuves annexés au projet](benchmarks/authentication/after-dummy-argon2-2026-11-14-39326a9/RESULTATS.md) après leur conservation initiale dans les sorties locales ; aucun nouveau lancement pendant la mise à jour documentaire. |
+| 14 novembre 2026 — découpage des tests d’invitation | Commit `ad3a59c` : ancienne classe d’intégration remplacée par sept classes thématiques et une base abstraite commune. Lecture statique : les mêmes 33 noms de méthodes annotées sont retrouvés. L’utilisatrice confirme ensuite les sept classes au vert et **705/705 réussites après le découpage**. Résultat rapporté, sans exécution de tests ou build pendant l’actualisation documentaire. |
