@@ -21,11 +21,11 @@ public class CredentialService {
 		policy.validate(rawPassword);
 	}
 
-    public UserCredential createCredential(UUID userId, String rawPassword) {
-        validatePassword(rawPassword);
-        return encodePassword(userId, rawPassword);
-    }
-    
+	public UserCredential createCredential(UUID userId, String rawPassword) {
+		validatePassword(rawPassword);
+		return encodePassword(userId, rawPassword);
+	}
+
 	public UserCredential encodePassword(UUID userId, String rawPassword) {
 
 		if (userId == null) {
