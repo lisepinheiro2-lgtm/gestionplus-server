@@ -210,7 +210,7 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 		doReturn(false).when(sender).send(anyString(), any(), anyString());
 
 		AccountInvitationService.Delivery failed = invitations.resendInvitation(userID, structureID);
-		awaitFirstAttempt(failed.requestID());
+		awaitFirstVerdict(userID);
 		assertFalse(failed.sent());
 		assertEquals(initial, invitationStore.findByAccount(userID).orElseThrow());
 
@@ -498,7 +498,7 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 		AccountInvitationService.Delivery pending = replacement
 				? invitations.replaceInvitation(userID, structureID, "corrected@example.invalid")
 				: invitations.sendInitialInvitation(userID, structureID);
-		awaitFirstSend();
+		awaitFirstVerdict(userID);
 
 		assertTrue(pending.queued());
 		assertEquals(1, sent.size());
@@ -534,7 +534,7 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 		UUID userID = preparePendingAccount();
 		doReturn(false).when(sender).send(anyString(), any(), anyString());
 		AccountInvitationService.Delivery pending = invitations.sendInitialInvitation(userID, structureID);
-		awaitFirstAttempt(pending.requestID());
+		awaitFirstVerdict(userID);
 		assertTrue(pending.queued());
 		assertEquals(1, jdbcTemplate.queryForObject("""
 				SELECT attempts FROM account_invitation_deliveries WHERE request_id = ?
@@ -620,7 +620,7 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 		authenticate(principal);
 		doReturn(false).when(sender).send(anyString(), any(), anyString());
 		AccountInvitationService.Delivery pending = invitations.sendInitialInvitation(userID, structureID);
-		awaitFirstAttempt(pending.requestID());
+		awaitFirstVerdict(userID);
 		authenticate(actor);
 		membershipStore.save(new StructureMembership(secretary.getUserID(), structureID, Set.of(UserRole.EMPLOYEE)));
 		assertEquals(principal.getSessionVersion(), account(secretary.getUserID()).getSessionVersion());
@@ -637,7 +637,7 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 		UUID userID = preparePendingAccount();
 		doReturn(false).when(sender).send(anyString(), any(), anyString());
 		AccountInvitationService.Delivery pending = invitations.sendInitialInvitation(userID, structureID);
-		awaitFirstAttempt(pending.requestID());
+		awaitFirstVerdict(userID);
 		allowDelivery();
 		makePendingDeliveryDue(userID);
 		CyclicBarrier start = new CyclicBarrier(2);
@@ -741,7 +741,7 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 		UUID userID = preparePendingAccount();
 		doReturn(false).when(sender).send(anyString(), any(), anyString());
 		AccountInvitationService.Delivery pending = invitations.sendInitialInvitation(userID, structureID);
-		awaitFirstAttempt(pending.requestID());
+		awaitFirstVerdict(userID);
 		allowDelivery();
 
 		assertEquals(AccountInvitationDelivery.Status.PENDING, deliveryWorker.deliver(pending.requestID()));
@@ -759,7 +759,7 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 		UUID userID = preparePendingAccount();
 		doReturn(false).when(sender).send(anyString(), any(), anyString());
 		AccountInvitationService.Delivery pending = invitations.sendInitialInvitation(userID, structureID);
-		awaitFirstAttempt(pending.requestID());
+		awaitFirstVerdict(userID);
 		makePendingDeliveryDue(userID);
 		CountDownLatch sending = new CountDownLatch(1);
 		CountDownLatch releaseSmtp = new CountDownLatch(1);
@@ -804,7 +804,7 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 		UUID userID = preparePendingAccount();
 		doReturn(false).when(sender).send(anyString(), any(), anyString());
 		AccountInvitationService.Delivery pending = invitations.sendInitialInvitation(userID, structureID);
-		awaitFirstAttempt(pending.requestID());
+		awaitFirstVerdict(userID);
 		makePendingDeliveryDue(userID);
 		doAnswer(call -> {
 			sent.add(new SentInvitation(call.getArgument(0), call.getArgument(1), call.getArgument(2), Instant.now()));
@@ -830,7 +830,7 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 		UUID userID = preparePendingAccount();
 		doReturn(false).when(sender).send(anyString(), any(), anyString());
 		AccountInvitationService.Delivery pending = invitations.sendInitialInvitation(userID, structureID);
-		awaitFirstAttempt(pending.requestID());
+		awaitFirstVerdict(userID);
 		makePendingDeliveryDue(userID);
 		AtomicInteger sends = new AtomicInteger();
 		AtomicReference<String> firstToken = new AtomicReference<>();
@@ -904,26 +904,6 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 		}
 
 		return delivery;
-	}
-
-	private void awaitFirstAttempt(UUID requestID) {
-		long deadline = System.currentTimeMillis() + 5000;
-
-		while (deliveryAttempts(requestID) < 1) {
-
-			if (System.currentTimeMillis() > deadline) {
-				fail("première tentative jamais enregistrée");
-			}
-
-			try {
-				Thread.sleep(10);
-			} catch (InterruptedException failure) {
-				Thread.currentThread().interrupt();
-				throw new IllegalStateException(failure);
-			}
-
-		}
-
 	}
 
 	@ParameterizedTest
@@ -1048,8 +1028,8 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 		UUID userID = preparePendingAccount();
 		SentInvitation message = sendInitial(userID);
 		allowActivation(userID, message);
-        Instant deadline = invitationStore.findByAccount(userID).orElseThrow().expiresAt();
-        AtomicReference<Instant> now = controlTime(deadline);
+		Instant deadline = invitationStore.findByAccount(userID).orElseThrow().expiresAt();
+		AtomicReference<Instant> now = controlTime(deadline);
 		String sessionID = UUID.randomUUID().toString();
 		sessionRegistry.registerNewSession(sessionID, account(userID));
 		SecurityContextHolder.clearContext();
@@ -1304,13 +1284,13 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 
 	}
 
-	private void awaitFirstSend() {
+	private void awaitFirstVerdict(UUID userID) {
 		long deadline = System.currentTimeMillis() + 5000;
 
-		while (sent.isEmpty()) {
+		while (firstVerdicts(userID) < 1) {
 
 			if (System.currentTimeMillis() > deadline) {
-				fail("premier envoi jamais enregistré");
+				fail("premier cycle jamais terminé");
 			}
 
 			try {
@@ -1322,6 +1302,15 @@ class AccountInvitationPostgresqlIntegrationTest extends AuditStorageIntegration
 
 		}
 
+	}
+
+	private int firstVerdicts(UUID userID) {
+		return jdbcTemplate.queryForObject("""
+				SELECT COUNT(*) FROM audit_events event JOIN audit_targets target
+				ON event.event_id = target.event_id
+				WHERE event.result IN ('FAILURE', 'DENIED')
+				    AND target.target_type = 'ACCOUNT' AND target.target_id = ?
+				""", Integer.class, userID);
 	}
 
 	private void awaitSentState(UUID requestID) {

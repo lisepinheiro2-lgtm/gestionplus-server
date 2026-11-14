@@ -2,6 +2,7 @@ package fr.gestionplus.server.account;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
 
 import org.slf4j.Logger;
@@ -25,17 +26,22 @@ public class MailDeliveryExecutor {
 			return false;
 		}
 
-		workers.execute(() -> {
+		try {
+			workers.execute(() -> {
 
-			try {
-				task.run();
-			} catch (RuntimeException failure) {
-				LOGGER.warn("Envoi délégué interrompu ({})", failure.getClass().getSimpleName());
-			} finally {
-				slots.release();
-			}
+				try {
+					task.run();
+				} catch (RuntimeException failure) {
+					LOGGER.warn("Envoi délégué interrompu ({})", failure.getClass().getSimpleName());
+				} finally {
+					slots.release();
+				}
 
-		});
+			});
+		} catch (RejectedExecutionException rejection) {
+			slots.release();
+			return false;
+		}
 
 		return true;
 	}

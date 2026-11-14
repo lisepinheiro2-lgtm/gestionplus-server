@@ -53,6 +53,15 @@ class MailDeliveryExecutorTest {
 		awaitFreeSlot();
 	}
 
+	@Test
+	void aClosedExecutorRefusesTheSubmissionWithoutLeakingTheToken() {
+		MailDeliveryExecutor closed = new MailDeliveryExecutor();
+		closed.shutdown();
+
+		assertFalse(closed.trySubmit(() -> {
+		}));
+	}
+
 	private void awaitFreeSlot() throws InterruptedException {
 		long deadline = System.currentTimeMillis() + 5000;
 
