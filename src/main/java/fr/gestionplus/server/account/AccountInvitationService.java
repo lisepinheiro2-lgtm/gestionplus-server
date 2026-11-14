@@ -52,8 +52,8 @@ public class AccountInvitationService {
 	private final ObjectProvider<ActivationIdentityVerifier> identityVerifiers;
 	private final Clock clock;
 	private final TransactionTemplate replacementTransaction;
-	private final TransactionTemplate deliveryTransaction;
 	private final TransactionTemplate activationTransaction;
+	private final MailDeliveryExecutor executor;
 
 	AccountInvitationService(AccountStore accountStore, AccountInvitationStore invitationStore,
 			AccountInvitationDeliveryStore deliveries, AccountInvitationDelivery deliveryWorker,
@@ -61,7 +61,8 @@ public class AccountInvitationService {
 			AccountInvitationScope scope,
 			AccountAccessLifecycle lifecycle, AuditService auditService, CredentialService credentialService,
 			ObjectProvider<ActivationIdentityVerifier> identityVerifiers,
-			PlatformTransactionManager transactionManager, ObjectProvider<Clock> clocks) {
+			PlatformTransactionManager transactionManager, ObjectProvider<Clock> clocks,
+			MailDeliveryExecutor executor) {
 		this.accountStore = accountStore;
 		this.invitationStore = invitationStore;
 		this.deliveries = deliveries;
@@ -76,9 +77,8 @@ public class AccountInvitationService {
 		clock = clocks.getIfAvailable(Clock::systemUTC);
 		replacementTransaction = new TransactionTemplate(transactionManager);
 		replacementTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-		deliveryTransaction = new TransactionTemplate(transactionManager);
-		deliveryTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_NOT_SUPPORTED);
 		activationTransaction = new TransactionTemplate(transactionManager);
+		this.executor = Objects.requireNonNull(executor);
 	}
 
 	@AuditedOperation(value = AuditAction.INVITATION_CREATE, account = 0, structure = 1)
@@ -361,7 +361,7 @@ public class AccountInvitationService {
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
 			@Override
 			public void afterCommit() {
-				delivery.status = deliveryTransaction.execute(status -> deliveryWorker.deliver(delivery.requestID));
+				executor.trySubmit(() -> delivery.status = deliveryWorker.deliver(delivery.requestID));
 			}
 		});
 		return delivery;
