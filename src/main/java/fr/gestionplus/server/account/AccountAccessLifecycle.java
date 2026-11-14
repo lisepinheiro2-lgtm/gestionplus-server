@@ -1,5 +1,6 @@
 package fr.gestionplus.server.account;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -97,16 +98,28 @@ public class AccountAccessLifecycle {
 	void disable(UserAccount account, UUID structureID) {
 		UUID userID = account.getUserID();
 		store.disableAccount(userID);
-		auditService.record(AuditAction.ACCOUNT_DISABLE, AuditResult.SUCCESS,
-				Set.of(new AuditTarget(AuditTargetType.ACCOUNT, userID),
-						new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID)));
+		Set<AuditTarget> targets = new HashSet<>();
+		targets.add(new AuditTarget(AuditTargetType.ACCOUNT, userID));
 
-		revokeSessions(account, new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID));
+		if (structureID != null) {
+			targets.add(new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID));
+		}
+
+		auditService.record(AuditAction.ACCOUNT_DISABLE, AuditResult.SUCCESS, targets);
+
+		revokeSessions(account, structureID == null ? null
+				: new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID));
 	}
 
 	private void revokeSessions(UserAccount account, AuditTarget scope) {
-		auditService.record(AuditAction.AUTH_SESSION_REVOKE, AuditResult.SUCCESS,
-				Set.of(new AuditTarget(AuditTargetType.ACCOUNT, account.getUserID()), scope));
+		Set<AuditTarget> targets = new HashSet<>();
+		targets.add(new AuditTarget(AuditTargetType.ACCOUNT, account.getUserID()));
+
+		if (scope != null) {
+			targets.add(scope);
+		}
+
+		auditService.record(AuditAction.AUTH_SESSION_REVOKE, AuditResult.SUCCESS, targets);
 		sessionRevocationService.revokeAllSessionsAfterCommit(account);
 	}
 }

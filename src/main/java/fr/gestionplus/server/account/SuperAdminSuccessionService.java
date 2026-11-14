@@ -109,7 +109,9 @@ public class SuperAdminSuccessionService {
 		AuditTarget scope = new AuditTarget(AuditTargetType.TENANT_ORGANIZATION, confirmed.tenantID());
 
 		if (confirmed.outgoingWillBeDisabled()) {
-			lifecycle.disable(state.outgoing(), confirmed.adminRolesToTransfer().getFirst());
+			UUID scopeStructureID = confirmed.adminRolesToTransfer().isEmpty() ? null
+					: confirmed.adminRolesToTransfer().getFirst();
+			lifecycle.disable(state.outgoing(), scopeStructureID);
 		} else {
 			lifecycle.invalidateSessions(state.outgoing(), scope);
 		}
@@ -176,7 +178,7 @@ public class SuperAdminSuccessionService {
 
 		}
 
-		boolean disabled = !adminRolesToTransfer.isEmpty() && outgoingSnapshot.memberships().stream()
+		boolean disabled = outgoingSnapshot.memberships().stream()
 				.noneMatch(membership -> membership.roles().stream().anyMatch(role -> role != UserRole.SUPER_ADMIN
 						&& (role != UserRole.ADMIN || !adminRolesToTransfer.contains(membership.structureID()))));
 

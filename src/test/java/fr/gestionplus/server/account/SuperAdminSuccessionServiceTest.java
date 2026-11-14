@@ -244,4 +244,19 @@ class SuperAdminSuccessionServiceTest {
 		return new UserAccount(userID, "test_" + userID, status, Set.of(), UUID.randomUUID(), "Exemple", "Test",
 				"test@example.invalid", "0600000000", version);
 	}
+
+	@Test
+	void disablesAnOutgoingHolderWithoutAnyLocalRole() {
+		when(memberships.findStructureIDsByUser(outgoingID)).thenReturn(List.of());
+		when(transfers.snapshot(outgoing, tenantID)).thenReturn(PrivilegedAccountSnapshot.capture(outgoing, List.of()));
+		SuccessionPreview preview = preview(Set.of());
+		when(authenticated.getCurrentAccount()).thenReturn(successor);
+
+		service.acceptSuccession(preview, "offer-proof", "accept-proof");
+
+		assertTrue(preview.outgoingWillBeDisabled());
+		verify(lifecycle).disable(outgoing, null);
+		verify(lifecycle, never()).invalidateSessions(eq(outgoing), any());
+		verify(lifecycle).invalidateSessions(eq(successor), any());
+	}
 }
