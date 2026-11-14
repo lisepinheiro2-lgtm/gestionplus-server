@@ -17,13 +17,20 @@ public class CredentialService {
 		this.policy = Objects.requireNonNull(policy);
 	}
 
-	public UserCredential createCredential(UUID userId, String rawPassword) {
+	public void validatePassword(String rawPassword) {
+		policy.validate(rawPassword);
+	}
+
+    public UserCredential createCredential(UUID userId, String rawPassword) {
+        validatePassword(rawPassword);
+        return encodePassword(userId, rawPassword);
+    }
+    
+	public UserCredential encodePassword(UUID userId, String rawPassword) {
 
 		if (userId == null) {
 			throw new NullPointerException("L'ID utilisateur ne peut pas être null");
 		}
-
-		policy.validate(rawPassword);
 
 		String passwordHash = passwordEncoder.encode(rawPassword);
 		return new UserCredential(userId, passwordHash);

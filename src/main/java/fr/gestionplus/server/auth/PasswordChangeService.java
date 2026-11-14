@@ -4,7 +4,8 @@ import java.util.Set;
 
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import fr.gestionplus.server.account.AccountStore;
 import fr.gestionplus.server.audit.AuditAction;
@@ -24,10 +25,12 @@ public class PasswordChangeService {
 	private final AccountMfaService mfa;
 	private final SessionRevocationService sessions;
 	private final AuditService audit;
+	private final TransactionTemplate transaction;
 
 	public PasswordChangeService(AuthenticatedUserProvider authenticated, AccountStore accounts,
 			UserCredentialLookup credentials, CredentialService passwords, AccountMfaService mfa,
-			SessionRevocationService sessions, AuditService audit) {
+			SessionRevocationService sessions, AuditService audit,
+			PlatformTransactionManager transactionManager) {
 		this.authenticated = authenticated;
 		this.accounts = accounts;
 		this.credentials = credentials;
@@ -35,40 +38,46 @@ public class PasswordChangeService {
 		this.mfa = mfa;
 		this.sessions = sessions;
 		this.audit = audit;
+		this.transaction = new TransactionTemplate(transactionManager);
 	}
 
 	@AuditedOperation(AuditAction.ACCOUNT_PASSWORD_CHANGE)
-	@Transactional
 	public void changePassword(String currentPassword, String newPassword, String totpCode) {
 		UserAccount principal = authenticated.getCurrentAccount();
-		UserAccount current = accounts.findByIdForUpdate(principal.getUserID())
-				.filter(account -> account.getUserID().equals(principal.getUserID()))
-				.filter(account -> account.getStatu() == UserAccountStatus.ACTIVE)
-				.filter(account -> account.getSessionVersion() == principal.getSessionVersion())
-				.orElseThrow(this::denied);
 
-		UserCredential credential = credentials.findByUserId(current.getUserID())
-				.filter(secret -> secret.getUserId().equals(current.getUserID())).orElseThrow(this::denied);
+		passwords.validatePassword(newPassword);
 
-		if (!passwords.verifyPassword(credential, currentPassword)) {
-			throw denied();
-		}
+		transaction.executeWithoutResult(status -> {
 
-		AccountMfaService.Verification verification = mfa.verifyForLogin(current, totpCode);
+			UserAccount current = accounts.findByIdForUpdate(principal.getUserID())
+					.filter(account -> account.getUserID().equals(principal.getUserID()))
+					.filter(account -> account.getStatu() == UserAccountStatus.ACTIVE)
+					.filter(account -> account.getSessionVersion() == principal.getSessionVersion())
+					.orElseThrow(this::denied);
 
-		if (verification != AccountMfaService.Verification.NOT_REQUIRED
-				&& verification != AccountMfaService.Verification.VERIFIED) {
-			throw denied();
-		}
+			UserCredential credential = credentials.findByUserId(current.getUserID())
+					.filter(secret -> secret.getUserId().equals(current.getUserID())).orElseThrow(this::denied);
 
-		UserCredential replacement = passwords.createCredential(current.getUserID(), newPassword);
-		accounts.replaceCredential(replacement);
-		accounts.advanceSessionVersion(current.getUserID());
+			if (!passwords.verifyPassword(credential, currentPassword)) {
+				throw denied();
+			}
 
-		Set<AuditTarget> targets = Set.of(new AuditTarget(AuditTargetType.ACCOUNT, current.getUserID()));
-		audit.record(AuditAction.ACCOUNT_PASSWORD_CHANGE, AuditResult.SUCCESS, targets);
-		audit.record(AuditAction.AUTH_SESSION_REVOKE, AuditResult.SUCCESS, targets);
-		sessions.revokeAllSessionsAfterCommit(current);
+			AccountMfaService.Verification verification = mfa.verifyForLogin(current, totpCode);
+
+			if (verification != AccountMfaService.Verification.NOT_REQUIRED
+					&& verification != AccountMfaService.Verification.VERIFIED) {
+				throw denied();
+			}
+
+			UserCredential replacement = passwords.encodePassword(current.getUserID(), newPassword);
+			accounts.replaceCredential(replacement);
+			accounts.advanceSessionVersion(current.getUserID());
+
+			Set<AuditTarget> targets = Set.of(new AuditTarget(AuditTargetType.ACCOUNT, current.getUserID()));
+			audit.record(AuditAction.ACCOUNT_PASSWORD_CHANGE, AuditResult.SUCCESS, targets);
+			audit.record(AuditAction.AUTH_SESSION_REVOKE, AuditResult.SUCCESS, targets);
+			sessions.revokeAllSessionsAfterCommit(current);
+		});
 	}
 
 	private AccessDeniedException denied() {

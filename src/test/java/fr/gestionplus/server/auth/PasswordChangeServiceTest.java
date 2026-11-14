@@ -26,6 +26,7 @@ import fr.gestionplus.server.account.AccountStore;
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditResult;
 import fr.gestionplus.server.audit.AuditService;
+import org.springframework.transaction.PlatformTransactionManager;
 
 class PasswordChangeServiceTest {
 
@@ -37,7 +38,7 @@ class PasswordChangeServiceTest {
 	private final SessionRevocationService sessions = mock(SessionRevocationService.class);
 	private final AuditService audit = mock(AuditService.class);
 	private final PasswordChangeService service = new PasswordChangeService(authenticated, accounts, credentials,
-			passwords, mfa, sessions, audit);
+			passwords, mfa, sessions, audit, mock(PlatformTransactionManager.class));
 	private final UUID userID = UUID.randomUUID();
 	private final UserAccount current = account(userID, UserAccountStatus.ACTIVE, 3);
 	private final UserCredential credential = new UserCredential(userID, "old-test-hash");
@@ -49,7 +50,7 @@ class PasswordChangeServiceTest {
 		when(accounts.findByIdForUpdate(userID)).thenReturn(Optional.of(current));
 		when(credentials.findByUserId(userID)).thenReturn(Optional.of(credential));
 		when(passwords.verifyPassword(credential, "current-private-password")).thenReturn(true);
-		when(passwords.createCredential(userID, "new-private-password")).thenReturn(replacement);
+		when(passwords.encodePassword(userID, "new-private-password")).thenReturn(replacement);
 		when(mfa.verifyForLogin(current, "012345")).thenReturn(AccountMfaService.Verification.NOT_REQUIRED);
 	}
 
@@ -61,10 +62,11 @@ class PasswordChangeServiceTest {
 		service.changePassword("current-private-password", "new-private-password", "012345");
 
 		var order = inOrder(accounts, passwords, mfa, audit, sessions);
+		order.verify(passwords).validatePassword("new-private-password");
 		order.verify(accounts).findByIdForUpdate(userID);
 		order.verify(passwords).verifyPassword(credential, "current-private-password");
 		order.verify(mfa).verifyForLogin(current, "012345");
-		order.verify(passwords).createCredential(userID, "new-private-password");
+		order.verify(passwords).encodePassword(userID, "new-private-password");
 		order.verify(accounts).replaceCredential(replacement);
 		order.verify(accounts).advanceSessionVersion(userID);
 		order.verify(audit).record(eq(AuditAction.ACCOUNT_PASSWORD_CHANGE),
@@ -89,7 +91,8 @@ class PasswordChangeServiceTest {
 	void cannotReactivateAnInactiveAccount(UserAccountStatus status) {
 		when(accounts.findByIdForUpdate(userID)).thenReturn(Optional.of(account(userID, status, 3)));
 		assertDenied();
-		verifyNoInteractions(credentials, passwords, mfa);
+		verifyNoInteractions(credentials, mfa);
+		verify(passwords, never()).encodePassword(any(), any());
 	}
 
 	@Test
@@ -101,7 +104,8 @@ class PasswordChangeServiceTest {
 		assertDenied();
 		when(accounts.findByIdForUpdate(userID)).thenReturn(Optional.of(account(userID, UserAccountStatus.ACTIVE, 4)));
 		assertDenied();
-		verifyNoInteractions(credentials, passwords, mfa);
+		verifyNoInteractions(credentials, mfa);
+		verify(passwords, never()).encodePassword(any(), any());
 	}
 
 	@Test
@@ -111,7 +115,8 @@ class PasswordChangeServiceTest {
 		when(credentials.findByUserId(userID)).thenReturn(
 				Optional.of(new UserCredential(UUID.randomUUID(), "foreign-test-hash")));
 		assertDenied();
-		verifyNoInteractions(passwords, mfa);
+		verifyNoInteractions(mfa);
+		verify(passwords, never()).encodePassword(any(), any());
 	}
 
 	@Test
@@ -127,15 +132,13 @@ class PasswordChangeServiceTest {
 	}
 
 	@Test
-	void aRejectedNewPasswordCannotChangeTheCredentialOrRevokeSessions() {
-		when(passwords.createCredential(userID, "new-private-password")).thenThrow(
-				new IllegalArgumentException("Mot de passe refusé."));
+	void aRejectedNewPasswordCannotLockTheAccountOrChangeTheCredential() {
+		doThrow(new IllegalArgumentException("Mot de passe refusé.")).when(passwords)
+				.validatePassword("new-private-password");
 
 		assertThrows(IllegalArgumentException.class,
 				() -> service.changePassword("current-private-password", "new-private-password", "012345"));
-		verify(accounts, never()).replaceCredential(any());
-		verify(accounts, never()).advanceSessionVersion(any());
-		verifyNoInteractions(sessions, audit);
+		verifyNoInteractions(accounts, mfa, sessions, audit);
 	}
 
 	@Test
