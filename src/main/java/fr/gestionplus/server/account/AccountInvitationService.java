@@ -1,13 +1,10 @@
 package fr.gestionplus.server.account;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -31,10 +28,8 @@ import fr.gestionplus.server.audit.AuditTarget;
 import fr.gestionplus.server.audit.AuditTargetType;
 import fr.gestionplus.server.audit.AuditedOperation;
 import fr.gestionplus.server.auth.AuthenticatedUserProvider;
-import fr.gestionplus.server.auth.CredentialService;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
-import fr.gestionplus.server.auth.UserCredential;
 import fr.gestionplus.server.auth.UserRole;
 
 @Service
@@ -49,21 +44,17 @@ public class AccountInvitationService {
 	private final AccountInvitationScope scope;
 	private final AccountAccessLifecycle lifecycle;
 	private final AuditService auditService;
-	private final CredentialService credentialService;
-	private final ObjectProvider<ActivationIdentityVerifier> identityVerifiers;
 	private final Clock clock;
 	private final TransactionTemplate replacementTransaction;
-	private final TransactionTemplate activationTransaction;
 	private final MailDeliveryExecutor executor;
 
 	AccountInvitationService(AccountStore accountStore, AccountInvitationStore invitationStore,
 			AccountInvitationDeliveryStore deliveries, AccountInvitationDelivery deliveryWorker,
 			InvitationTokenIssuer tokens, AuthenticatedUserProvider authenticatedUserProvider,
-			AccountInvitationScope scope,
-			AccountAccessLifecycle lifecycle, AuditService auditService, CredentialService credentialService,
-			ObjectProvider<ActivationIdentityVerifier> identityVerifiers,
-			PlatformTransactionManager transactionManager, ObjectProvider<Clock> clocks,
-			MailDeliveryExecutor executor) {
+			AccountInvitationScope scope, AccountAccessLifecycle lifecycle,
+			AuditService auditService, PlatformTransactionManager transactionManager,
+			ObjectProvider<Clock> clocks, MailDeliveryExecutor executor) {
+
 		this.accountStore = accountStore;
 		this.invitationStore = invitationStore;
 		this.deliveries = deliveries;
@@ -73,12 +64,9 @@ public class AccountInvitationService {
 		this.scope = scope;
 		this.lifecycle = lifecycle;
 		this.auditService = auditService;
-		this.credentialService = credentialService;
-		this.identityVerifiers = identityVerifiers;
 		clock = clocks.getIfAvailable(Clock::systemUTC);
 		replacementTransaction = new TransactionTemplate(transactionManager);
 		replacementTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-		activationTransaction = new TransactionTemplate(transactionManager);
 		this.executor = Objects.requireNonNull(executor);
 	}
 
@@ -233,81 +221,6 @@ public class AccountInvitationService {
 						record(AuditAction.INVITATION_EXPIRE, AuditResult.SUCCESS, invitation);
 					});
 		});
-	}
-
-	@AuditedOperation(value = AuditAction.INVITATION_TOKEN_USE, invitation = 0)
-	public void completeActivation(UUID invitationID, String token, String proof, String userName, String rawPassword) {
-
-		if (invitationID == null || token == null || !token.matches("[A-Za-z0-9_-]{43}") || proof == null
-				|| proof.isBlank()) {
-			throw AccountInvitationScope.denied();
-		}
-
-		Invitation claimed = invitationStore.findByID(invitationID)
-				.filter(current -> current.tokenDigest() != null || current.completedAt() != null)
-				.orElseThrow(() -> activationUnavailable(invitationID, token));
-
-		if (!isUsable(claimed, clock.instant())
-				|| !MessageDigest.isEqual(InvitationTokenIssuer.digest(token).getBytes(StandardCharsets.US_ASCII),
-						claimed.tokenDigest().getBytes(StandardCharsets.US_ASCII))) {
-			throw AccountInvitationScope.denied();
-		}
-
-		credentialService.validatePassword(rawPassword);
-
-		activationTransaction.executeWithoutResult(status -> {
-
-			Invitation candidate = invitationStore.findByID(invitationID)
-					.filter(current -> current.tokenDigest() != null || current.completedAt() != null)
-					.orElseThrow(() -> activationUnavailable(invitationID, token));
-			UserAccount account = accountStore.findByIdForUpdate(candidate.userID())
-					.orElseThrow(AccountInvitationScope::denied);
-			Invitation invitation = invitationStore.findByID(invitationID)
-					.orElseThrow(AccountInvitationScope::denied);
-
-			if (account.getStatu() != UserAccountStatus.PENDING_ACTIVATION
-					|| !isUsable(invitation, clock.instant())
-					|| !MessageDigest.isEqual(InvitationTokenIssuer.digest(token).getBytes(StandardCharsets.US_ASCII),
-							invitation.tokenDigest().getBytes(StandardCharsets.US_ASCII))) {
-				throw AccountInvitationScope.denied();
-			}
-
-			requireReady(account, invitation.structureID());
-			ActivationIdentityVerifier verifier = identityVerifiers.getIfAvailable();
-
-			if (verifier == null
-					|| !verifier.verify(invitationID, account.getUserID(), account.getPhoneNumber(), proof)) {
-				throw AccountInvitationScope.denied();
-			}
-
-			UserCredential credential = credentialService.encodePassword(account.getUserID(), rawPassword);
-
-			if (!isUsable(invitation, clock.instant())) {
-				throw AccountInvitationScope.denied();
-			}
-
-			accountStore.activateAccount(account.getUserID(), userName, credential);
-			deliveries.findPending(account.getUserID()).ifPresent(request -> deliveries.cancel(request.requestID()));
-			invitationStore.save(new Invitation(invitationID, account.getUserID(), invitation.structureID(), null,
-					null, clock.instant(), invitation.reintegration()));
-			record(AuditAction.INVITATION_TOKEN_USE, AuditResult.SUCCESS, invitation);
-			record(invitation.reintegration() ? AuditAction.ACCOUNT_REACTIVATE : AuditAction.ACCOUNT_ACTIVATE,
-					AuditResult.SUCCESS, invitation);
-		});
-	}
-
-	private RuntimeException activationUnavailable(UUID invitationID, String token) {
-		boolean pending = deliveries.findByInvitation(invitationID)
-				.filter(request -> MessageDigest.isEqual(
-						InvitationTokenIssuer.digest(token).getBytes(StandardCharsets.US_ASCII),
-						request.tokenDigest().getBytes(StandardCharsets.US_ASCII)))
-				.isPresent();
-
-		if (pending) {
-			return new InvitationDeliveryPendingException();
-		}
-
-		return AccountInvitationScope.denied();
 	}
 
 	private UserAccount lockPendingAccount(UUID userID, UUID structureID) {

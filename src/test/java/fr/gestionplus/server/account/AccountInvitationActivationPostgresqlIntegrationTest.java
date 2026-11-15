@@ -53,7 +53,7 @@ class AccountInvitationActivationPostgresqlIntegrationTest extends AbstractAccou
 
 	@Test
 	void anUnknownInvitationIsRejectedBeforeAnyPasswordCheck() {
-		assertThrows(AccessDeniedException.class, () -> invitations.completeActivation(UUID.randomUUID(),
+		assertThrows(AccessDeniedException.class, () -> activation.completeActivation(UUID.randomUUID(),
 				"x".repeat(43), "verified-proof", "activated_someone", "valid-test-password"));
 		verify(credentialService, never()).validatePassword(anyString());
 	}
@@ -63,7 +63,7 @@ class AccountInvitationActivationPostgresqlIntegrationTest extends AbstractAccou
 		UUID userID = preparePendingAccount();
 		SentInvitation message = sendInitial(userID);
 
-		assertThrows(AccessDeniedException.class, () -> invitations.completeActivation(message.invitationID(),
+		assertThrows(AccessDeniedException.class, () -> activation.completeActivation(message.invitationID(),
 				"y".repeat(43), "verified-proof", "activated_" + userID, "valid-test-password"));
 		verify(credentialService, never()).validatePassword(anyString());
 		assertEquals(UserAccountStatus.PENDING_ACTIVATION, account(userID).getStatu());
@@ -96,7 +96,7 @@ class AccountInvitationActivationPostgresqlIntegrationTest extends AbstractAccou
 		SecurityContextHolder.clearContext();
 
 		AccountActivationConflictException failure = assertThrows(AccountActivationConflictException.class,
-				() -> invitations.completeActivation(message.invitationID(), message.token(), "verified-proof",
+				() -> activation.completeActivation(message.invitationID(), message.token(), "verified-proof",
 						" " + other.getUserName() + " ", "valid-test-password"));
 
 		assertFalse(failure.getMessage().contains(other.getUserName()));
@@ -160,7 +160,7 @@ class AccountInvitationActivationPostgresqlIntegrationTest extends AbstractAccou
 		start.await(5, TimeUnit.SECONDS);
 
 		try {
-			withLockTimeout(() -> invitations.completeActivation(message.invitationID(), message.token(),
+			withLockTimeout(() -> activation.completeActivation(message.invitationID(), message.token(),
 					"verified-proof", userName, "valid-test-password"));
 			return true;
 		} catch (AccountActivationConflictException conflict) {

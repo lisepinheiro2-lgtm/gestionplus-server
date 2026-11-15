@@ -52,58 +52,45 @@ abstract class AbstractAccountInvitationPostgresqlIntegrationTest extends AuditS
 
 	@Autowired
 	protected AccountInvitationDelivery deliveryWorker;
-
 	@Autowired
 	protected MailDeliveryExecutor deliveryExecutor;
-
+	
 	@MockitoSpyBean
 	protected AccountInvitationDeliveryStore deliveryStore;
 
 	@Autowired
 	protected AccountInvitationService invitations;
-
+	@Autowired
+	protected AccountActivationService activation;
 	@Autowired
 	protected AccountInvitationStore invitationStore;
-
 	@Autowired
 	protected AccountStore accountStore;
-
 	@Autowired
 	protected StructureAccessService accessService;
-
 	@Autowired
 	protected StructureMembershipStore membershipStore;
-
 	@Autowired
 	protected AuthorizationService authorizationService;
-
 	@Autowired
 	protected EmployeeResponsibilityService responsibilityService;
-
 	@Autowired
 	protected EmployeeJpaRepository employees;
-
 	@Autowired
 	protected UserCredentialJpaRepository credentials;
-
 	@Autowired
 	protected SessionRegistry sessionRegistry;
-
 	@Autowired
 	protected JdbcTemplate jdbcTemplate;
-
 	@Autowired
 	protected PlatformTransactionManager transactionManager;
 
 	@MockitoBean
 	protected Clock clock;
-
 	@MockitoBean
 	protected AccountInvitationSender sender;
-
 	@MockitoBean
 	protected ActivationIdentityVerifier verifier;
-
 	@MockitoBean
 	protected CredentialService credentialService;
 
@@ -202,7 +189,7 @@ abstract class AbstractAccountInvitationPostgresqlIntegrationTest extends AuditS
 	}
 
 	protected void activate(UUID userID, SentInvitation message, String proof) {
-		invitations.completeActivation(message.invitationID(), message.token(), proof, "activated_" + userID,
+		activation.completeActivation(message.invitationID(), message.token(), proof, "activated_" + userID,
 				"valid-test-password");
 	}
 
