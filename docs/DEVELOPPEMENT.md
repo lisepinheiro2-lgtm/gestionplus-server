@@ -18,13 +18,15 @@ La racine Java est `src/main/java/fr/gestionplus/server/`.
 | Dossier | Responsabilité actuelle |
 | --- | --- |
 | `auth/` | Comptes, états, credentials, connexion métier, rôles, permissions et raccordement Spring Security. |
-| `account/` | Cycle de vie des comptes (création en attente, activation, désactivation), verrous et versions de session, invitations avec livraison SMTP, accès aux structures, transfert d’administration et succession du `SUPER_ADMIN`. |
+| `account/` | Cycle de vie des comptes (création en attente, activation, désactivation), contrat de stockage des défis SMS, verrous et versions de session, invitations avec livraison SMTP, accès aux structures, transfert d’administration et succession du `SUPER_ADMIN`. |
 | `employee/` et `organization/` | Modèles métier et contrats de stockage des salariés et unités. |
 | `persistence/` | Entités, repositories Spring Data et adaptateurs vers les modèles métier. |
 | `integration/` | Vérification des mots de passe compromis via un service externe. |
 | `audit/` | Événements, résolution de l’entreprise, persistance PostgreSQL, coordination transactionnelle, secours chiffré et réconciliation, interception des opérations `@AuditedOperation`. |
 
 Commencer par `LoginService` pour le parcours métier de connexion, puis ses interfaces Lookup et leurs adaptateurs JPA. Lire `HttpSecurityConfig` pour connaître l'accès HTTP réellement configuré. Les migrations se trouvent dans `src/main/resources/db/migration/` ; les tests dans `src/test/`.
+
+Pour le stockage des défis SMS ajouté sur `4abe62c` le 15 novembre 2026, lire `ActivationIdentityChallengeStore` et son record imbriqué `ActivationIdentityChallenge`, puis `PostgresqlActivationIdentityChallengeStore`, la migration `V27__store_account_activation_identity_challenges.sql` et les dix tests de `ActivationIdentityChallengePostgresqlIntegrationTest`. Le remplacement et les échecs sont transactionnels ; la consommation exige la transaction métier existante. **L’envoi et la vérification effective des SMS restent à développer.** Les [comportements et limites](AVANCEMENT.md#defis-sms-activation-stockage-2026-11-15) sont détaillés dans le suivi.
 
 ## Prérequis d'une exécution locale
 
@@ -103,7 +105,7 @@ Les [benchmarks manuels d’authentification](benchmarks/authentication/README.m
 
 ## Limites et suite des validations
 
-Les preuves de connexion, de sessions, de permissions et de concurrence sont datées dans [Avancement](AVANCEMENT.md). L’utilisatrice confirme les sept classes d’invitation au vert et 705/705 réussites après le découpage `ad3a59c` ; ce résultat est rapporté, sans relance pendant cette actualisation documentaire. Restent notamment à vérifier l’installation neuve, le déploiement TLS réel et les parcours connectés depuis Swing.
+Les preuves de connexion, de sessions, de permissions et de concurrence sont datées dans [Avancement](AVANCEMENT.md). **Lise confirme 723/723 tests réussis dans Eclipse le 15 novembre 2026**, après les ajouts de `4abe62c`, dont dix tests PostgreSQL du stockage des défis SMS. Ce résultat est rapporté, sans test, build, serveur ni migration exécuté par l’assistant pendant cette actualisation documentaire. Les 705/705 après le découpage `ad3a59c` restent une preuve historique distincte. L’envoi et la vérification effective des SMS restent à développer ; restent également à vérifier l’installation neuve, le déploiement TLS réel et les parcours connectés depuis Swing.
 
 Aucune correction Java, configuration applicative ou migration n'est nécessaire pour simplement consulter ou publier les sources du chantier. Une éventuelle correction technique fait l'objet d'une intervention distincte.
 

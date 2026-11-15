@@ -19,6 +19,7 @@ Ce serveur fait partie du même projet Gestion+ que le client Swing. Leur réuni
 | Comprendre le produit, la couverture des domaines et les frontières client/serveur | [Vision d’ensemble](https://github.com/lisepinheiro2-lgtm/gestionplus-client/blob/main/docs/vision-ensemble.md) |
 | Retrouver les décisions structures, droits, archives/facturation, concurrence, hors ligne et documents du 29 octobre | [Synthèse serveur DEC01–DEC06](AVANCEMENT.md#décisions-métier-transversales--29-octobre-2026) et [référence commune](https://github.com/lisepinheiro2-lgtm/gestionplus-client/blob/main/docs/vision-ensemble.md#decisions-metier-2026-10-29) |
 | Reprendre le chantier, distinguer implémenté, en cours et prévu | [Avancement et feuille de route](AVANCEMENT.md) |
+| Reprendre le stockage des défis SMS, V27 et le bilan de 723/723 | [Stockage d’activation du 15 novembre](AVANCEMENT.md#defis-sms-activation-stockage-2026-11-15) |
 | Retrouver les sept classes de tests d’invitation et la portée de leur refactorisation | [Découpage du 14 novembre](AVANCEMENT.md#tests-invitations-refactorisation-2026-11-14) |
 | Reprendre les tests adaptés du 5 novembre et les problèmes de production laissés ouverts | [Tests écrits, fichiers et limites](AVANCEMENT.md#tests-autorisations-2026-11-05) |
 | Comprendre les preuves de tests et les validations manquantes | [Résultats et limites](AVANCEMENT.md#tests--sources-et-résultats-sont-deux-informations-différentes) |
@@ -29,11 +30,11 @@ Ce serveur fait partie du même projet Gestion+ que le client Swing. Leur réuni
 
 ## État et lecture des preuves
 
-Le serveur reste un chantier. [Avancement](AVANCEMENT.md) couvre les états historiques depuis le 27 octobre, les correctifs des 11–12 novembre, les mesures locales du 14 novembre et le découpage des tests d’invitation sur `ad3a59c`. L’utilisatrice confirme les sept classes au vert et 705/705 réussites après ce découpage. Le contrôle des 33 noms de méthodes reste une vérification statique distincte, sans exécution de JUnit pendant l’actualisation documentaire. Les mesures de latence ne démontrent pas l’indistinguabilité complète des rejets. Les parcours HTTP métier et l’intégration Swing restent à construire ou à valider selon les blocs décrits.
+Le serveur reste un chantier. [Avancement](AVANCEMENT.md) conserve les états historiques depuis le 27 octobre, les correctifs des 11–12 novembre, les mesures locales et le découpage des tests du 14 novembre. Au 15 novembre, le dernier commit GitHub vérifié est `4abe62c` : migration V27, contrat et record de défi d’activation, stockage PostgreSQL transactionnel et dix tests d’intégration ajoutés. **Lise confirme 723/723 tests réussis dans Eclipse.** L’envoi et la vérification effective des SMS restent à développer. Les 705/705 après le découpage `ad3a59c` et le contrôle statique des 33 noms de méthodes restent des preuves historiques distinctes. Les mesures de latence ne démontrent pas l’indistinguabilité complète des rejets. Les parcours HTTP métier et l’intégration Swing restent à construire ou à valider selon les blocs décrits.
 
 La démonstration autonome Swing reste distincte. La sécurité de l’usage connecté doit être imposée côté serveur ; l’absence de connexion n’autorise pas un repli privilégié local.
 
-Ce sommaire, préparé le 28 octobre puis complété les 29 octobre et 5 novembre, est actualisé le **14 novembre 2026** après comparaison des documents et des sources. Aucun test, build, démarrage ou migration exécuté pendant cette actualisation. Les résultats historiques gardent leurs dates et ne valident pas les nouvelles versions des tests.
+Ce sommaire, préparé le 28 octobre puis complété les 29 octobre et 5 novembre, est actualisé le **15 novembre 2026** après comparaison des documents et des sources. Aucun test, build, démarrage ou migration exécuté pendant cette actualisation. Le résultat courant est celui confirmé par Lise ; les résultats historiques gardent leurs dates.
 
 ## Suivi public et suivi privé
 

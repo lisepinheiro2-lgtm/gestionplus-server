@@ -1,6 +1,7 @@
 ---
-summary: "État documentaire au 14 novembre 2026 : sécurité P1.01 à P1.12, correctifs des invitations et livraisons, limitations de connexion, mesures locales après Argon2 factice et pause, découpage des tests d’invitation sur ad3a59c et limites des preuves disponibles."
+summary: "État documentaire au 15 novembre 2026 : stockage PostgreSQL des défis SMS d’activation sur 4abe62c, dix tests ajoutés et 723/723 réussites confirmées par Lise dans Eclipse ; envoi et vérification effective des SMS encore à développer. Historique des invitations, connexions et mesures conservé."
 read_when:
+  - "reprendre le stockage des défis SMS d’activation, la migration V27 et les 723/723 réussites du 15 novembre"
   - "reprendre les sept classes de tests d’invitation après le découpage sur ad3a59c"
   - "retrouver les mesures des rejets après équilibrage par Argon2 factice et pause sur 39326a9"
   - "reprendre la restitution du jeton du guichet en réjection et les barrières de test sur le verdict d'audit"
@@ -24,6 +25,51 @@ read_when:
 ---
 
 # Avancement et feuille de route
+
+<a id="defis-sms-activation-stockage-2026-11-15"></a>
+
+## Stockage des défis SMS d’activation — 15 novembre 2026
+
+**Demande et référence vérifiée.** Actualisation documentaire demandée après publication du stockage des défis d’identité d’activation. Le dernier commit de `main` sur GitHub, vérifié en lecture seule, est `4abe62caadc1ecbc7e81621e713394d8dcf0c454` (« feat(auth): ajout du stockage sécurisé des défis SMS d'activation », 15 novembre 2026). Il correspond au `HEAD` local, sans modification locale au début de la reprise. Le code et le différentiel de ce commit servent de référence technique ; le résultat d’exécution est celui communiqué par Lise.
+
+**Correction locale pendant la reprise.** Lise a supprimé le record séparé vide `account/ActivationIdentityChallenge.java`, ajouté par erreur dans ce commit. Cette suppression est constatée localement ; elle n’est pas encore publiée au moment de la vérification GitHub. Le record utilisé par le stockage et les tests reste `ActivationIdentityChallengeStore.ActivationIdentityChallenge`. Aucun fichier Java n’est modifié par l’assistant.
+
+**Six fichiers réellement modifiés par le commit.**
+
+| Fichier | Réalisation observée |
+| --- | --- |
+| [V27__store_account_activation_identity_challenges.sql](../src/main/resources/db/migration/V27__store_account_activation_identity_challenges.sql) | Création de `account_activation_identity_challenges` : compte, invitation, téléphone, `code_digest`, échéance, compteur et dates d’échec, de consommation et de révocation. Contraintes sur les trois échecs maximum et les états terminaux ; index unique du défi courant par couple compte/invitation et index d’historique par compte. |
+| [ActivationIdentityChallengeStore.java](../src/main/java/fr/gestionplus/server/account/ActivationIdentityChallengeStore.java) | Contrat de remplacement, recherche, enregistrement d’échec et consommation ; record imbriqué `ActivationIdentityChallenge` avec neuf champs, `MAX_FAILED_ATTEMPTS = 3` et `isUsable(Instant)`. |
+| [PostgresqlActivationIdentityChallengeStore.java](../src/main/java/fr/gestionplus/server/persistence/PostgresqlActivationIdentityChallengeStore.java) | Adaptateur JDBC PostgreSQL, transactions et contrôles SQL décrits ci-dessous. |
+| `account/ActivationIdentityChallenge.java` | Record séparé homonyme vide ajouté dans `4abe62c`, puis supprimé localement par Lise pendant la reprise. L’adaptateur et les tests utilisent le record imbriqué dans `ActivationIdentityChallengeStore`. |
+| [ActivationIdentityChallengePostgresqlIntegrationTest.java](../src/test/java/fr/gestionplus/server/account/ActivationIdentityChallengePostgresqlIntegrationTest.java) | Dix méthodes `@Test`, avec réutilisation de `AbstractAccountInvitationPostgresqlIntegrationTest` et de son contexte PostgreSQL isolé. |
+| [AccountInvitationService.java](../src/main/java/fr/gestionplus/server/account/AccountInvitationService.java) | Ajout du seul import `Optional` dans ce commit ; aucun raccordement du nouveau stockage au parcours SMS. |
+
+**Comportements de stockage présents.**
+
+- `replaceCurrent` verrouille le compte avec `FOR UPDATE`, révoque le défi courant du même couple compte/invitation et insère son remplaçant dans une transaction. L’historique est conservé ; un échec d’insertion annule aussi la révocation. Les autres invitations du compte ne sont pas révoquées par ce remplacement.
+- `recordFailedAttempt` s’exécute dans une transaction indépendante (`REQUIRES_NEW`), incrémente le compteur et révoque au troisième échec. Un défi expiré, consommé, révoqué ou déjà au plafond ne reçoit plus d’échec ; la méthode renvoie alors `0`.
+- `consumeIfCurrent` exige une transaction existante (`MANDATORY`). La mise à jour conditionnelle ne consomme qu’un défi non expiré, non révoqué, non consommé, avec une empreinte présente et moins de trois échecs. Une seconde consommation échoue ; l’annulation de la transaction métier annule la consommation.
+- `findCurrentByInvitationAndUser` cherche un défi non consommé et non révoqué. « Courant » ne signifie pas forcément « utilisable » : la recherche peut encore renvoyer un défi expiré ; `isUsable` et les écritures conditionnelles contrôlent l’échéance.
+
+**Dix tests d’intégration PostgreSQL ajoutés.** Le comptage ci-dessous provient de la lecture des sources, sans exécution par l’assistant.
+
+| Méthode | Scénario couvert |
+| --- | --- |
+| `savesAndFindsCurrentChallenge` | Enregistrement, relecture et utilisabilité du défi. |
+| `replacingCurrentChallengeRevokesPreviousAndKeepsHistory` | Révocation de l’ancien défi, conservation de l’historique et refus d’y ajouter un échec. |
+| `replacingOneInvitationDoesNotRevokeAnother` | Remplacement limité à l’invitation concernée. |
+| `thirdFailedAttemptRevokesChallenge` | Révocation au troisième échec, compteur borné et refus d’un quatrième échec. |
+| `expiredChallengeCannotRecordAnotherFailure` | Aucun échec supplémentaire à l’échéance. |
+| `consumingCurrentChallengeSucceedsOnlyOnce` | Consommation unique et disparition du défi courant. |
+| `consumptionIsRolledBackWithBusinessTransaction` | Consommation annulée avec la transaction métier. |
+| `consumptionRequiresAnExistingTransaction` | Refus de consommer sans transaction active. |
+| `expiredChallengeCannotBeConsumed` | Refus de consommation à l’échéance ; le défi expiré reste retrouvable comme courant. |
+| `failedReplacementRollsBackRevocation` | Une insertion en conflit annule la révocation de l’ancien défi. |
+
+**Validation confirmée.** Lise confirme dans Eclipse **723/723 tests réussis** sur l’état publié. Il s’agit du dernier résultat global rapporté, distinct du comptage des dix méthodes ajoutées et des résultats historiques de 705/705. Aucun test, build, serveur ou migration n’est exécuté par l’assistant pendant cette mise à jour documentaire. Aucun état de la base habituelle ou d’un déploiement n’est déduit de la présence de V27.
+
+**Limites et prochaine étape proposée.** Le stockage du défi est réalisé ; **l’envoi et la vérification effective des SMS restent à développer**, avec génération du code, calcul et comparaison de son empreinte, puis raccordement de `ActivationIdentityVerifier` à l’activation. Le seul champ `code_digest` ne réalise aucune vérification du code. Les dix tests ci-dessus vérifient le stockage, pas un échange SMS réel ni le parcours complet depuis Swing. Le résultat de 723/723 est celui confirmé sur l’état publié ; aucune nouvelle exécution après la suppression locale du record vide n’est revendiquée ici. Les anciennes entrées et leurs limites restent historiques.
 
 <a id="tests-invitations-refactorisation-2026-11-14"></a>
 
@@ -713,3 +759,4 @@ Journal public :
 | 14 novembre 2026 — nouvelle mesure après la pause sur le mauvais mot de passe | Exécution demandée après enregistrement de `947db46` : 1 200 vérifications Argon2 et 600 mesures HTTP hors chauffe, code nul pour les deux modes, 700 audits conformes et aucune limitation. Mauvais mot de passe : 131,02 ms médian contre 98,72 ms pour l’inconnu ; écart restant 32,31 ms malgré le recouvrement des plages. [Rapport et preuves séparés](benchmarks/authentication/after-login-delay-2026-11-14-947db46/RESULTATS.md), référence conservée, services jetables fermés et aucune modification de code. |
 | 14 novembre 2026 — mesure après Argon2 factice et pause | Sur `39326a9`, deux modes exécutés en isolé, 1 200 vérifications Argon2 et 600 mesures HTTP hors chauffe, 700 audits conformes et aucun refus du limiteur. Médianes des rejets : mauvais mot de passe 127,55 ms, inconnu 120,25 ms, désactivé 123,70 ms ; écart global 7,30 ms contre 32,31 ms à l’étape précédente, sans preuve d’indistinguabilité complète. [Rapport et preuves annexés au projet](benchmarks/authentication/after-dummy-argon2-2026-11-14-39326a9/RESULTATS.md) après leur conservation initiale dans les sorties locales ; aucun nouveau lancement pendant la mise à jour documentaire. |
 | 14 novembre 2026 — découpage des tests d’invitation | Commit `ad3a59c` : ancienne classe d’intégration remplacée par sept classes thématiques et une base abstraite commune. Lecture statique : les mêmes 33 noms de méthodes annotées sont retrouvés. L’utilisatrice confirme ensuite les sept classes au vert et **705/705 réussites après le découpage**. Résultat rapporté, sans exécution de tests ou build pendant l’actualisation documentaire. |
+| 15 novembre 2026 — stockage des défis SMS d’activation | Dernier commit GitHub et local vérifié : `4abe62c`, six fichiers concernés. V27, contrat et record imbriqué `ActivationIdentityChallenge`, adaptateur PostgreSQL avec remplacement transactionnel, révocation au troisième échec et consommation dans la transaction métier ; dix tests d’intégration ajoutés. **723/723 tests réussis confirmés par Lise dans Eclipse** sur l’état publié, sans relance par l’assistant. Envoi et vérification effective des SMS encore à développer. Record séparé homonyme vide supprimé localement par Lise pendant la reprise ; aucune modification Java par l’assistant. |

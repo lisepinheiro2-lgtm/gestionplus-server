@@ -40,14 +40,14 @@ flowchart LR
 - Les modèles de comptes, de credentials, de salariés et d'unités organisationnelles.
 - Les services de comptes, d’invitations, de gouvernance, d’authentification et de changement de mot de passe.
 - Les contrôles de rôles et de périmètres côté serveur, les sessions et le MFA TOTP.
-- Les adaptateurs JPA/JDBC et les migrations V1 à V26 présentes dans les sources.
+- Les adaptateurs JPA/JDBC et les migrations V1 à V27 présentes dans les sources, dont le stockage des défis SMS d’activation.
 - L’audit transactionnel et son secours chiffré, les files d’envoi et les tests unitaires et PostgreSQL associés.
 
-La présence d’une classe ou d’un test ne prouve pas qu’un parcours complet fonctionne. L’état ci-dessous est actualisé le 14 novembre 2026 à partir des sources au commit `ad3a59c` et des preuves datées dans [Avancement](docs/AVANCEMENT.md). Une lecture des sources ne constitue pas une nouvelle validation d’exécution.
+La présence d’une classe ou d’un test ne prouve pas qu’un parcours complet fonctionne. L’état ci-dessous est actualisé le 15 novembre 2026 à partir des sources au commit `4abe62c`, vérifié comme dernier commit de `main` sur GitHub, et des preuves datées dans [Avancement](docs/AVANCEMENT.md). Lise confirme **723/723 tests réussis dans Eclipse** ; une lecture des sources ne constitue pas une nouvelle validation d’exécution.
 
 ## Accès HTTP présents dans les sources
 
-Configuration relue le **14 novembre 2026**, sans démarrage du serveur. Les routes applicatives actuellement autorisées sont les suivantes :
+Configuration HTTP relue le **15 novembre 2026**, sans démarrage du serveur. Les routes applicatives actuellement autorisées sont les suivantes :
 
 | Méthode et chemin | Accès et comportement |
 | --- | --- |
@@ -63,7 +63,7 @@ Les services d’invitation, d’activation, d’enrôlement et récupération M
 
 ## Migrations présentes et état de la base
 
-Les sources contiennent **V1 à V26** :
+Les sources contiennent **V1 à V27** :
 
 | Versions | Objet |
 | --- | --- |
@@ -76,6 +76,7 @@ Les sources contiennent **V1 à V26** :
 | V24 | Contrôle des rattachements historiques et validation des contraintes ajoutées en V17. |
 | V25 | Demandes durables d’envoi des invitations, états et nouvelles tentatives. |
 | V26 | Compteur de tentatives des notifications de désactivation ; le service borne les essais avant abandon audité. |
+| V27 | Stockage des défis SMS d’activation, empreinte du code, échéance, échecs, consommation, révocation et unicité du défi courant par compte/invitation. |
 
 La présence de ces fichiers **ne prouve pas leur application sur une base**. V24 refuse des rattachements historiques incohérents et n’invente aucun droit pour les réparer. L’état réel de Flyway, les sauvegardes et toute correction des données doivent être vérifiés sur la base explicitement choisie avant une montée de version. Les migrations déjà publiées ou appliquées ne sont pas réécrites.
 
@@ -93,11 +94,12 @@ La présence de ces fichiers **ne prouve pas leur application sur une base**. V2
 - Après acceptation SMTP suivie d’un échec de finalisation, le même jeton est conservé pour reprise ; l’activation répond temporairement 503 tant que cette demande reste en attente. Les nouvelles tentatives respectent le délai de cinq minutes. Une interruption, un accusé SMTP perdu ou l’expiration d’une réservation pendant un envoi encore bloqué peuvent produire un doublon : aucune garantie « exactement une fois ». Les timeouts SMTP de connexion, écriture et lecture sont configurés à 60 secondes chacun ; leur adéquation au déploiement reste à vérifier, avec une marge sous la réservation de cinq minutes. Une annulation ou une révocation concurrente peut rendre inutilisable un lien déjà en cours d’envoi ; les contrôles sont revérifiés avant toute activation.
 - Tous les envois d’invitations, initiaux comme planifiés, passent par le guichet limité à trois tâches ; un refus laisse la demande durable pour reprise. Les notifications de désactivation utilisent également des transactions courtes et une réservation durable, avec trois tentatives puis abandon audité.
 - HIBP précède la transaction et le verrou lors de la définition d’un nouveau mot de passe. L’activation pré-vérifie l’invitation et son jeton avant HIBP ; la relecture sous verrou reste l’autorité en cas de course.
+- [Stockage PostgreSQL des défis SMS d’activation](docs/AVANCEMENT.md#defis-sms-activation-stockage-2026-11-15) : remplacement avec révocation et historique dans une transaction, troisième échec révoquant le défi, consommation unique liée à la transaction métier. L’envoi et la vérification effective des SMS restent à développer.
 - Limitation des connexions par compte et adresse, ralentissement global des tentatives non traçables en saturation, pause sur les refus du limiteur et Argon2 réel ou factice suivi de la pause sur les chemins de rejet documentés. Les [mesures locales](docs/AVANCEMENT.md#mesures-apres-argon2-factice-2026-11-14) rapprochent les médianes sans démontrer l’indistinguabilité complète ni l’inexploitabilité à distance.
 - Audit des cibles compte rattaché à l’entreprise lorsqu’elle peut être déterminée sans ambiguïté ; verrou du compte de l’acteur sur le changement de responsable ; désactivation du titulaire SUPER_ADMIN sortant sans accès local restant.
 - Vérification des changements concurrents par verrous PostgreSQL et relecture de l’état avant opération. Un test de garde impose une revue lors de l’ajout d’une permission au catalogue ; il doit être exécuté avant intégration.
 
-Les preuves d’identité d’activation, d’enrôlement MFA et de confirmation renforcée exigent encore leurs implémentations opérationnelles. La nomination ADMIN préparée pour un compte en attente, avec son délai de 24 heures, reste à réaliser. Les appareils de confiance, la récupération exceptionnelle SUPER_ADMIN, la gouvernance des contacts de récupération et le mode hors ligne `ADMIN_EMERGENCY` sur poste autorisé restent des chantiers distincts. Aucun compte administrateur ni secret de démonstration n’est fourni.
+Le stockage des défis d’identité d’activation est présent, mais l’envoi du SMS, la vérification effective du code et leur raccordement à l’activation ne sont pas encore réalisés. Les preuves d’enrôlement MFA et de confirmation renforcée exigent également leurs implémentations opérationnelles. La nomination ADMIN préparée pour un compte en attente, avec son délai de 24 heures, reste à réaliser. Les appareils de confiance, la récupération exceptionnelle SUPER_ADMIN, la gouvernance des contacts de récupération et le mode hors ligne `ADMIN_EMERGENCY` sur poste autorisé restent des chantiers distincts. Aucun compte administrateur ni secret de démonstration n’est fourni.
 
 ## Décisions fonctionnelles et réalisation
 
@@ -118,14 +120,15 @@ Les services d’activation, MFA et gouvernance ne constituent pas des API méti
 
 | Élément | État disponible |
 | --- | --- |
-| Dernier bilan global rapporté dans le suivi | **705/705 réussites après le découpage des tests d’invitation sur `ad3a59c`**, confirmé par l’utilisatrice avec les sept classes au vert. Aucun test exécuté pendant cette actualisation documentaire. Le précédent résultat de 705/705 sur `e9fbd78`, les 648 réussites de `30904e4` et le jalon 530 tests avec un échec restent des preuves historiques distinctes. |
+| Dernier bilan global rapporté dans le suivi | **723/723 tests réussis confirmés par Lise dans Eclipse le 15 novembre 2026**, après les ajouts du commit `4abe62c`. Aucun test exécuté pendant cette actualisation documentaire. Les résultats de 705/705 après le découpage `ad3a59c` et sur `e9fbd78`, les 648 réussites de `30904e4` et le jalon 530 tests avec un échec restent des preuves historiques distinctes. |
 | Tests dédiés de sécurité | `PasswordChangeServiceTest`, `MfaSecretCipherTest`, `MailAccountInvitationSenderTest` et `SuperAdminSuccessionServiceTest` rédigés. |
 | Confidentialité et permissions | Tests de non-divulgation dans l’audit, les objets d’authentification et les erreurs ; garde du catalogue de permissions et des droits SECRETARY/SECURITY_OFFICER. |
 | PostgreSQL | Scénarios rédigés de collisions de noms, activation contre expiration, rollback du changement de mot de passe et de la succession, en complément des tests de concurrence déjà présents. |
+| Défis SMS d’activation | [Dix tests PostgreSQL ajoutés sur `4abe62c`](docs/AVANCEMENT.md#defis-sms-activation-stockage-2026-11-15) : recherche, remplacement et historique, séparation des invitations, plafond d’échecs, expiration, consommation unique et rollback transactionnel. Ils ne constituent pas une validation d’envoi ou de vérification réelle d’un SMS. |
 | Corrections après `30904e4` | Nouveaux tests unitaires et PostgreSQL de réservation d’envoi, absence de transaction et de verrous pendant SMTP, temporisation, interruption, annulation concurrente et reprise par un autre traitement. Tests HTTP d’attribution des refus et d’ordre des filtres ; tests du cumul de rôles avec protection du compte entier. À la rédaction de cette entrée du 11 novembre, ces nouveaux scénarios restaient non exécutés ; les résultats ultérieurs sont détaillés dans Avancement. |
 | Organisation actuelle des tests d’invitation | [Sept classes thématiques et une base commune](docs/AVANCEMENT.md#tests-invitations-refactorisation-2026-11-14), 33 noms de méthodes annotées retrouvés par lecture statique. Réussite des sept classes et bilan global de 705/705 confirmés par l’utilisatrice après refactorisation. |
 | Benchmarks manuels | [Outils et preuves d’authentification](docs/benchmarks/authentication/README.md) : Argon2 et HTTP sur base PostgreSQL jetable, comptes fictifs dédiés. Mesures distinctes de la suite JUnit et d’une validation de production. |
-| Exécution de cette intervention | Aucun test, build, serveur ni migration lancé. La confirmation de 705/705 après le découpage `ad3a59c` provient de l’utilisatrice, sans relance de la suite pendant cette intervention. |
+| Exécution de cette intervention | Aucun test, build, serveur ni migration lancé. Le résultat de 723/723 provient de la confirmation de Lise dans Eclipse, sans relance de la suite par l’assistant pendant cette intervention. |
 
 La relecture statique et la présence de tests ne constituent pas une validation applicative. Aucun résultat TLS réel, restauration de sauvegarde ou déploiement multi-instance n’est revendiqué.
 
