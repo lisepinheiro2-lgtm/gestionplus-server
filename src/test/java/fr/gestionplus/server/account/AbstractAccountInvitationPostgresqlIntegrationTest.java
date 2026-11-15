@@ -12,6 +12,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -28,6 +29,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import fr.gestionplus.server.account.ActivationIdentityChallengeStore.ActivationIdentityChallenge;
 import fr.gestionplus.server.auth.AuthorizationService;
 import fr.gestionplus.server.auth.CredentialService;
 import fr.gestionplus.server.auth.UserAccount;
@@ -54,7 +56,9 @@ abstract class AbstractAccountInvitationPostgresqlIntegrationTest extends AuditS
 	protected AccountInvitationDelivery deliveryWorker;
 	@Autowired
 	protected MailDeliveryExecutor deliveryExecutor;
-	
+	@Autowired
+	protected ActivationIdentityChallengeStore challengeStore;
+
 	@MockitoSpyBean
 	protected AccountInvitationDeliveryStore deliveryStore;
 
@@ -95,11 +99,8 @@ abstract class AbstractAccountInvitationPostgresqlIntegrationTest extends AuditS
 	protected CredentialService credentialService;
 
 	protected final List<SentInvitation> sent = new ArrayList<>();
-
 	protected UUID tenantID;
-
 	protected UUID structureID;
-
 	protected UserAccount actor;
 
 	@BeforeEach
@@ -182,8 +183,36 @@ abstract class AbstractAccountInvitationPostgresqlIntegrationTest extends AuditS
 	}
 
 	protected void allowActivation(UUID userID, SentInvitation message) {
-		when(verifier.verify(message.invitationID(), userID, account(userID).getPhoneNumber(), "verified-proof"))
-				.thenReturn(true);
+
+		UserAccount account = account(userID);
+
+		Instant now = clock.instant();
+
+		Instant expiresAt = invitationStore
+				.findByID(message.invitationID())
+				.orElseThrow()
+				.expiresAt();
+
+		ActivationIdentityChallenge challenge = new ActivationIdentityChallenge(
+				UUID.randomUUID(),
+				userID,
+				account.getPhoneNumber(),
+				message.invitationID(),
+				"test-code-digest",
+				0,
+				expiresAt,
+				null,
+				null);
+
+		challengeStore.replaceCurrent(challenge, now);
+
+		when(verifier.verify(
+				message.invitationID(),
+				userID,
+				account.getPhoneNumber(),
+				"verified-proof"))
+				.thenReturn(Optional.of(challenge.challengeID()));
+
 		when(credentialService.encodePassword(userID, "valid-test-password"))
 				.thenReturn(new UserCredential(userID, "new-hash"));
 	}

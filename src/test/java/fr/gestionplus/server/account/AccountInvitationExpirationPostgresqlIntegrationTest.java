@@ -9,6 +9,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -16,7 +17,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Test;
@@ -34,11 +34,12 @@ class AccountInvitationExpirationPostgresqlIntegrationTest extends AbstractAccou
 		UUID userID = preparePendingAccount();
 		accessService.addStructureAccess(userID, createStructure(), Set.of(UserRole.TEAM_LEAD));
 		SentInvitation message = sendInitial(userID);
+		allowActivation(userID, message);
 		jdbcTemplate.update("""
 				UPDATE account_invitations SET expires_at = CURRENT_TIMESTAMP - INTERVAL '1 second'
 				WHERE invitation_id = ?
 				""", message.invitationID());
-		allowActivation(userID, message);
+
 		SecurityContextHolder.clearContext();
 
 		assertThrows(AccessDeniedException.class, () -> activate(userID, message, "verified-proof"));
@@ -110,34 +111,57 @@ class AccountInvitationExpirationPostgresqlIntegrationTest extends AbstractAccou
 
 	@Test
 	void crossingTheDeadlineDuringIdentityVerificationLetsExpirationWin() throws Exception {
+
 		UUID userID = preparePendingAccount();
 		SentInvitation message = sendInitial(userID);
 		allowActivation(userID, message);
-		Instant deadline = invitationStore.findByAccount(userID).orElseThrow().expiresAt();
+
+		Instant deadline = invitationStore.findByAccount(userID)
+				.orElseThrow()
+				.expiresAt();
+
 		AtomicReference<Instant> now = controlTime(deadline.minusSeconds(1));
-		AtomicInteger pid = new AtomicInteger();
+
+		UUID challengeID = challengeStore
+				.findCurrentByInvitationAndUser(message.invitationID(), userID)
+				.orElseThrow()
+				.challengeID();
+
 		CountDownLatch verifying = new CountDownLatch(1);
 		CountDownLatch release = new CountDownLatch(1);
+
 		doAnswer(invocation -> {
-			pid.set(jdbcTemplate.queryForObject("SELECT pg_backend_pid()", Integer.class));
 			verifying.countDown();
 			assertTrue(release.await(5, TimeUnit.SECONDS));
-			return true;
-		}).when(verifier).verify(message.invitationID(), userID, account(userID).getPhoneNumber(), "verified-proof");
+			return Optional.of(challengeID);
+		}).when(verifier).verify(
+				message.invitationID(),
+				userID,
+				account(userID).getPhoneNumber(),
+				"verified-proof");
+
 		SecurityContextHolder.clearContext();
 
 		try (ExecutorService workers = Executors.newFixedThreadPool(2)) {
-			Future<Boolean> activation = workers.submit(() -> activateIfAllowed(userID, message));
+
+			Future<Boolean> activation = workers.submit(
+					() -> activateIfAllowed(userID, message));
 
 			try {
 				assertTrue(verifying.await(5, TimeUnit.SECONDS));
+
 				now.set(deadline);
-				Future<?> expiration = workers.submit(() -> withLockTimeout(
-						() -> invitations.expireInvitation(message.invitationID())));
-				awaitBlockedBy(pid.get(), expiration);
-				release.countDown();
-				assertFalse(activation.get(15, TimeUnit.SECONDS));
+
+				Future<?> expiration = workers.submit(
+						() -> withLockTimeout(
+								() -> invitations.expireInvitation(message.invitationID())));
+
 				expiration.get(15, TimeUnit.SECONDS);
+
+				release.countDown();
+
+				assertFalse(activation.get(15, TimeUnit.SECONDS));
+
 			} finally {
 				release.countDown();
 			}
