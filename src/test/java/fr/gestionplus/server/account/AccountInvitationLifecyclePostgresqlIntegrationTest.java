@@ -50,6 +50,7 @@ class AccountInvitationLifecyclePostgresqlIntegrationTest extends AbstractAccoun
 		doReturn(false).when(sender).send(anyString(), any(), anyString());
 
 		assertFalse(invitations.inviteForReintegration(userID, structureID, roles, null).sent());
+		awaitFirstVerdict(userID);
 		assertEquals(UserAccountStatus.DISABLED, account(userID).getStatu());
 		assertTrue(membershipStore.findByUser(userID).isEmpty());
 		assertTrue(invitationStore.findByAccount(userID).isEmpty());
