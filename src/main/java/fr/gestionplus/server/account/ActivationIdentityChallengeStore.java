@@ -12,6 +12,10 @@ public interface ActivationIdentityChallengeStore {
 
 	boolean consumeIfCurrent(UUID challengeID, Instant now);
 
+	int countByInvitationAndUser(UUID invitationID, UUID userID);
+
+	boolean revokeCurrent(UUID challengeID, Instant revokedAt);
+
 	Optional<ActivationIdentityChallenge> findCurrentByInvitationAndUser(UUID invitationID, UUID userID);
 
 	record ActivationIdentityChallenge(UUID challengeID, UUID userID, String phoneNumber, UUID invitationID,

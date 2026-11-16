@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Set;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -18,6 +19,7 @@ import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import fr.gestionplus.server.account.ActivationIdentityChallengeStore.ActivationIdentityChallenge;
+import fr.gestionplus.server.auth.UserAccountStatus;
 
 class ActivationIdentityChallengePostgresqlIntegrationTest
 		extends AbstractAccountInvitationPostgresqlIntegrationTest {
@@ -253,10 +255,166 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 				.orElseThrow());
 	}
 
+	@Test
+	void countsZeroWhenNoChallengeMatchesTheInvitationAndUser() {
+		assertEquals(0, challengeStore.countByInvitationAndUser(UUID.randomUUID(), actor.getUserID()));
+	}
+
+	@Test
+	void countsTheWholeHistoryIncludingRevokedAndConsumedChallenges() {
+		UUID invitationID = UUID.randomUUID();
+		ActivationIdentityChallenge first = newChallenge(invitationID);
+		ActivationIdentityChallenge second = newChallenge(invitationID);
+		ActivationIdentityChallenge third = newChallenge(invitationID);
+
+		challengeStore.replaceCurrent(first, NOW);
+		challengeStore.replaceCurrent(second, NOW.plusSeconds(1));
+
+		TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+		Boolean consumed = transaction.execute(
+				status -> challengeStore.consumeIfCurrent(second.challengeID(), NOW.plusSeconds(2)));
+		assertEquals(Boolean.TRUE, consumed);
+
+		challengeStore.replaceCurrent(third, NOW.plusSeconds(3));
+
+		assertEquals(3, challengeStore.countByInvitationAndUser(invitationID, actor.getUserID()));
+	}
+
+	@Test
+	void countsOnlyChallengesForTheRequestedInvitationAndUser() {
+		UUID invitationID = UUID.randomUUID();
+		UUID anotherInvitationID = UUID.randomUUID();
+		UUID anotherUserID = createAccount(UserAccountStatus.PENDING_ACTIVATION, Set.of(), structureID).getUserID();
+
+		challengeStore.replaceCurrent(newChallenge(invitationID), NOW);
+		challengeStore.replaceCurrent(newChallenge(invitationID), NOW.plusSeconds(1));
+		challengeStore.replaceCurrent(newChallenge(anotherInvitationID), NOW);
+		challengeStore.replaceCurrent(newChallenge(invitationID, anotherUserID), NOW);
+
+		assertEquals(2, challengeStore.countByInvitationAndUser(invitationID, actor.getUserID()));
+		assertEquals(1, challengeStore.countByInvitationAndUser(anotherInvitationID, actor.getUserID()));
+		assertEquals(1, challengeStore.countByInvitationAndUser(invitationID, anotherUserID));
+		assertEquals(0, challengeStore.countByInvitationAndUser(anotherInvitationID, anotherUserID));
+	}
+
+	@Test
+	void countsExpiredChallengesInTheHistory() {
+		UUID invitationID = UUID.randomUUID();
+		ActivationIdentityChallenge challenge = newChallenge(invitationID);
+		challengeStore.replaceCurrent(challenge, NOW);
+
+		jdbcTemplate.update("""
+				UPDATE account_activation_identity_challenges
+				SET expires_at = ?
+				WHERE challenge_id = ?
+				""", NOW.atOffset(ZoneOffset.UTC), challenge.challengeID());
+
+		assertFalse(challengeStore.findCurrentByInvitationAndUser(invitationID, actor.getUserID())
+				.orElseThrow().isUsable(NOW));
+		assertEquals(1, challengeStore.countByInvitationAndUser(invitationID, actor.getUserID()));
+	}
+
+	@Test
+	void revokesTheCurrentChallengeOnlyOnceWithoutResettingTheSendCount() {
+		UUID invitationID = UUID.randomUUID();
+		ActivationIdentityChallenge challenge = newChallenge(invitationID);
+		challengeStore.replaceCurrent(challenge, NOW);
+		Instant revokedAt = NOW.plusSeconds(1);
+
+		assertTrue(challengeStore.revokeCurrent(challenge.challengeID(), revokedAt));
+		assertFalse(challengeStore.revokeCurrent(challenge.challengeID(), revokedAt.plusSeconds(1)));
+		assertTrue(challengeStore.findCurrentByInvitationAndUser(invitationID, actor.getUserID()).isEmpty());
+		assertEquals(1, challengeStore.countByInvitationAndUser(invitationID, actor.getUserID()));
+
+		OffsetDateTime savedRevokedAt = jdbcTemplate.queryForObject("""
+				SELECT revoked_at
+				FROM account_activation_identity_challenges
+				WHERE challenge_id = ?
+				""", OffsetDateTime.class, challenge.challengeID());
+
+		assertEquals(revokedAt.atOffset(ZoneOffset.UTC), savedRevokedAt);
+	}
+
+	@Test
+	void revokingAnUnknownChallengeLeavesTheCurrentChallengeUnchanged() {
+		UUID invitationID = UUID.randomUUID();
+		ActivationIdentityChallenge challenge = newChallenge(invitationID);
+		challengeStore.replaceCurrent(challenge, NOW);
+
+		assertFalse(challengeStore.revokeCurrent(UUID.randomUUID(), NOW.plusSeconds(1)));
+		assertEquals(challenge, challengeStore.findCurrentByInvitationAndUser(invitationID, actor.getUserID())
+				.orElseThrow());
+	}
+
+	@Test
+	void aConsumedChallengeCannotBeRevoked() {
+		UUID invitationID = UUID.randomUUID();
+		ActivationIdentityChallenge challenge = newChallenge(invitationID);
+		challengeStore.replaceCurrent(challenge, NOW);
+
+		TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+		Boolean consumed = transaction.execute(
+				status -> challengeStore.consumeIfCurrent(challenge.challengeID(), NOW.plusSeconds(1)));
+		assertEquals(Boolean.TRUE, consumed);
+
+		assertFalse(challengeStore.revokeCurrent(challenge.challengeID(), NOW.plusSeconds(2)));
+
+		Boolean remainsConsumedWithoutRevocation = jdbcTemplate.queryForObject("""
+				SELECT consumed_at IS NOT NULL AND revoked_at IS NULL
+				FROM account_activation_identity_challenges
+				WHERE challenge_id = ?
+				""", Boolean.class, challenge.challengeID());
+
+		assertEquals(Boolean.TRUE, remainsConsumedWithoutRevocation);
+	}
+
+	@Test
+	void revokingAnOldChallengeCannotRevokeItsReplacement() {
+		UUID invitationID = UUID.randomUUID();
+		ActivationIdentityChallenge previous = newChallenge(invitationID);
+		ActivationIdentityChallenge replacement = newChallenge(invitationID);
+		challengeStore.replaceCurrent(previous, NOW);
+		challengeStore.replaceCurrent(replacement, NOW.plusSeconds(1));
+
+		assertFalse(challengeStore.revokeCurrent(previous.challengeID(), NOW.plusSeconds(2)));
+		assertEquals(replacement, challengeStore.findCurrentByInvitationAndUser(invitationID, actor.getUserID())
+				.orElseThrow());
+	}
+
+	@Test
+	void anExpiredChallengeCanStillBeRevoked() {
+		UUID invitationID = UUID.randomUUID();
+		ActivationIdentityChallenge challenge = newChallenge(invitationID);
+		challengeStore.replaceCurrent(challenge, NOW);
+
+		assertTrue(challengeStore.revokeCurrent(challenge.challengeID(), challenge.expiresAt()));
+		assertTrue(challengeStore.findCurrentByInvitationAndUser(invitationID, actor.getUserID()).isEmpty());
+	}
+
+	@Test
+	void revocationSurvivesTheCallingTransactionRollback() {
+		UUID invitationID = UUID.randomUUID();
+		ActivationIdentityChallenge challenge = newChallenge(invitationID);
+		challengeStore.replaceCurrent(challenge, NOW);
+
+		TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+		transaction.executeWithoutResult(status -> {
+			assertTrue(challengeStore.revokeCurrent(challenge.challengeID(), NOW.plusSeconds(1)));
+			status.setRollbackOnly();
+		});
+
+		assertTrue(challengeStore.findCurrentByInvitationAndUser(invitationID, actor.getUserID()).isEmpty());
+		assertEquals(1, challengeStore.countByInvitationAndUser(invitationID, actor.getUserID()));
+	}
+
 	private ActivationIdentityChallenge newChallenge(UUID invitationID) {
+		return newChallenge(invitationID, actor.getUserID());
+	}
+
+	private ActivationIdentityChallenge newChallenge(UUID invitationID, UUID userID) {
 		return new ActivationIdentityChallenge(
 				UUID.randomUUID(),
-				actor.getUserID(),
+				userID,
 				"0600000000",
 				invitationID,
 				"a".repeat(64),

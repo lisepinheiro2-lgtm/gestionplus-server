@@ -15,7 +15,6 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import fr.gestionplus.server.account.ActivationIdentityChallengeStore;
-import fr.gestionplus.server.account.ActivationIdentityChallengeStore.ActivationIdentityChallenge;
 
 @Repository
 public class PostgresqlActivationIdentityChallengeStore implements ActivationIdentityChallengeStore {
@@ -138,6 +137,36 @@ public class PostgresqlActivationIdentityChallengeStore implements ActivationIde
 				challengeID,
 				ActivationIdentityChallenge.MAX_FAILED_ATTEMPTS,
 				atUtc(now)) == 1;
+	}
+
+	@Override
+	public int countByInvitationAndUser(UUID invitationID, UUID userID) {
+		Objects.requireNonNull(invitationID, "L'identifiant de l'invitation est obligatoire.");
+		Objects.requireNonNull(userID, "L'identifiant du compte est obligatoire.");
+
+		return jdbcTemplate.queryForObject("""
+				SELECT COUNT(*)
+				FROM account_activation_identity_challenges
+				WHERE invitation_id = ?
+				  AND user_id = ?
+				""", Integer.class, invitationID, userID);
+	}
+
+	@Override
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public boolean revokeCurrent(UUID challengeID, Instant revokedAt) {
+		Objects.requireNonNull(challengeID, "L'identifiant du défi est obligatoire.");
+		Objects.requireNonNull(revokedAt, "La date de révocation est obligatoire.");
+
+		return jdbcTemplate.update("""
+				UPDATE account_activation_identity_challenges
+				SET revoked_at = ?
+				WHERE challenge_id = ?
+				  AND consumed_at IS NULL
+				  AND revoked_at IS NULL
+				""",
+				atUtc(revokedAt),
+				challengeID) == 1;
 	}
 
 	private ActivationIdentityChallenge read(ResultSet row, int rowNumber) throws SQLException {
