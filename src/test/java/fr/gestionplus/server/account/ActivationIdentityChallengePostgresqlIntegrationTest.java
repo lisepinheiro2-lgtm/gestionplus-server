@@ -239,6 +239,7 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 				original.invitationID(),
 				original.codeDigest(),
 				0,
+				original.createdAt(),
 				original.expiresAt(),
 				null,
 				null);
@@ -260,6 +261,7 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 				invitationID,
 				"a".repeat(64),
 				0,
+				NOW,
 				NOW.plusSeconds(300),
 				null,
 				null);

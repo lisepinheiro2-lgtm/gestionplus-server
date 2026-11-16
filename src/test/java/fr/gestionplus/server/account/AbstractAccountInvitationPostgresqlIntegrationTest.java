@@ -200,6 +200,7 @@ abstract class AbstractAccountInvitationPostgresqlIntegrationTest extends AuditS
 				message.invitationID(),
 				"test-code-digest",
 				0,
+				now,
 				expiresAt,
 				null,
 				null);

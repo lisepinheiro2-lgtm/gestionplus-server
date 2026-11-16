@@ -75,14 +75,15 @@ public class PostgresqlActivationIdentityChallengeStore implements ActivationIde
 		jdbcTemplate.update("""
 				INSERT INTO account_activation_identity_challenges
 				    (challenge_id, user_id, invitation_id,
-				     phone_number, code_digest, expires_at)
-				VALUES (?, ?, ?, ?, ?, ?)
+				     phone_number, code_digest, created_at, expires_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?)
 				""",
 				newChallenge.challengeID(),
 				newChallenge.userID(),
 				newChallenge.invitationID(),
 				newChallenge.phoneNumber(),
 				newChallenge.codeDigest(),
+				atUtc(newChallenge.createdAt()),
 				atUtc(newChallenge.expiresAt()));
 	}
 
@@ -147,6 +148,7 @@ public class PostgresqlActivationIdentityChallengeStore implements ActivationIde
 				row.getObject("invitation_id", UUID.class),
 				row.getString("code_digest"),
 				row.getInt("failed_attempts"),
+				readInstant(row, "created_at"),
 				readInstant(row, "expires_at"),
 				readInstant(row, "consumed_at"),
 				readInstant(row, "revoked_at"));
