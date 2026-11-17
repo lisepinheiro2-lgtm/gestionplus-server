@@ -39,6 +39,7 @@ public class AccountActivationService {
 	private final AccountInvitationScope scope;
 	private final AuditService auditService;
 	private final CredentialService credentialService;
+	private final ActivationIdentityChallengeService challengeService;
 	private final ObjectProvider<ActivationIdentityVerifier> identityVerifiers;
 	private final Clock clock;
 	private final TransactionTemplate activationTransaction;
@@ -49,7 +50,7 @@ public class AccountActivationService {
 			AccountInvitationDeliveryStore deliveries,
 			AccountInvitationScope scope,
 			AuditService auditService,
-			CredentialService credentialService,
+			CredentialService credentialService, ActivationIdentityChallengeService challengeService,
 			ObjectProvider<ActivationIdentityVerifier> identityVerifiers,
 			PlatformTransactionManager transactionManager,
 			ObjectProvider<Clock> clocks) {
@@ -61,9 +62,23 @@ public class AccountActivationService {
 		this.scope = scope;
 		this.auditService = auditService;
 		this.credentialService = credentialService;
+		this.challengeService = challengeService;
 		this.identityVerifiers = identityVerifiers;
 		this.clock = clocks.getIfAvailable(Clock::systemUTC);
 		this.activationTransaction = new TransactionTemplate(transactionManager);
+
+	}
+
+	@AuditedOperation(value = AuditAction.INVITATION_SMS_REQUEST, invitation = 0)
+	public void requestActivationChallenge(UUID invitationID, String token) {
+
+		if (invitationID == null || !isValidToken(token)) {
+			throw AccountInvitationScope.denied();
+		}
+
+		requireValidInvitation(invitationID, token);
+
+		challengeService.createChallenge(invitationID);
 	}
 
 	@AuditedOperation(value = AuditAction.INVITATION_TOKEN_USE, invitation = 0)
@@ -85,13 +100,17 @@ public class AccountActivationService {
 	private void validateRequest(UUID invitationID, String token, String proof) {
 
 		if (invitationID == null
-				|| token == null
-				|| !token.matches("[A-Za-z0-9_-]{43}")
+				|| !isValidToken(token)
 				|| proof == null
 				|| proof.isBlank()) {
 			throw AccountInvitationScope.denied();
 		}
 
+	}
+
+	private boolean isValidToken(String token) {
+
+		return token != null && token.matches("[A-Za-z0-9_-]{43}");
 	}
 
 	private Invitation requireValidInvitation(UUID invitationID, String token) {
