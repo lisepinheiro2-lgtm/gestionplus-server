@@ -43,7 +43,11 @@ flowchart LR
 - Les adaptateurs JPA/JDBC et les migrations V1 à V27 présentes dans les sources, dont le stockage des défis SMS d’activation.
 - L’audit transactionnel et son secours chiffré, les files d’envoi et les tests unitaires et PostgreSQL associés.
 
-La présence d’une classe ou d’un test ne prouve pas qu’un parcours complet fonctionne. L’état ci-dessous est actualisé le 15 novembre 2026 à partir des sources au commit `02a8f44`, vérifié comme dernier commit de `main` sur GitHub après l’extraction du service d’activation dans `f5a7dbf`, et des preuves datées dans [Avancement](docs/AVANCEMENT.md). Lise confirme **723/723 tests réussis localement dans Eclipse après la correction du test d’expiration** ; ce résultat ne provient pas d’une exécution de l’assistant.
+La présence d’une classe ou d’un test ne prouve pas qu’un parcours complet fonctionne. L’état documentaire est actualisé le 17 novembre 2026 sur `7bb9ad3`, vérifié sur GitHub, avec le remplacement local du seuil littéral par `MAX_SMS_PER_INVITATION` conservé. Le service de création des défis SMS et les [tests écrits et limites](docs/AVANCEMENT.md#creation-defis-sms-2026-11-17) sont décrits sans exécution. Le dernier résultat global rapporté est **745/745 réussis dans Eclipse, confirmés par Lise le 16 novembre sur `9c1a5a0`** ; il ne valide pas les commits ultérieurs.
+
+**Assemblage des tests :** `ActivationMessageSender` est simulé par `@MockitoBean` dans la base commune `AuditStorageIntegrationTest`, héritée par les contextes `@SpringBootTest` actuels. Cette déclaration reste dans `src/test` ; aucun expéditeur SMS concret n’est fourni pour l’application.
+
+**Contrat d’appel :** `createChallenge(invitationID)` doit être appelé **sans transaction Spring déjà active**. Cette précondition est [documentée explicitement](docs/AVANCEMENT.md#contrat-appel-creation-defis-sms) ; elle n’est pas contrôlée automatiquement par le service.
 
 ## Accès HTTP présents dans les sources
 
@@ -100,7 +104,7 @@ La présence de ces fichiers **ne prouve pas leur application sur une base**. V2
 - Audit des cibles compte rattaché à l’entreprise lorsqu’elle peut être déterminée sans ambiguïté ; verrou du compte de l’acteur sur le changement de responsable ; désactivation du titulaire SUPER_ADMIN sortant sans accès local restant.
 - Vérification des changements concurrents par verrous PostgreSQL et relecture de l’état avant opération. Un test de garde impose une revue lors de l’ajout d’une permission au catalogue ; il doit être exécuté avant intégration.
 
-Le stockage des défis, leur contrôle et leur consommation transactionnelle sont raccordés à l’activation. **La génération et l’envoi de véritables SMS ainsi que le vérificateur concret du code restent à développer.** Les tests utilisent un vérificateur simulé ; le parcours SMS complet n’est pas opérationnel. Les preuves d’enrôlement MFA et de confirmation renforcée exigent également leurs implémentations opérationnelles. La nomination ADMIN préparée pour un compte en attente, avec son délai de 24 heures, reste à réaliser. Les appareils de confiance, la récupération exceptionnelle SUPER_ADMIN, la gouvernance des contacts de récupération et le mode hors ligne `ADMIN_EMERGENCY` sur poste autorisé restent des chantiers distincts. Aucun compte administrateur ni secret de démonstration n’est fourni.
+Le stockage des défis, leur contrôle et leur consommation transactionnelle sont raccordés à l’activation. **Le générateur, le HMAC et le service de création existent ; l’expéditeur concret et le vérificateur SMS restent à développer.** Des scénarios séquentiels du quota et du délai sont écrits, non exécutés ; la coordination concurrente reste à consolider et le contrat d’appel hors transaction doit être respecté. Les tests utilisent un vérificateur simulé ; le parcours SMS complet n’est pas opérationnel. Les preuves d’enrôlement MFA et de confirmation renforcée exigent également leurs implémentations opérationnelles. La nomination ADMIN préparée pour un compte en attente, avec son délai de 24 heures, reste à réaliser. Les appareils de confiance, la récupération exceptionnelle SUPER_ADMIN, la gouvernance des contacts de récupération et le mode hors ligne `ADMIN_EMERGENCY` sur poste autorisé restent des chantiers distincts. Aucun compte administrateur ni secret de démonstration n’est fourni.
 
 ## Décisions fonctionnelles et réalisation
 
@@ -121,16 +125,16 @@ Les services d’activation, MFA et gouvernance ne constituent pas des API méti
 
 | Élément | État disponible |
 | --- | --- |
-| Dernier bilan global rapporté dans le suivi | **723/723 tests réussis confirmés localement par Lise dans Eclipse le 15 novembre 2026**, après les refactorings et la correction du test d’expiration sur `02a8f44`. Aucun test exécuté par l’assistant pendant cette actualisation documentaire. La confirmation de 723/723 au jalon du stockage `4abe62c`, les 705/705 après `ad3a59c` et sur `e9fbd78`, les 648 réussites de `30904e4` et le jalon 530 tests avec un échec restent des preuves historiques distinctes. |
+| Dernier bilan global rapporté dans le suivi | **745/745 tests réussis dans Eclipse le 16 novembre sur `9c1a5a0`, confirmés par Lise**, sans exécution de l’assistant. Les 723/723 du 15 novembre sur `02a8f44` et les jalons antérieurs gardent leurs dates. Aucun résultat global pour `e824b19`, `7bb9ad3` ou les nouveaux tests n’est déduit de ces confirmations. |
 | Tests dédiés de sécurité | `PasswordChangeServiceTest`, `MfaSecretCipherTest`, `MailAccountInvitationSenderTest` et `SuperAdminSuccessionServiceTest` rédigés. |
 | Confidentialité et permissions | Tests de non-divulgation dans l’audit, les objets d’authentification et les erreurs ; garde du catalogue de permissions et des droits SECRETARY/SECURITY_OFFICER. |
 | PostgreSQL | Scénarios rédigés de collisions de noms, activation contre expiration, rollback du changement de mot de passe et de la succession, en complément des tests de concurrence déjà présents. |
-| Défis SMS d’activation | [Dix tests PostgreSQL ajoutés sur `4abe62c`](docs/AVANCEMENT.md#defis-sms-activation-stockage-2026-11-15) : recherche, remplacement et historique, séparation des invitations, plafond d’échecs, expiration, consommation unique et rollback transactionnel. Ils ne constituent pas une validation d’envoi ou de vérification réelle d’un SMS. |
+| Défis SMS d’activation | Vingt méthodes PostgreSQL du stockage après `e824b19`, tests du générateur/HMAC publiés sur `9c1a5a0`, puis **14 méthodes unitaires et quatre scénarios PostgreSQL du service écrits le 17 novembre, non exécutés**. [Comportements, assemblage et limites](docs/AVANCEMENT.md#creation-defis-sms-2026-11-17). Aucun SMS réel validé. |
 | Refactorings de l’activation | Sur `f5a7dbf` et `02a8f44`, appels PostgreSQL et données de test adaptés au service extrait, défi persistant associé à un vérificateur simulé renvoyant son UUID, concurrence activation/expiration revue et ordre de préparation corrigé. [Détails et limites de la validation](docs/AVANCEMENT.md#activation-defis-sms-refactorisation-2026-11-15). |
 | Corrections après `30904e4` | Nouveaux tests unitaires et PostgreSQL de réservation d’envoi, absence de transaction et de verrous pendant SMTP, temporisation, interruption, annulation concurrente et reprise par un autre traitement. Tests HTTP d’attribution des refus et d’ordre des filtres ; tests du cumul de rôles avec protection du compte entier. À la rédaction de cette entrée du 11 novembre, ces nouveaux scénarios restaient non exécutés ; les résultats ultérieurs sont détaillés dans Avancement. |
 | Organisation actuelle des tests d’invitation | [Sept classes thématiques et une base commune](docs/AVANCEMENT.md#tests-invitations-refactorisation-2026-11-14), 33 noms de méthodes annotées retrouvés par lecture statique. Réussite des sept classes et bilan global de 705/705 confirmés par l’utilisatrice après refactorisation. |
 | Benchmarks manuels | [Outils et preuves d’authentification](docs/benchmarks/authentication/README.md) : Argon2 et HTTP sur base PostgreSQL jetable, comptes fictifs dédiés. Mesures distinctes de la suite JUnit et d’une validation de production. |
-| Exécution de cette intervention | Aucun test, build, serveur ni migration lancé. Le résultat de 723/723 provient de la confirmation de Lise dans Eclipse, sans relance de la suite par l’assistant pendant cette intervention. |
+| Exécution de cette intervention | Tests ajoutés et documentation actualisée, sans test, build, serveur ni migration lancé par l’assistant. Aucun commit ni push ; les résultats de Lise restent des preuves locales datées. |
 
 La relecture statique et la présence de tests ne constituent pas une validation applicative. Aucun résultat TLS réel, restauration de sauvegarde ou déploiement multi-instance n’est revendiqué.
 
@@ -146,13 +150,14 @@ Le profil `prod` active TLS, exige HTTPS et utilise des cookies `Secure`, `HttpO
 | `gestionplus.audit.fallback.key` | Clé externe AES de 32 octets encodée en Base64 ; à conserver pour relire le secours et ses sauvegardes. |
 | `gestionplus.audit.fallback.directory` | Répertoire existant, privé, persistant et accessible en écriture. Les ACL Windows et l’accès aux sauvegardes doivent être vérifiés lors de l’installation. |
 | `gestionplus.activation.delivery-key` | Clé externe de 32 octets encodée en Base64, nécessaire à la préparation et à la reprise des invitations. Sa conservation est indispensable aux demandes en attente ; elle n’est pas exigée au démarrage actuellement. |
+| `gestionplus.activation.challenge-key` | Clé externe HMAC-SHA-256 de 32 octets encodée en Base64, nécessaire au calcul de l’empreinte d’un code SMS. Une clé absente bloque le calcul ; son contrôle n’est pas une garantie de démarrage du parcours SMS. |
 | Configuration SMTP et `gestionplus.notifications.from` | Nécessaires pour les envois effectifs ; transport et authentification à configurer ; timeouts de 60 secondes par phase déjà définis, à vérifier dans l’environnement réel. |
 | `gestionplus.activation.link` | URL HTTPS sans identifiants, requête ni fragment préexistant. |
 | Configuration SSL Spring Boot | Certificat et clé privée externes, via un bundle SSL ou les paramètres de magasin de clés adaptés au déploiement. |
 
 Hors profil `prod`, les configurations locales continuent d’utiliser `DB_USER` et `DB_PASSWORD`. La séparation d’identités décrite ci-dessus ne prouve pas que les rôles PostgreSQL ont été créés ni qu’une répétition de déploiement a réussi.
 
-Les clés MFA, d’audit et d’invitation ont des usages distincts. Elles ne doivent pas être placées dans les sources, exemples, journaux ou arguments visibles. Leur sauvegarde, leurs droits d’accès et leur restauration nécessitent une procédure d’exploitation. Le dépôt ne fournit aucune valeur de production.
+Les clés MFA, d’audit, d’invitation et de défi SMS ont des usages distincts. Elles restent hors des sources, journaux et arguments visibles ; sauvegarde, droits d’accès et restauration doivent être préparés. Le dépôt ne fournit aucune valeur de production.
 
 ## Conception technique et exploitation à préciser
 

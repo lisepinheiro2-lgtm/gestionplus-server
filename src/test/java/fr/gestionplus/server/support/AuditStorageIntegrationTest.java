@@ -8,8 +8,14 @@ import java.util.Base64;
 
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+
+import fr.gestionplus.server.account.ActivationMessageSender;
 
 public abstract class AuditStorageIntegrationTest {
+
+	@MockitoBean
+	protected ActivationMessageSender messageSender;
 
 	@DynamicPropertySource
 	static void auditStorage(DynamicPropertyRegistry properties) {

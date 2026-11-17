@@ -46,23 +46,7 @@ public class ActivationIdentityChallengeService {
 		this.activationTransaction = new TransactionTemplate(transactionManager);
 	}
 
-	public void createChallenge(UUID invitationID) {
-
-		Instant now = clock.instant();
-
-		Invitation invitation = invitationStore.findByID(invitationID).filter(i -> i.tokenDigest() != null)
-				.filter(i -> i.completedAt() == null)
-				.filter(i -> i.expiresAt() != null).filter(i -> now.isBefore(i.expiresAt()))
-				.orElseThrow(() -> new AccountActivationConflictException());
-
-		UUID userID = invitation.userID();
-		Optional<UserAccount> account = accountStore.findById(userID);
-
-		if (account.isEmpty() || account.get().getStatu() != UserAccountStatus.PENDING_ACTIVATION) {
-			throw new AccountActivationConflictException();
-		}
-
-		UserAccount currentAccount = account.get();
+	private void refuseIfResendBlocked(UUID invitationID, UUID userID, Instant now) {
 		Optional<ActivationIdentityChallenge> challenge = challengeStore.findCurrentByInvitationAndUser(invitationID,
 				userID);
 
@@ -75,24 +59,47 @@ public class ActivationIdentityChallengeService {
 
 		}
 
-		if (challengeStore.countByInvitationAndUser(invitationID, userID) >= 3) {
+		if (challengeStore.countByInvitationAndUser(invitationID, userID) >= MAX_SMS_PER_INVITATION) {
 			throw new AccountActivationConflictException();
 		}
+
+	}
+
+	public void createChallenge(UUID invitationID) {
+
+		Instant now = clock.instant();
+
+		Invitation invitation = invitationStore.findByID(invitationID).filter(i -> i.tokenDigest() != null)
+				.filter(i -> i.completedAt() == null)
+				.filter(i -> i.expiresAt() != null).filter(i -> now.isBefore(i.expiresAt()))
+				.orElseThrow(AccountActivationConflictException::new);
+
+		UUID userID = invitation.userID();
+		UserAccount account = accountStore.findById(userID)
+				.filter(a -> a.getStatu() == UserAccountStatus.PENDING_ACTIVATION)
+				.orElseThrow(AccountActivationConflictException::new);
+
+		refuseIfResendBlocked(invitationID, invitation.userID(), now);
 
 		UUID challengeID = UUID.randomUUID();
 		String code = codeGenerator.generate();
 		String codeDigest = codeDigester.digest(challengeID, code);
 
 		ActivationIdentityChallenge newChallenge = new ActivationIdentityChallenge(challengeID, userID,
-				currentAccount.getPhoneNumber(), invitationID, codeDigest, 0, now, now.plus(CODE_VALIDITY), null, null);
+				account.getPhoneNumber(), invitationID, codeDigest, 0, now, now.plus(CODE_VALIDITY), null,
+				null);
 
-		activationTransaction.executeWithoutResult(c -> {
+		activationTransaction.executeWithoutResult(status -> {
+			accountStore.findByIdForUpdate(invitation.userID())
+					.filter(a -> a.getStatu() == UserAccountStatus.PENDING_ACTIVATION)
+					.orElseThrow(AccountActivationConflictException::new);
+			refuseIfResendBlocked(invitationID, invitation.userID(), now);
 			challengeStore.replaceCurrent(newChallenge, now);
 		});
 
 		try {
 
-			messageSender.send(currentAccount.getPhoneNumber(), code);
+			messageSender.send(account.getPhoneNumber(), code);
 
 		} catch (RuntimeException e) {
 			challengeStore.revokeCurrent(challengeID, now);

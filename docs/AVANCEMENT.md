@@ -1,6 +1,7 @@
 ---
-summary: "État documentaire au 15 novembre 2026 sur 02a8f44 : activation séparée des invitations, preuve d’identité avant la transaction et consommation du défi SMS avec l’activation. 723/723 réussites confirmées localement par Lise dans Eclipse ; génération, envoi et vérificateur concret SMS encore à développer."
+summary: "État au 17 novembre 2026 sur 7bb9ad3 : création des défis SMS, tests écrits non exécutés, expéditeur simulé partagé en test et appel sans transaction englobante documenté ; expéditeur réel et concurrence à compléter. Dernier résultat rapporté : 745/745 sur 9c1a5a0."
 read_when:
+  - "reprendre le service de création des défis SMS, ses tests écrits et ses limites au 17 novembre"
   - "reprendre AccountActivationService après extraction et contrôle transactionnel du défi SMS sur f5a7dbf et 02a8f44"
   - "reprendre le stockage des défis SMS d’activation, la migration V27 et les 723/723 réussites du 15 novembre"
   - "reprendre les sept classes de tests d’invitation après le découpage sur ad3a59c"
@@ -26,6 +27,49 @@ read_when:
 ---
 
 # Avancement et feuille de route
+
+<a id="creation-defis-sms-2026-11-17"></a>
+
+## Création des défis SMS et tests du service — 17 novembre 2026
+
+**Demande et références.** Tests et documentation demandés pour [7bb9ad3](https://github.com/lisepinheiro2-lgtm/gestionplus-server/commit/7bb9ad3f785ab2b9954be06a058a3dfc5201a88e), vérifié comme `HEAD` local et dernier commit de `main` sur GitHub au début de la reprise. Ce commit ajoute uniquement `ActivationIdentityChallengeService.java`. Les composants précédents sont publiés sur `fbe8dbf` (`createdAt`), `5bcb8d4` et `9c1a5a0` (générateur, HMAC et tests), puis `e824b19` (comptage, révocation compensante, contrat `ActivationMessageSender` et tests du stockage). Pendant cette intervention, Lise remplace localement le seuil littéral par `MAX_SMS_PER_INVITATION` ; cette modification est conservée, sans modification du comportement attendu.
+
+**Code présent.** Le service vérifie l'existence d'une invitation non clôturée avec empreinte de jeton et échéance future, puis recherche un compte `PENDING_ACTIVATION`. Un défi courant encore utilisable interdit un renvoi avant 60 secondes. Le compteur porte sur **toutes les lignes** du couple invitation/compte, y compris les défis révoqués, consommés et les échecs d'envoi compensés ; trois tentatives interdisent une nouvelle création.
+
+Le générateur fournit un code de six chiffres ASCII ; le digesteur HMAC associe le code à l'UUID du nouveau défi avec la clé externe `gestionplus.activation.challenge-key`. Le record contient l'empreinte, zéro échec, la date de création et une échéance à cinq minutes. `replaceCurrent` persiste ce défi dans un `TransactionTemplate`. Le service appelle ensuite `ActivationMessageSender.send(phoneNumber, code)`. Si cet appel lève une exception d'exécution, il demande `revokeCurrent` sur l'UUID créé puis propage l'échec si la compensation aboutit. Une ligne révoquée reste comptée dans le quota. Le mécanisme ne constitue pas une file durable de livraison ou une garantie d'envoi exactement une fois.
+
+| Fichier | Rôle ou couverture |
+| --- | --- |
+| [ActivationIdentityChallengeService.java](../src/main/java/fr/gestionplus/server/account/ActivationIdentityChallengeService.java) | Préconditions, délai, quota séquentiel, création, persistance et appel de l'expéditeur avec compensation. |
+| [ActivationMessageSender.java](../src/main/java/fr/gestionplus/server/account/ActivationMessageSender.java) | Contrat d'envoi ; expéditeur simulé partagé dans les tests, aucun expéditeur SMS concret pour l'application. |
+| [PostgresqlActivationIdentityChallengeStore.java](../src/main/java/fr/gestionplus/server/persistence/PostgresqlActivationIdentityChallengeStore.java) | Historique complet compté par invitation/compte ; révocation conditionnelle en `REQUIRES_NEW`, sans suppression de ligne. |
+| [ActivationIdentityChallengeServiceTest.java](../src/test/java/fr/gestionplus/server/account/ActivationIdentityChallengeServiceTest.java) | 14 méthodes de tests unitaires, dont des méthodes paramétrées : invitations invalides, compte absent/non en attente, seuils 59/60 secondes et 2/3 tentatives, défi expiré, contenu persistant, ordre commit/envoi, échecs du HMAC, de la persistance, du commit et de l'envoi. |
+| [ActivationIdentityChallengeServicePostgresqlIntegrationTest.java](../src/test/java/fr/gestionplus/server/account/ActivationIdentityChallengeServicePostgresqlIntegrationTest.java) | Quatre scénarios avec stores réels et expéditeur simulé : empreinte persistée avant l'envoi hors transaction en appel autonome, seuil du renvoi, quatrième tentative séquentielle refusée et trois échecs compensés restant comptés. |
+| [AbstractAccountInvitationPostgresqlIntegrationTest.java](../src/test/java/fr/gestionplus/server/account/AbstractAccountInvitationPostgresqlIntegrationTest.java) | Configuration PostgreSQL Testcontainers et héritage conservés ; le mock d'envoi SMS est hérité de la base commune. |
+| [AuditStorageIntegrationTest.java](../src/test/java/fr/gestionplus/server/support/AuditStorageIntegrationTest.java) | `@MockitoBean ActivationMessageSender` partagé par les contextes `@SpringBootTest` actuels ; déclaration limitée à `src/test`. |
+
+**Isolation des nouveaux tests.** Les tests unitaires utilisent un gestionnaire de transactions simulé pour vérifier l'ordre des appels, sans prétendre prouver un commit PostgreSQL. Les quatre tests d'intégration héritent du contexte isolé existant et ajoutent une clé HMAC fictive par `@TestPropertySource`. À la demande de Lise, le `@MockitoBean ActivationMessageSender` est partagé dans `AuditStorageIntegrationTest` ; sa déclaration locale dans le nouveau test PostgreSQL est retirée pour éviter un doublon. Tous les contextes `@SpringBootTest` actuels héritent directement ou indirectement de cette base. Les simulations existantes, notamment celles de l'horloge, des invitations, du vérificateur et des credentials, sont conservées dans leurs contextes. Les invitations de test sont préparées dans le store ; aucun SMS réel ni envoi SMTP n'est utilisé par ces scénarios. Les vingt méthodes existantes du test de stockage restent distinctes. Aucune migration nouvelle n'est nécessaire.
+
+<a id="contrat-appel-creation-defis-sms"></a>
+
+### Contrainte d'appel de createChallenge
+
+**L'appelant doit invoquer `createChallenge(invitationID)` sans transaction Spring déjà active.** Ne pas l'appeler depuis une méthode exécutée sous `@Transactional` ni depuis le corps d'un `TransactionTemplate` actif.
+
+Dans ce cadre, le service ouvre sa transaction de remplacement, attend sa validation puis appelle l'expéditeur hors transaction. Avec une transaction englobante, la propagation `REQUIRED` rejoint celle-ci : le retour du template ne signifie pas son commit, et l'envoi pourrait avoir lieu avant sa validation ou même avant son rollback.
+
+**Cette précondition est documentaire, pas imposée automatiquement par le code actuel.** Il n'existe ni garde de transaction active, ni `Propagation.NEVER`, ni callback `afterCommit` dans cette méthode. Les futurs appelants doivent respecter ce contrat ; les tests de commit avant envoi couvrent seulement l'appel autonome. L'ajout du bean simulé ne modifie pas cette contrainte.
+
+**Limites repérées par lecture, non corrigées par cette tâche de tests/documentation.**
+
+- **Assemblage de l'application :** le constructeur exige `ActivationMessageSender`. Les contextes de test disposent désormais du mock partagé sous `src/test` ; aucun expéditeur concret n'est ajouté à la production. Son absence reste à traiter avant le démarrage de l'application. Aucun démarrage ni chargement de contexte n'a été exécuté pour valider cette adaptation.
+- **Concurrence :** le quota, le délai et les préconditions sont lus avant la transaction de remplacement et son verrou. Deux appels peuvent donc décider simultanément de créer un défi ; le verrou pris dans `replaceCurrent` arrive après leur comptage. Les tests séquentiels ne démontrent pas un plafond concurrent de trois. L'état de l'invitation et du compte n'est pas relu sous ce verrou par ce service.
+- **Transaction appelante :** le contrat impose désormais un appel sans transaction englobante, comme détaillé ci-dessus. Le `TransactionTemplate` conserve sa propagation `REQUIRED` et le service ne vérifie pas cette précondition. Les tests de commit avant envoi couvrent seulement l'appel autonome.
+- **Parcours incomplet :** pas d'expéditeur SMS concret, de vérificateur concret du code, de route HTTP de défi ou d'intégration Swing. L'entrée du service reçoit un UUID d'invitation, pas une preuve de possession du jeton ; un futur point d'entrée devra imposer ses contrôles. La réussite d'une simulation ne valide aucun opérateur SMS réel.
+
+**Validation et portée des résultats.** Les 14 méthodes unitaires et quatre scénarios PostgreSQL sont **écrits, non exécutés** pendant cette intervention ; leur présence n'est ni une réussite ni une preuve de couverture exhaustive. Le dernier bilan global disponible dans les échanges est **745/745 réussis dans Eclipse, confirmés par Lise le 16 novembre sur `9c1a5a0`**. Les **723/723 du 15 novembre sur `02a8f44`** restent un jalon antérieur. Aucun de ces résultats n'est transposé à `e824b19`, `7bb9ad3` ou aux nouveaux tests ; aucun total courant n'est calculé par addition.
+
+**Suite à préparer.** Respecter le contrat d'appel hors transaction pour les futurs appelants ; une éventuelle garde automatique nécessitera une intervention distincte. Fournir l'expéditeur concret puis coordonner relecture, comptage et création sous verrou. Ajouter les preuves de concurrence correspondantes et raccorder le vérificateur SMS. L'adaptation du bean reste limitée aux tests ; aucun code applicatif, configuration de production ou schéma modifié par l'assistant. Aucun test, build, serveur, migration, commit ou push lancé. La modification locale du seuil faite par Lise est préservée.
 
 <a id="activation-defis-sms-refactorisation-2026-11-15"></a>
 
