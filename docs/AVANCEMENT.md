@@ -1,6 +1,7 @@
 ---
-summary: "État au 17 novembre 2026 sur 5a5d26f : compte, délai et quota relus sous verrou ; 788/788 rapportés par Lise, téléphone lu avant verrou, appel hors transaction et beans définitifs après raccordement suivis."
+summary: "Demande de code SMS sur 6c374a1 et tests locaux corrigés : 838/838 rapportés par Lise le 17 novembre 2026 ; contrat hors transaction et limites SMS conservés."
 read_when:
+  - "reprendre la demande de code SMS, ses tests corrigés et le résultat local de 838/838"
   - "reprendre le service de création des défis SMS, ses tests écrits et ses limites au 17 novembre"
   - "reprendre AccountActivationService après extraction et contrôle transactionnel du défi SMS sur f5a7dbf et 02a8f44"
   - "reprendre le stockage des défis SMS d’activation, la migration V27 et les 723/723 réussites du 15 novembre"
@@ -28,9 +29,34 @@ read_when:
 
 # Avancement et feuille de route
 
+<a id="demande-code-sms-2026-11-17"></a>
+
+## Demande de code SMS protégée par le jeton d’invitation — 17 novembre 2026
+
+**Référence et résultat.** Le `HEAD` local relu est `6c374a1a8cbef8ce6b002b9e99654d010799b9eb` (« Ajouter la demande de code SMS d’activation »). Lise confirme **838/838 tests réussis dans Eclipse après correction des jetons de test**. Ce résultat concerne l’état local fondé sur ce commit, complété par les deux classes ci-dessous, encore non suivies par Git au début de cette actualisation. Il ne s’agit pas d’une exécution de l’assistant. Les 788/788 sur `5a5d26f` restent le jalon précédent.
+
+**Parcours côté serveur.** `AccountActivationService.requestActivationChallenge(invitationID, token)` refuse un identifiant nul ou un jeton absent ou mal formé : 43 caractères parmi `A-Z`, `a-z`, `0-9`, `_` et `-`. `requireValidInvitation` contrôle ensuite l’invitation, son échéance et la correspondance de l’empreinte du jeton avec `MessageDigest.isEqual`, avant de déléguer à `ActivationIdentityChallengeService.createChallenge`. Une livraison encore en attente conserve son refus temporaire pour le jeton correspondant ; un autre jeton est refusé sans dévoiler cette attente. La demande de SMS ne vérifie pas le mot de passe ni la preuve d’identité et n’active pas le compte. `completeActivation` réutilise le contrôle de forme extrait dans `isValidToken`.
+
+**Audit et transaction.** L’action `INVITATION_SMS_REQUEST` et `@AuditedOperation(..., invitation = 0)` permettent à l’intercepteur existant de tracer les refus et les échecs sur la cible invitation. Les tests distinguent `DENIED` / `ACCESS_NOT_AUTHORIZED` pour un jeton invalide ou une invitation expirée et `FAILURE` / `OPERATION_FAILED` pour un conflit de renvoi, le quota ou un échec d’envoi. Ils vérifient aussi l’absence d’acteur authentifié lors des appels sans session et l’absence de jeton, de code et de message d’exception dans les métadonnées. L’annotation ne crée pas à elle seule de trace de succès.
+
+La nouvelle méthode n’ouvre pas de transaction englobante avant la délégation. **Elle doit elle aussi être appelée sans transaction Spring déjà active**, conformément au [contrat de création du défi](#contrat-appel-creation-defis-sms). Aucune garde automatique n’est ajoutée ; le test d’envoi hors transaction porte sur l’appel autonome.
+
+| Fichier | Réalisation ou couverture |
+| --- | --- |
+| [AccountActivationService.java](../src/main/java/fr/gestionplus/server/account/AccountActivationService.java) | Validation du jeton avant la demande de défi et contrôle de forme partagé avec l’activation. |
+| [AuditAction.java](../src/main/java/fr/gestionplus/server/audit/AuditAction.java) | Ajout de `INVITATION_SMS_REQUEST`. |
+| [AccountActivationServiceTest.java](../src/test/java/fr/gestionplus/server/account/AccountActivationServiceTest.java) | 10 méthodes unitaires, dont des méthodes paramétrées : jetons admis ou refusés, invitations inconnues ou inutilisables, livraison en attente, propagation des erreurs et refus des jetons mal formés avant le contrôle du mot de passe. |
+| [AccountActivationChallengePostgresqlIntegrationTest.java](../src/test/java/fr/gestionplus/server/account/AccountActivationChallengePostgresqlIntegrationTest.java) | Six scénarios : demande sans session avec défi persisté avant l’envoi hors transaction et compte restant en attente ; mauvais jeton ; expiration exacte ; renvoi refusé à 59 secondes puis admis à 60 ; quatrième demande refusée ; échec d’envoi compensé, quota conservé et métadonnées d’audit sans secrets. |
+
+**Correction des données de test.** Le premier lancement montrait cinq erreurs sur 838 exécutions : les six scénarios PostgreSQL réutilisaient un jeton constant alors que V20 impose l’unicité de `account_invitations.token_digest`. La préparation génère désormais un jeton propre à chaque test avec `InvitationTokenIssuer` et des UUID distincts. La contrainte de production est conservée. Lise confirme ensuite les 838 tests verts ; le total n’est pas déduit du nombre de méthodes annotées.
+
+**Limites et suite.** Aucun parcours HTTP de demande de SMS ni raccordement Swing n’est ajouté. L’expéditeur et le vérificateur SMS concrets restent à fournir [après raccordement serveur–client](#beans-definitifs-apres-raccordement). L’invitation non relue sous verrou, le [téléphone lu auparavant](#telephone-avant-verrou-defis-sms) et l’absence de scénario réellement concurrent de demande de SMS restent des limites. Cette actualisation modifie uniquement la documentation : aucun code Java, test, configuration ou migration modifié, aucun test, build, serveur, migration, commit ou push exécuté par l’assistant.
+
 <a id="creation-defis-sms-2026-11-17"></a>
 
 ## Création des défis SMS et tests du service — 17 novembre 2026
+
+**Repère historique.** Cette section conserve l’étape `5a5d26f` et son résultat de 788/788. La [demande de code SMS et les 838/838 rapportés après correction des tests](#demande-code-sms-2026-11-17) décrivent la suite.
 
 **Demande et références.** Après les tests et la documentation demandés pour [7bb9ad3](https://github.com/lisepinheiro2-lgtm/gestionplus-server/commit/7bb9ad3f785ab2b9954be06a058a3dfc5201a88e), Lise demande l'adaptation des tests à sa relecture sous verrou, puis le suivi de la fenêtre du téléphone, du contrat d'appel et des beans définitifs après raccordement serveur–client. L'état de référence actuel est [5a5d26f](https://github.com/lisepinheiro2-lgtm/gestionplus-server/commit/5a5d26f723b742e0b557f28f0cbf419e74802fa3), vérifié comme `HEAD` local et relu dans les sources. Il contient le seuil `MAX_SMS_PER_INVITATION`, la relecture du compte et les nouveaux tests. Les composants antérieurs proviennent de `fbe8dbf` (`createdAt`), `5bcb8d4` et `9c1a5a0` (générateur, HMAC et tests), puis `e824b19` (comptage, révocation compensante et contrat d'envoi). Cette mise à jour modifie uniquement la documentation.
 
@@ -647,6 +673,8 @@ La configuration actuelle contient bien `spring.jpa.hibernate.ddl-auto: validate
 
 ## Tests : sources et résultats sont deux informations différentes
 
+Le dernier résultat global est **838/838 tests réussis, rapportés par Lise le 17 novembre 2026** sur `6c374a1` complété des deux classes de tests locales corrigées ; voir la [demande de code SMS et sa validation](#demande-code-sms-2026-11-17).
+
 Les campagnes ci-dessous restent historiques. Le [bilan du 5 novembre](#tests-autorisations-2026-11-05) décrit les tests adaptés à cette date. Le [bilan du 9 novembre](#audit-rattachements-2026-11-09) consigne séparément le lancement local de 356 tests réussi par l’utilisatrice.
 
 Inventaire du **27 octobre** : **15 classes et 59 méthodes annotées `@Test`** à cette date ; chiffre historique, **non présenté comme l'inventaire actuel**. De nouvelles classes de tests ont depuis été publiées. Un fichier présent sur GitHub et un résultat vert local sont deux preuves distinctes.
@@ -867,3 +895,4 @@ Journal public :
 | 15 novembre 2026 — stockage des défis SMS d’activation | Dernier commit GitHub et local vérifié : `4abe62c`, six fichiers concernés. V27, contrat et record imbriqué `ActivationIdentityChallenge`, adaptateur PostgreSQL avec remplacement transactionnel, révocation au troisième échec et consommation dans la transaction métier ; dix tests d’intégration ajoutés. **723/723 tests réussis confirmés par Lise dans Eclipse** sur l’état publié, sans relance par l’assistant. Envoi et vérification effective des SMS encore à développer. Record séparé homonyme vide supprimé localement par Lise pendant la reprise ; aucune modification Java par l’assistant. |
 | 15 novembre 2026 — séparation de l’activation | `f5a7dbf` extrait `AccountActivationService` de `AccountInvitationService`, transfère les contrôles, la transaction et les événements d’audit, puis adapte la base de tests et les appels PostgreSQL. Aucun nouvel accès HTTP métier ni parcours SMS opérationnel n’en est déduit. |
 | 15 novembre 2026 — défi validé avant transaction et consommé avec l’activation | `02a8f44` décompose `completeActivation`, fait renvoyer un `Optional<UUID>` au vérificateur avant la transaction, relit les correspondances et consomme le défi dans la transaction d’activation. Données de test et concurrence avec expiration adaptées, préparation du défi déplacée avant l’expiration SQL. **723/723 tests réussis confirmés localement par Lise dans Eclipse après correction**, sans exécution par l’assistant. Génération, envoi réel et vérificateur concret SMS encore à développer ; tests avec vérificateur simulé. |
+| 17 novembre 2026 — demande de code SMS et tests corrigés | Sur `6c374a1`, contrôle du jeton d’invitation avant création du défi et audit `INVITATION_SMS_REQUEST`. Deux classes locales ajoutent 10 méthodes unitaires, dont des méthodes paramétrées, et six scénarios PostgreSQL ; jeton propre à chaque test après collision sur `token_digest`. **838/838 tests réussis rapportés par Lise après correction**, sur cet état complété encore non commité pour les tests. Aucun lancement par l’assistant pendant l’actualisation documentaire ; contrat hors transaction et limites SMS conservés. |
