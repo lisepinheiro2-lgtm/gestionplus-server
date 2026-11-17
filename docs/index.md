@@ -32,11 +32,11 @@ Ce serveur fait partie du même projet Gestion+ que le client Swing. Leur réuni
 
 ## État et lecture des preuves
 
-Au 17 novembre 2026, le dernier commit GitHub vérifié est `7bb9ad3`, qui ajoute la création des défis SMS ; la modification locale du seuil par Lise est conservée. Générateur, HMAC, comptage complet et révocation sont présents. Les 14 méthodes unitaires et quatre scénarios PostgreSQL du service sont écrits, non exécutés. Le dernier bilan global rapporté reste **745/745 dans Eclipse sur `9c1a5a0` le 16 novembre**, distinct des 723/723 du 15 novembre. L’expéditeur est simulé dans la base commune des tests ; l’application attend encore son expéditeur concret. Le [contrat d’appel de `createChallenge`](AVANCEMENT.md#contrat-appel-creation-defis-sms) impose l’absence de transaction englobante, sans garde automatique dans le code. La coordination du quota sous verrou reste à traiter. Aucun SMS réel, vérificateur concret ou parcours Swing complet n’est validé. Les autres preuves historiques gardent leurs dates et limites.
+Au 17 novembre 2026, l’état de référence relu localement est `5a5d26f`, après l’ajout du service sur `7bb9ad3`. Le compte, le délai et le quota sont revérifiés sous verrou ; seule l’invitation n’est pas relue à cet endroit. Les sources contiennent 18 méthodes unitaires et quatre scénarios PostgreSQL du service. Lise rapporte **788/788 tests réussis sur `5a5d26f`**, sans exécution de l’assistant ; les 745/745 du 16 novembre et les 723/723 du 15 novembre restent historiques. La [fenêtre du téléphone lu avant verrou](AVANCEMENT.md#telephone-avant-verrou-defis-sms) et le [contrat d’appel hors transaction](AVANCEMENT.md#contrat-appel-creation-defis-sms), sans garde automatique, restent suivis. Les [beans SMS définitifs et les autres composants applicatifs provisoires](AVANCEMENT.md#beans-definitifs-apres-raccordement) sont à reprendre après raccordement serveur–client. Les mocks de tests restent isolés sous `src/test` ; aucun parcours SMS réel ou Swing complet n’est validé par ce résultat.
 
 La démonstration autonome Swing reste distincte. La sécurité de l’usage connecté doit être imposée côté serveur ; l’absence de connexion n’autorise pas un repli privilégié local.
 
-Ce sommaire est actualisé le **17 novembre 2026** après lecture des sources et comparaison documentaire. Aucun test, build, démarrage ou migration exécuté ; les nouveaux tests restent sans résultat d’exécution.
+Ce sommaire est actualisé le **17 novembre 2026** après lecture des sources et comparaison documentaire. Le résultat de 788/788 est rapporté par Lise pour `5a5d26f` ; aucun test, build, démarrage ou migration exécuté par l’assistant.
 
 ## Suivi public et suivi privé
 
