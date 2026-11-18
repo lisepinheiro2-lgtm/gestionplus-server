@@ -1,6 +1,7 @@
 ---
-summary: "Demande de code SMS sur 6c374a1 et tests locaux corrigés : 838/838 rapportés par Lise le 17 novembre 2026 ; contrat hors transaction et limites SMS conservés."
+summary: "Vérificateur HMAC sur e103f72, tests sur 68ce7ef et réserves annexées le 18 novembre ; dernier bilan global rapporté : 838/838 le 17 novembre."
 read_when:
+  - "reprendre le vérificateur HMAC du code SMS, les tests et les réserves du 18 novembre"
   - "reprendre la demande de code SMS, ses tests corrigés et le résultat local de 838/838"
   - "reprendre le service de création des défis SMS, ses tests écrits et ses limites au 17 novembre"
   - "reprendre AccountActivationService après extraction et contrôle transactionnel du défi SMS sur f5a7dbf et 02a8f44"
@@ -29,6 +30,35 @@ read_when:
 
 # Avancement et feuille de route
 
+<a id="verification-hmac-sms-2026-11-18"></a>
+
+## Vérificateur HMAC du code SMS et tests — 18 novembre 2026
+
+**Références.** `e103f725830a44ffcd0ce4b2d73b82b56f6dc60c` (« Vérifier le code SMS d’activation par empreinte HMAC + formatage et cleanUp ») introduit le vérificateur. `68ce7ef0917d3286f74df6f57ecce64d1b73d6ee` (« Tester la vérification des codes SMS d’activation par empreinte HMAC ») ajoute deux classes de tests. Les deux classes de demande de SMS du 17 novembre sont versionnées dans `3b3f78e`.
+
+**Vérification implémentée.** [HmacActivationIdentityVerifier.java](../src/main/java/fr/gestionplus/server/account/HmacActivationIdentityVerifier.java) est un `@Component` implémentant `ActivationIdentityVerifier`. Il recherche le défi courant pour l’invitation et le compte ; téléphone différent ou `isUsable(now)` faux donnent un refus sans tentative supplémentaire. Le digesteur existant calcule HMAC-SHA-256 sur `gestionplus-activation-challenge-v1:<challengeID>:<code>` avec la clé externe `gestionplus.activation.challenge-key`. Le vérificateur compare les empreintes hexadécimales par `MessageDigest.isEqual` sur leurs octets US-ASCII. Il renvoie l’UUID en cas de succès et appelle `recordFailedAttempt` si le code diffère. Il ne consomme pas le défi : [AccountActivationService.java](../src/main/java/fr/gestionplus/server/account/AccountActivationService.java) le relit et le consomme dans la transaction d’activation, avec rollback commun en cas d’échec. Les autres retouches de `e103f72` portent sur le formatage et les imports. Aucune migration ajoutée.
+
+La règle de renvoi retenue le 18 novembre protège le défi courant pendant les 60 secondes qui suivent sa création, tant qu’il reste utilisable. Le troisième échec de vérification du code révoque le défi. Une nouvelle demande valide peut alors créer un défi immédiatement si le quota de trois défis par couple invitation et compte le permet. Le défi révoqué reste compté dans ce quota.
+
+| Test ajouté dans `68ce7ef` | Assertions présentes, sans exécution pendant cette actualisation |
+| --- | --- |
+| [HmacActivationIdentityVerifierTest.java](../src/test/java/fr/gestionplus/server/account/HmacActivationIdentityVerifierTest.java) | Huit méthodes, dont une paramétrée : défi absent, autre téléphone, expiration exacte ou dépassée, révocation, consommation, trois échecs déjà atteints, succès sans consommation, mauvais code compté une fois. Horloge fixe, store simulé et vrai digesteur. |
+| [AccountActivationSmsPostgresqlIntegrationTest.java](../src/test/java/fr/gestionplus/server/account/AccountActivationSmsPostgresqlIntegrationTest.java) | Quatre scénarios : activation et consommation unique avec refus du rejeu ; trois erreurs révoquant le défi ; expiration avant consommation ; rollback sur conflit de nom puis réutilisation du code. Le mock hérité délègue à une instance du vérificateur concret, avec vrai digesteur et stockage PostgreSQL ; expéditeur et credentials simulés. |
+
+**Preuves et limites.** Présence et contenu des tests vérifiés par lecture statique ; aucun nouveau résultat confirmé pour ces commits. Les **838/838 rapportés par Lise le 17 novembre** ne couvrent pas par extension les ajouts du 18 novembre. Les nouveaux scénarios sont séquentiels et ne prouvent ni l’envoi réel, ni la concurrence, ni la sélection du bean concret dans un assemblage applicatif complet. Le vérificateur n’est plus à développer ; l’expéditeur SMS concret, l’API HTTP et le raccordement Swing restent à construire. Les limites antérieures sur l’invitation, le téléphone et l’appel hors transaction englobante restent suivies. Le tableau des [composants applicatifs](#beans-definitifs-apres-raccordement) est actualisé ; les autres descriptions datées du 17 novembre conservent leur valeur historique.
+
+<a id="reserves-sms-2026-11-18"></a>
+
+### Réserves annexées après relecture des sources
+
+Ces constats complètent les limites déjà suivies et reposent sur la lecture des sources.
+
+| Réserve | Constat et conséquence | Piste à examiner séparément |
+| --- | --- | --- |
+| Refus et échecs SMS sans entreprise | Pour `INVITATION_SMS_REQUEST`, [AuditFailureInterceptor](../src/main/java/fr/gestionplus/server/audit/AuditFailureInterceptor.java) ne reçoit que la cible `INVITATION`. [AuditService.resolveTenant](../src/main/java/fr/gestionplus/server/audit/AuditService.java) résout les entreprises, structures et comptes, pas les invitations : `tenant_id` reste nul, même pour une invitation connue. Une future consultation filtrée par entreprise omettrait ces événements. | Résoudre l’entreprise depuis l’invitation connue côté serveur, sans se fier à un identifiant d’entreprise fourni par le client ; préserver les refus génériques pour les invitations inconnues. Vérifier ensuite le rattachement des événements et leur visibilité autorisée. |
+| Instants antérieurs aux attentes de verrous | [ActivationIdentityChallengeService](../src/main/java/fr/gestionplus/server/account/ActivationIdentityChallengeService.java) fixe `now` avant le verrou du compte et le réutilise pour le délai et l’échéance du défi. Une attente réduit sa durée utile après envoi. À la consommation, [AccountActivationService](../src/main/java/fr/gestionplus/server/account/AccountActivationService.java) transmet un instant Java à l’UPDATE atomique de [PostgresqlActivationIdentityChallengeStore](../src/main/java/fr/gestionplus/server/persistence/PostgresqlActivationIdentityChallengeStore.java). Une attente de verrou de ligne peut faire franchir l’échéance réelle avant l’écriture : l’atomicité de l’état ne garantit pas l’expiration à cet instant physique. | Réévaluer l’instant après acquisition du verrou pour la création et définir une stratégie d’échéance à la consommation après attente. Vérifier avec de véritables contentions, au-delà des tests séquentiels d’expiration. |
+| Échec de la révocation compensante | Dans [createChallenge](../src/main/java/fr/gestionplus/server/account/ActivationIdentityChallengeService.java), le défi est déjà validé avant l’envoi. Si l’envoi lève une exception puis `revokeCurrent` échoue aussi dans sa transaction `REQUIRES_NEW`, le défi peut rester courant jusqu’à expiration ; il reste compté dans le quota et l’exception de révocation remplace celle de l’envoi. | Préserver les deux causes sans secrets et définir une reprise durable de la révocation. Vérifier le double échec et la reprise après indisponibilité du stockage. |
+
 <a id="demande-code-sms-2026-11-17"></a>
 
 ## Demande de code SMS protégée par le jeton d’invitation — 17 novembre 2026
@@ -50,7 +80,7 @@ La nouvelle méthode n’ouvre pas de transaction englobante avant la délégati
 
 **Correction des données de test.** Le premier lancement montrait cinq erreurs sur 838 exécutions : les six scénarios PostgreSQL réutilisaient un jeton constant alors que V20 impose l’unicité de `account_invitations.token_digest`. La préparation génère désormais un jeton propre à chaque test avec `InvitationTokenIssuer` et des UUID distincts. La contrainte de production est conservée. Lise confirme ensuite les 838 tests verts ; le total n’est pas déduit du nombre de méthodes annotées.
 
-**Limites et suite.** Aucun parcours HTTP de demande de SMS ni raccordement Swing n’est ajouté. L’expéditeur et le vérificateur SMS concrets restent à fournir [après raccordement serveur–client](#beans-definitifs-apres-raccordement). L’invitation non relue sous verrou, le [téléphone lu auparavant](#telephone-avant-verrou-defis-sms) et l’absence de scénario réellement concurrent de demande de SMS restent des limites. Cette actualisation modifie uniquement la documentation : aucun code Java, test, configuration ou migration modifié, aucun test, build, serveur, migration, commit ou push exécuté par l’assistant.
+**Limites et suite.** Aucun parcours HTTP de demande de SMS ni raccordement Swing n’est ajouté. L’expéditeur concret reste à fournir après raccordement serveur–client. L’implémentation du vérificateur HMAC est décrite au [jalon du 18 novembre](#verification-hmac-sms-2026-11-18). L’invitation non relue sous verrou, le [téléphone lu auparavant](#telephone-avant-verrou-defis-sms) et l’absence de scénario réellement concurrent de demande de SMS restent des limites. Cette actualisation modifie uniquement la documentation : aucun code Java, test, configuration ou migration modifié, aucun test, build, serveur, migration, commit ou push exécuté par l’assistant.
 
 <a id="creation-defis-sms-2026-11-17"></a>
 
@@ -60,7 +90,7 @@ La nouvelle méthode n’ouvre pas de transaction englobante avant la délégati
 
 **Demande et références.** Après les tests et la documentation demandés pour [7bb9ad3](https://github.com/lisepinheiro2-lgtm/gestionplus-server/commit/7bb9ad3f785ab2b9954be06a058a3dfc5201a88e), Lise demande l'adaptation des tests à sa relecture sous verrou, puis le suivi de la fenêtre du téléphone, du contrat d'appel et des beans définitifs après raccordement serveur–client. L'état de référence actuel est [5a5d26f](https://github.com/lisepinheiro2-lgtm/gestionplus-server/commit/5a5d26f723b742e0b557f28f0cbf419e74802fa3), vérifié comme `HEAD` local et relu dans les sources. Il contient le seuil `MAX_SMS_PER_INVITATION`, la relecture du compte et les nouveaux tests. Les composants antérieurs proviennent de `fbe8dbf` (`createdAt`), `5bcb8d4` et `9c1a5a0` (générateur, HMAC et tests), puis `e824b19` (comptage, révocation compensante et contrat d'envoi). Cette mise à jour modifie uniquement la documentation.
 
-**Code présent.** Le service vérifie d'abord l'existence d'une invitation non clôturée avec empreinte de jeton et échéance future, puis recherche un compte `PENDING_ACTIVATION`. `refuseIfResendBlocked` contrôle le délai de 60 secondes et le plafond de trois tentatives. Le compteur porte sur **toutes les lignes** du couple invitation/compte, y compris les défis révoqués, consommés et les échecs d'envoi compensés.
+**Code présent.** Le service vérifie d'abord l'existence d'une invitation non clôturée avec empreinte de jeton et échéance future, puis recherche un compte `PENDING_ACTIVATION`. Dans `refuseIfResendBlocked`, le délai de 60 secondes depuis la création protège uniquement un défi courant encore utilisable (`isUsable(now)`). Dès que le troisième code incorrect comptabilisé révoque le défi, un renvoi est possible, dans la limite de trois défis par couple invitation et compte. Ce quota compte **toutes les lignes**, dont les défis révoqués, consommés ou dont l’envoi a échoué et a été compensé.
 
 Dans le `TransactionTemplate`, `findByIdForUpdate` relit le compte sous verrou et contrôle à nouveau `PENDING_ACTIVATION`. `refuseIfResendBlocked` est ensuite relancé sous ce même verrou avant `replaceCurrent` : le délai et le quota sont donc revérifiés après les premières lectures. **L'invitation n'est pas relue sous ce verrou par `createChallenge`.** Le téléphone du défi reste celui du compte lu avant la transaction.
 
@@ -95,11 +125,11 @@ Cette fenêtre résiduelle, décrite comme microscopique en séance, n'a pas ét
 | Contrat | État actuel | Travail prévu après raccordement |
 | --- | --- | --- |
 | `ActivationMessageSender` | Mock partagé dans `AuditStorageIntegrationTest`, uniquement sous `src/test` ; aucun bean applicatif concret. | Implémenter et configurer l'expéditeur relié au fournisseur SMS, puis vérifier les envois et les échecs réels. |
-| `ActivationIdentityVerifier` | Interface simulée dans les tests d'activation ; aucun vérificateur SMS concret. | Implémenter la vérification du code et son raccordement aux défis persistés, avec échéance, tentatives et identité du défi validé. |
+| `ActivationIdentityVerifier` | Depuis `e103f72`, composant `HmacActivationIdentityVerifier` présent. Dans les quatre nouveaux scénarios de `68ce7ef`, le mock hérité lui délègue les appels. | Valider la sélection du bean concret et le parcours réel ; conserver les mocks utiles aux autres tests. La vérification du code est implémentée, son assemblage complet reste à valider. |
 
 Au même jalon, inventorier les éventuels autres beans applicatifs provisoires, puis les remplacer ou les configurer pour le fonctionnement réel. Les mocks de tests, notamment `Clock`, `AccountInvitationSender` et `CredentialService`, restent utiles à l'isolation des tests : leur présence ne signifie pas que leurs équivalents applicatifs sont tous provisoires. L'adaptateur `MailAccountInvitationSender` existe déjà dans le code principal.
 
-Ce planning ne fournit pas aujourd'hui l'expéditeur manquant au démarrage de l'application. Le raccordement au client et le résultat de tests rapporté ne valident pas un parcours SMS réel ; sa mise en service attend ses beans définitifs et leur validation.
+Le démarrage de l’application exige un bean pour l’expéditeur SMS. La validation de l’envoi réel et de l’assemblage avec le vérificateur HMAC reste à faire.
 
 <a id="contrat-appel-creation-defis-sms"></a>
 
@@ -116,11 +146,11 @@ Dans ce cadre, le service ouvre sa transaction de remplacement, attend sa valida
 - **Assemblage de l'application :** le constructeur exige `ActivationMessageSender`. Les contextes de test disposent désormais du mock partagé sous `src/test` ; aucun expéditeur concret n'est ajouté à la production. Son absence reste à traiter avant le démarrage de l'application. Aucun démarrage ni chargement de contexte n'a été exécuté pour valider cette adaptation.
 - **Concurrence et invitation :** le compte est bien relu sous verrou et filtré sur `PENDING_ACTIVATION` ; le délai et le quota sont revérifiés par `refuseIfResendBlocked` après cette relecture. Seul l'état de l'invitation n'est pas relu sous ce verrou par ce service. Les tests unitaires couvrent des changements simulés entre les contrôles ; les quatre scénarios PostgreSQL du service restent séquentiels et ne prouvent pas le comportement d'appels réellement concurrents.
 - **Transaction appelante :** le contrat impose désormais un appel sans transaction englobante, comme détaillé ci-dessus. Le `TransactionTemplate` conserve sa propagation `REQUIRED` et le service ne vérifie pas cette précondition. Les tests de commit avant envoi couvrent seulement l'appel autonome.
-- **Parcours incomplet :** pas d'expéditeur SMS concret, de vérificateur concret du code, de route HTTP de défi ou d'intégration Swing. L'entrée du service reçoit un UUID d'invitation, pas une preuve de possession du jeton ; un futur point d'entrée devra imposer ses contrôles. La réussite d'une simulation ne valide aucun opérateur SMS réel.
+- **Parcours incomplet à l’étape `5a5d26f`.** La création de défi reçoit un UUID d’invitation. La demande protégée par le jeton apparaît sur `6c374a1` et le vérificateur HMAC sur `e103f72`. L’envoi SMS réel, la route HTTP et l’intégration Swing restent à réaliser. [Jalon du 18 novembre](#verification-hmac-sms-2026-11-18)
 
 **Validation et portée des résultats.** Lise rapporte désormais **788/788 tests réussis sur `5a5d26f`**, le 17 novembre 2026. Il s'agit de son résultat local rapporté, pas d'une exécution de l'assistant. Les sources de ce commit contiennent 18 méthodes unitaires du service, dont quatre ajoutées pour les changements détectés sous verrou, et quatre scénarios PostgreSQL du service. Les **745/745 sur `9c1a5a0` le 16 novembre** et les **723/723 sur `02a8f44` le 15 novembre** restent des jalons historiques. La validation porte sur cet état du code ; elle n'établit pas un envoi SMS réel, un raccordement Swing complet ou une preuve de concurrence absente des scénarios.
 
-**Suite à préparer.** Au raccordement serveur–client, respecter l'appel hors transaction englobante et reprendre les réserves sur l'invitation et le téléphone lu avant verrou. Après ce raccordement, fournir les beans définitifs de l'expéditeur et du vérificateur SMS, puis inventorier les autres composants applicatifs provisoires et valider leur intégration réelle. Une garde automatique du contrat d'appel et les preuves d'appels réellement concurrents restent des travaux distincts. Cette intervention documentaire n'exécute aucun test, build, serveur ou migration et n'effectue aucun commit ni push ; le résultat de 788/788 est celui rapporté par Lise.
+Au raccordement serveur–client, respecter le contrat d’appel hors transaction et reprendre les réserves sur l’invitation et le téléphone lu avant verrou. Le fournisseur SMS et la validation de l’assemblage avec le vérificateur concret restent à traiter. [Jalon du 18 novembre](#verification-hmac-sms-2026-11-18)
 
 <a id="activation-defis-sms-refactorisation-2026-11-15"></a>
 
@@ -673,7 +703,7 @@ La configuration actuelle contient bien `spring.jpa.hibernate.ddl-auto: validate
 
 ## Tests : sources et résultats sont deux informations différentes
 
-Le dernier résultat global est **838/838 tests réussis, rapportés par Lise le 17 novembre 2026** sur `6c374a1` complété des deux classes de tests locales corrigées ; voir la [demande de code SMS et sa validation](#demande-code-sms-2026-11-17).
+Le dernier bilan global rapporté par Lise est de **838/838 tests réussis dans Eclipse** le 17 novembre 2026, sur `6c374a1` complété des tests de la demande de SMS, versionnés ensuite dans `3b3f78e`. Le résultat d’exécution des deux classes ajoutées dans `68ce7ef` reste à confirmer. [Vérification HMAC et portée des tests](#verification-hmac-sms-2026-11-18)
 
 Les campagnes ci-dessous restent historiques. Le [bilan du 5 novembre](#tests-autorisations-2026-11-05) décrit les tests adaptés à cette date. Le [bilan du 9 novembre](#audit-rattachements-2026-11-09) consigne séparément le lancement local de 356 tests réussi par l’utilisatrice.
 
@@ -896,3 +926,4 @@ Journal public :
 | 15 novembre 2026 — séparation de l’activation | `f5a7dbf` extrait `AccountActivationService` de `AccountInvitationService`, transfère les contrôles, la transaction et les événements d’audit, puis adapte la base de tests et les appels PostgreSQL. Aucun nouvel accès HTTP métier ni parcours SMS opérationnel n’en est déduit. |
 | 15 novembre 2026 — défi validé avant transaction et consommé avec l’activation | `02a8f44` décompose `completeActivation`, fait renvoyer un `Optional<UUID>` au vérificateur avant la transaction, relit les correspondances et consomme le défi dans la transaction d’activation. Données de test et concurrence avec expiration adaptées, préparation du défi déplacée avant l’expiration SQL. **723/723 tests réussis confirmés localement par Lise dans Eclipse après correction**, sans exécution par l’assistant. Génération, envoi réel et vérificateur concret SMS encore à développer ; tests avec vérificateur simulé. |
 | 17 novembre 2026 — demande de code SMS et tests corrigés | Sur `6c374a1`, contrôle du jeton d’invitation avant création du défi et audit `INVITATION_SMS_REQUEST`. Deux classes locales ajoutent 10 méthodes unitaires, dont des méthodes paramétrées, et six scénarios PostgreSQL ; jeton propre à chaque test après collision sur `token_digest`. **838/838 tests réussis rapportés par Lise après correction**, sur cet état complété encore non commité pour les tests. Aucun lancement par l’assistant pendant l’actualisation documentaire ; contrat hors transaction et limites SMS conservés. |
+| 18 novembre 2026 — vérificateur HMAC et tests | `e103f72` ajoute le vérificateur. `68ce7ef` ajoute huit méthodes unitaires, dont une paramétrée, et quatre scénarios PostgreSQL. Relecture statique seulement, sans nouveau bilan d’exécution confirmé. Trois réserves annexées : entreprise des audits SMS, précision temporelle sous contention et double échec envoi/révocation. |
