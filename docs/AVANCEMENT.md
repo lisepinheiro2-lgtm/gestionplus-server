@@ -1,6 +1,7 @@
 ---
-summary: "Vérificateur HMAC sur e103f72, tests sur 68ce7ef et réserves annexées le 18 novembre ; dernier bilan global rapporté : 838/838 le 17 novembre."
+summary: "Garde E.164 du téléphone des comptes et bilan local de 875/875 rapporté le 18 novembre. Vérificateur HMAC, tests SMS et réserves documentés."
 read_when:
+  - "reprendre le garde téléphonique des comptes et les 875/875 tests rapportés le 18 novembre"
   - "reprendre le vérificateur HMAC du code SMS, les tests et les réserves du 18 novembre"
   - "reprendre la demande de code SMS, ses tests corrigés et le résultat local de 838/838"
   - "reprendre le service de création des défis SMS, ses tests écrits et ses limites au 17 novembre"
@@ -30,6 +31,18 @@ read_when:
 
 # Avancement et feuille de route
 
+<a id="garde-telephone-e164-2026-11-18"></a>
+
+## Garde E.164 du téléphone des comptes — 18 novembre 2026, après-midi
+
+Le commit `47642d1` ajoute `requirePhoneNumber` dans [`UserAccount`](../src/main/java/fr/gestionplus/server/auth/UserAccount.java). La construction du compte et `setPhoneNumber` passent par ce même garde. Le format attendu est un `+` suivi de 1 à 15 chiffres ASCII. Un numéro absent, vide ou mal formé déclenche une `IllegalArgumentException` avec un message en français.
+
+Le commit `80b0805` adapte les données de test avec 54 occurrences de `+12025550100` et une de `+12025550101` pour un compte distinct. Les deux valeurs appartiennent à la plage fictive réservée `555-0100` à `555-0199`. [Plage réservée par la NANPA](https://nanpa.com/numbering/555-line-numbers)
+
+Aucune migration n’est ajoutée ni modifiée par les deux commits. [V27](../src/main/resources/db/migration/V27__store_account_activation_identity_challenges.sql) reste le filet SQL du **défi SMS**. Elle impose un téléphone non nul de 32 caractères au plus, un compteur borné de 0 à 3, la révocation au troisième échec et l’unicité du défi courant par compte et invitation. Le format du numéro du **compte** relève du garde Java. [Validation et responsabilités](DEVELOPPEMENT.md)
+
+Le commit `c09c8b1` ajoute [`UserAccountTest`](../src/test/java/fr/gestionplus/server/auth/UserAccountTest.java). Cette classe couvre la création et la modification du compte, les bornes du format et la conservation du numéro précédent en cas de refus. Lise rapporte **875/875 tests réussis** lors de son lancement local du 18 novembre 2026. Cette mise à jour concerne le README, l’avancement et le guide développeur.
+
 <a id="verification-hmac-sms-2026-11-18"></a>
 
 ## Vérificateur HMAC du code SMS et tests — 18 novembre 2026
@@ -45,7 +58,7 @@ La règle de renvoi retenue le 18 novembre protège le défi courant pendant les
 | [HmacActivationIdentityVerifierTest.java](../src/test/java/fr/gestionplus/server/account/HmacActivationIdentityVerifierTest.java) | Huit méthodes, dont une paramétrée : défi absent, autre téléphone, expiration exacte ou dépassée, révocation, consommation, trois échecs déjà atteints, succès sans consommation, mauvais code compté une fois. Horloge fixe, store simulé et vrai digesteur. |
 | [AccountActivationSmsPostgresqlIntegrationTest.java](../src/test/java/fr/gestionplus/server/account/AccountActivationSmsPostgresqlIntegrationTest.java) | Quatre scénarios : activation et consommation unique avec refus du rejeu ; trois erreurs révoquant le défi ; expiration avant consommation ; rollback sur conflit de nom puis réutilisation du code. Le mock hérité délègue à une instance du vérificateur concret, avec vrai digesteur et stockage PostgreSQL ; expéditeur et credentials simulés. |
 
-**Preuves et limites.** Présence et contenu des tests vérifiés par lecture statique ; aucun nouveau résultat confirmé pour ces commits. Les **838/838 rapportés par Lise le 17 novembre** ne couvrent pas par extension les ajouts du 18 novembre. Les nouveaux scénarios sont séquentiels et ne prouvent ni l’envoi réel, ni la concurrence, ni la sélection du bean concret dans un assemblage applicatif complet. Le vérificateur n’est plus à développer ; l’expéditeur SMS concret, l’API HTTP et le raccordement Swing restent à construire. Les limites antérieures sur l’invitation, le téléphone et l’appel hors transaction englobante restent suivies. Le tableau des [composants applicatifs](#beans-definitifs-apres-raccordement) est actualisé ; les autres descriptions datées du 17 novembre conservent leur valeur historique.
+**Preuves et limites.** À la première relecture statique des tests, le bilan disponible était de **838/838 rapportés par Lise le 17 novembre**. Le [bilan global rapporté l’après-midi du 18 novembre](#garde-telephone-e164-2026-11-18) consigne le lancement local suivant. Les nouveaux scénarios sont séquentiels et ne prouvent ni l’envoi réel, ni la concurrence, ni la sélection du bean concret dans un assemblage applicatif complet. Le vérificateur n’est plus à développer ; l’expéditeur SMS concret, l’API HTTP et le raccordement Swing restent à construire. Les limites antérieures sur l’invitation, le téléphone et l’appel hors transaction englobante restent suivies. Le tableau des [composants applicatifs](#beans-definitifs-apres-raccordement) est actualisé ; les autres descriptions datées du 17 novembre conservent leur valeur historique.
 
 <a id="reserves-sms-2026-11-18"></a>
 
@@ -703,7 +716,7 @@ La configuration actuelle contient bien `spring.jpa.hibernate.ddl-auto: validate
 
 ## Tests : sources et résultats sont deux informations différentes
 
-Le dernier bilan global rapporté par Lise est de **838/838 tests réussis dans Eclipse** le 17 novembre 2026, sur `6c374a1` complété des tests de la demande de SMS, versionnés ensuite dans `3b3f78e`. Le résultat d’exécution des deux classes ajoutées dans `68ce7ef` reste à confirmer. [Vérification HMAC et portée des tests](#verification-hmac-sms-2026-11-18)
+Le dernier bilan global rapporté par Lise est de **875/875 tests réussis** le 18 novembre 2026. [Garde téléphonique et portée du bilan](#garde-telephone-e164-2026-11-18)
 
 Les campagnes ci-dessous restent historiques. Le [bilan du 5 novembre](#tests-autorisations-2026-11-05) décrit les tests adaptés à cette date. Le [bilan du 9 novembre](#audit-rattachements-2026-11-09) consigne séparément le lancement local de 356 tests réussi par l’utilisatrice.
 
@@ -724,7 +737,7 @@ Inventaire du **27 octobre** : **15 classes et 59 méthodes annotées `@Test`** 
 | `AccountManagementServiceTest` | **2/2 réussis** (3 novembre, Mockito). | Refus de `EMPLOYEE` sans `MANAGE_USERS` et de la cible inconnue. **Aucune désactivation métier autorisée n'est implémentée**, ni contrôle de structure ou de dernier administrateur. |
 | Modèles et conversions multi-structures (`OrganizationalStructureTest`, `StructureMembershipTest`, `OrganizationalStructureEntityTest`, `StructureMembershipIdTest`, `StructureMembershipEntityTest`) | **5/5 + 6/6 + 3/3 + 3/3 + 2/2 réussis** (3 novembre, tests unitaires locaux). | Modèles, rôles par structure, identité composée et conversions en mémoire. Pas encore de validation JPA de `StructureMembershipEntity`. |
 | V8 et structures PostgreSQL (`StructureSchemaPostgresqlIntegrationTest`, `OrganizationalStructureJpaPersistenceTest`) | **5/5 + 1/1 réussis** (3 novembre, Testcontainers). | Tables et contraintes V8, affectation de rôles sur deux structures, écriture/lecture JPA de `OrganizationalStructure`. |
-| Autorisations réellement isolées par structure, révocation automatiquement déclenchée, réseau Swing et suite globale | Aucun test concluant disponible pour ces fonctions. | À construire et à valider avant ouverture d'opérations sensibles. |
+| Autorisations réellement isolées par structure, révocation automatiquement déclenchée et réseau Swing | Aucun test concluant disponible pour ces fonctions. | À construire et à valider avant ouverture d'opérations sensibles. |
 
 Les rapports et captures ciblés proviennent des exécutions locales présentées ; les fichiers générés et journaux bruts ne sont pas publiés dans ce document. **Bilan additionnel du 2 novembre : 9 + 4 + 1 = 14 tests réussis sur trois classes**, lancées séparément. Cela **ne constitue pas une suite complète verte**, ni un test HTTP sur réseau réel depuis Swing. Aucun test n'a été exécuté pendant cette actualisation documentaire.
 
@@ -926,4 +939,5 @@ Journal public :
 | 15 novembre 2026 — séparation de l’activation | `f5a7dbf` extrait `AccountActivationService` de `AccountInvitationService`, transfère les contrôles, la transaction et les événements d’audit, puis adapte la base de tests et les appels PostgreSQL. Aucun nouvel accès HTTP métier ni parcours SMS opérationnel n’en est déduit. |
 | 15 novembre 2026 — défi validé avant transaction et consommé avec l’activation | `02a8f44` décompose `completeActivation`, fait renvoyer un `Optional<UUID>` au vérificateur avant la transaction, relit les correspondances et consomme le défi dans la transaction d’activation. Données de test et concurrence avec expiration adaptées, préparation du défi déplacée avant l’expiration SQL. **723/723 tests réussis confirmés localement par Lise dans Eclipse après correction**, sans exécution par l’assistant. Génération, envoi réel et vérificateur concret SMS encore à développer ; tests avec vérificateur simulé. |
 | 17 novembre 2026 — demande de code SMS et tests corrigés | Sur `6c374a1`, contrôle du jeton d’invitation avant création du défi et audit `INVITATION_SMS_REQUEST`. Deux classes locales ajoutent 10 méthodes unitaires, dont des méthodes paramétrées, et six scénarios PostgreSQL ; jeton propre à chaque test après collision sur `token_digest`. **838/838 tests réussis rapportés par Lise après correction**, sur cet état complété encore non commité pour les tests. Aucun lancement par l’assistant pendant l’actualisation documentaire ; contrat hors transaction et limites SMS conservés. |
-| 18 novembre 2026 — vérificateur HMAC et tests | `e103f72` ajoute le vérificateur. `68ce7ef` ajoute huit méthodes unitaires, dont une paramétrée, et quatre scénarios PostgreSQL. Relecture statique seulement, sans nouveau bilan d’exécution confirmé. Trois réserves annexées : entreprise des audits SMS, précision temporelle sous contention et double échec envoi/révocation. |
+| 18 novembre 2026 — vérificateur HMAC et tests | `e103f72` ajoute le vérificateur. `68ce7ef` ajoute huit méthodes unitaires, dont une paramétrée, et quatre scénarios PostgreSQL. Relecture statique lors de cette entrée. Trois réserves annexées : entreprise des audits SMS, précision temporelle sous contention et double échec envoi/révocation. |
+| 18 novembre 2026, après-midi — garde du téléphone des comptes | `47642d1` valide le format en construction et dans `setPhoneNumber`. `80b0805` adapte les téléphones fictifs de test. V27 reste le filet SQL des défis SMS. **875/875 tests réussis rapportés par Lise.** [Détails du jalon](#garde-telephone-e164-2026-11-18) |

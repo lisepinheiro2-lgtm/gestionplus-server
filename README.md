@@ -43,7 +43,7 @@ flowchart LR
 - Les adaptateurs JPA/JDBC et les migrations V1 à V27 présentes dans les sources, dont le stockage des défis SMS d’activation.
 - L’audit transactionnel et son secours chiffré, les files d’envoi et les tests unitaires et PostgreSQL associés.
 
-Au 18 novembre 2026, `e103f72` ajoute le vérificateur HMAC du code d’activation et `68ce7ef` ajoute ses tests unitaires et PostgreSQL. Le dernier bilan local rapporté reste de **838/838 tests réussis dans Eclipse** le 17 novembre, sur l’état de la demande de SMS versionné ensuite dans `3b3f78e`. Le résultat des tests du 18 novembre reste à confirmer. [Vérification SMS et portée des tests](docs/AVANCEMENT.md#verification-hmac-sms-2026-11-18)
+Au 18 novembre 2026, `e103f72` ajoute le vérificateur HMAC du code d’activation et `68ce7ef` ajoute ses tests unitaires et PostgreSQL. `47642d1` ajoute le garde E.164 du téléphone des comptes. Le dernier bilan local rapporté par Lise est de **875/875 tests réussis le 18 novembre**. [Garde téléphonique et bilan des tests](docs/AVANCEMENT.md#garde-telephone-e164-2026-11-18)
 
 **Assemblage des tests :** `ActivationMessageSender` est simulé par `@MockitoBean` dans la base commune `AuditStorageIntegrationTest`, héritée par les contextes `@SpringBootTest` actuels. Cette déclaration reste dans `src/test` ; aucun expéditeur SMS concret n’est fourni pour l’application.
 
@@ -131,18 +131,18 @@ Les services d’activation, MFA et gouvernance ne constituent pas des API méti
 
 | Élément | État disponible |
 | --- | --- |
-| Dernier bilan global rapporté dans le suivi | **838/838 tests réussis, rapportés le 17 novembre**, sur `6c374a1` complété des tests corrigés, versionnés dans `3b3f78e`. Les 788/788, 745/745 et 723/723 restent des jalons historiques. |
+| Dernier bilan global rapporté dans le suivi | **875/875 tests réussis, rapportés le 18 novembre**. Les 838/838 du 17 novembre restent le jalon de la demande de code SMS. |
 | Tests dédiés de sécurité | `PasswordChangeServiceTest`, `MfaSecretCipherTest`, `MailAccountInvitationSenderTest` et `SuperAdminSuccessionServiceTest` rédigés. |
 | Confidentialité et permissions | Tests de non-divulgation dans l’audit, les objets d’authentification et les erreurs ; garde du catalogue de permissions et des droits SECRETARY/SECURITY_OFFICER. |
 | PostgreSQL | Scénarios rédigés de collisions de noms, activation contre expiration, rollback du changement de mot de passe et de la succession, en complément des tests de concurrence déjà présents. |
 | Défis SMS d’activation | Vingt méthodes PostgreSQL du stockage après `e824b19`, tests du générateur/HMAC publiés sur `9c1a5a0`, puis **18 méthodes unitaires et quatre scénarios PostgreSQL du service sur `5a5d26f`**, inclus dans le résultat local rapporté de 788/788. [Comportements, raccordement et limites](docs/AVANCEMENT.md#creation-defis-sms-2026-11-17). Aucun SMS réel validé. |
 | Demande de code SMS | **10 méthodes unitaires, dont plusieurs paramétrées, et six scénarios PostgreSQL** dans `3b3f78e` pour `requestActivationChallenge`. Jeton propre à chaque test après correction de la collision sur `token_digest`. [Validation de 838/838 rapportée et limites](docs/AVANCEMENT.md#demande-code-sms-2026-11-17) |
-| Vérification du code SMS | **Huit méthodes unitaires, dont une paramétrée, et quatre scénarios PostgreSQL** dans `68ce7ef`. Ces derniers font intervenir le vérificateur concret avec un expéditeur simulé. Résultat d’exécution à confirmer. [Tests et réserves du 18 novembre](docs/AVANCEMENT.md#verification-hmac-sms-2026-11-18) |
+| Vérification du code SMS | **Huit méthodes unitaires, dont une paramétrée, et quatre scénarios PostgreSQL** dans `68ce7ef`. Ces derniers font intervenir le vérificateur concret avec un expéditeur simulé. [Tests et réserves du 18 novembre](docs/AVANCEMENT.md#verification-hmac-sms-2026-11-18) |
 | Refactorings de l’activation | Sur `f5a7dbf` et `02a8f44`, appels PostgreSQL et données de test adaptés au service extrait, défi persistant associé à un vérificateur simulé renvoyant son UUID, concurrence activation/expiration revue et ordre de préparation corrigé. [Détails et limites de la validation](docs/AVANCEMENT.md#activation-defis-sms-refactorisation-2026-11-15). |
 | Corrections après `30904e4` | Nouveaux tests unitaires et PostgreSQL de réservation d’envoi, absence de transaction et de verrous pendant SMTP, temporisation, interruption, annulation concurrente et reprise par un autre traitement. Tests HTTP d’attribution des refus et d’ordre des filtres ; tests du cumul de rôles avec protection du compte entier. À la rédaction de cette entrée du 11 novembre, ces nouveaux scénarios restaient non exécutés ; les résultats ultérieurs sont détaillés dans Avancement. |
 | Organisation actuelle des tests d’invitation | [Sept classes thématiques et une base commune](docs/AVANCEMENT.md#tests-invitations-refactorisation-2026-11-14), 33 noms de méthodes annotées retrouvés par lecture statique. Réussite des sept classes et bilan global de 705/705 confirmés par l’utilisatrice après refactorisation. |
 | Benchmarks manuels | [Outils et preuves d’authentification](docs/benchmarks/authentication/README.md) : Argon2 et HTTP sur base PostgreSQL jetable, comptes fictifs dédiés. Mesures distinctes de la suite JUnit et d’une validation de production. |
-| État des preuves au 18 novembre | Lecture des deux commits et des assertions des nouveaux tests. Le dernier résultat global rapporté reste celui du 17 novembre. |
+| Garde téléphonique des comptes | `UserAccountTest` couvre la construction, la modification et la conservation du numéro précédent si le nouveau est refusé. [Contrat et portée du bilan](docs/AVANCEMENT.md#garde-telephone-e164-2026-11-18) |
 
 La relecture statique et la présence de tests ne constituent pas une validation applicative. Aucun résultat TLS réel, restauration de sauvegarde ou déploiement multi-instance n’est revendiqué.
 
