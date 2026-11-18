@@ -27,7 +27,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import fr.gestionplus.server.auth.UserAccountStatus;
 
-class AccountInvitationInitialDeliveryPostgresqlIntegrationTest extends AbstractAccountInvitationPostgresqlIntegrationTest {
+class AccountInvitationInitialDeliveryPostgresqlIntegrationTest
+		extends AbstractAccountInvitationPostgresqlIntegrationTest {
 
 	@Test
 	void aRollbackOfTheCallingTransactionCannotSendAnInvitation() {

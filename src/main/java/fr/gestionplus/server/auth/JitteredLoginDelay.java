@@ -9,7 +9,7 @@ public class JitteredLoginDelay implements LoginDelay {
 
 	private static final long MIN_DELAY_MS = 70L;
 	private static final long MAX_DELAY_MS = 110L;
-	
+
 	private final SecureRandom random = new SecureRandom();
 
 	@Override

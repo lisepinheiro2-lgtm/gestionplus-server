@@ -112,87 +112,87 @@ class AuditServiceTest {
 		assertEquals(AuditResult.FAILURE, event.getResult());
 		assertEquals(AuditMetadata.empty(), event.getMetadata());
 	}
-	
-    @Test
-    void resolvesTheTenantFromTheStructureMembershipsOfTheAccountTarget() {
 
-        UUID accountID = UUID.randomUUID();
-        UUID structureID = UUID.randomUUID();
-        UUID tenantID = UUID.randomUUID();
+	@Test
+	void resolvesTheTenantFromTheStructureMembershipsOfTheAccountTarget() {
 
-        when(memberships.findByUser(accountID))
-                .thenReturn(List.of(new StructureMembership(accountID, structureID, Set.of(UserRole.EMPLOYEE))));
-        when(structures.findById(structureID))
-                .thenReturn(Optional.of(new OrganizationalStructure(structureID, "Structure A", tenantID)));
+		UUID accountID = UUID.randomUUID();
+		UUID structureID = UUID.randomUUID();
+		UUID tenantID = UUID.randomUUID();
 
-        resolvingService().record(AuditAction.ACCOUNT_PASSWORD_CHANGE, AuditResult.SUCCESS,
-                Set.of(new AuditTarget(AuditTargetType.ACCOUNT, accountID)));
+		when(memberships.findByUser(accountID))
+				.thenReturn(List.of(new StructureMembership(accountID, structureID, Set.of(UserRole.EMPLOYEE))));
+		when(structures.findById(structureID))
+				.thenReturn(Optional.of(new OrganizationalStructure(structureID, "Structure A", tenantID)));
 
-        assertEquals(tenantID, savedEvent().getTenantId());
-    }
+		resolvingService().record(AuditAction.ACCOUNT_PASSWORD_CHANGE, AuditResult.SUCCESS,
+				Set.of(new AuditTarget(AuditTargetType.ACCOUNT, accountID)));
 
-    @Test
-    void resolvesTheTenantFromASuperAdminAccountWithoutStructureMembership() {
+		assertEquals(tenantID, savedEvent().getTenantId());
+	}
 
-        UUID accountID = UUID.randomUUID();
-        UUID tenantID = UUID.randomUUID();
+	@Test
+	void resolvesTheTenantFromASuperAdminAccountWithoutStructureMembership() {
 
-        when(tenants.findBySuperAdminUserID(accountID))
-                .thenReturn(Optional.of(new TenantOrganization(tenantID, "Entreprise A", accountID)));
-        when(memberships.findByUser(accountID)).thenReturn(List.of());
+		UUID accountID = UUID.randomUUID();
+		UUID tenantID = UUID.randomUUID();
 
-        resolvingService().record(AuditAction.AUTH_SESSION_REVOKE, AuditResult.SUCCESS,
-                Set.of(new AuditTarget(AuditTargetType.ACCOUNT, accountID)));
+		when(tenants.findBySuperAdminUserID(accountID))
+				.thenReturn(Optional.of(new TenantOrganization(tenantID, "Entreprise A", accountID)));
+		when(memberships.findByUser(accountID)).thenReturn(List.of());
 
-        assertEquals(tenantID, savedEvent().getTenantId());
-    }
+		resolvingService().record(AuditAction.AUTH_SESSION_REVOKE, AuditResult.SUCCESS,
+				Set.of(new AuditTarget(AuditTargetType.ACCOUNT, accountID)));
 
-    @Test
-    void keepsAnAccountEventGlobalWhenNoTenantCanBeResolved() {
+		assertEquals(tenantID, savedEvent().getTenantId());
+	}
 
-        UUID accountID = UUID.randomUUID();
+	@Test
+	void keepsAnAccountEventGlobalWhenNoTenantCanBeResolved() {
 
-        when(tenants.findBySuperAdminUserID(accountID)).thenReturn(Optional.empty());
-        when(memberships.findByUser(accountID)).thenReturn(List.of());
+		UUID accountID = UUID.randomUUID();
 
-        resolvingService().record(AuditAction.AUTH_LOGIN, AuditResult.FAILURE,
-                Set.of(new AuditTarget(AuditTargetType.ACCOUNT, accountID)));
+		when(tenants.findBySuperAdminUserID(accountID)).thenReturn(Optional.empty());
+		when(memberships.findByUser(accountID)).thenReturn(List.of());
 
-        assertNull(savedEvent().getTenantId());
-    }
+		resolvingService().record(AuditAction.AUTH_LOGIN, AuditResult.FAILURE,
+				Set.of(new AuditTarget(AuditTargetType.ACCOUNT, accountID)));
 
-    @Test
-    void keepsAnAccountEventGlobalWhenItSpansSeveralTenants() {
+		assertNull(savedEvent().getTenantId());
+	}
 
-        UUID accountID = UUID.randomUUID();
-        UUID firstStructureID = UUID.randomUUID();
-        UUID secondStructureID = UUID.randomUUID();
+	@Test
+	void keepsAnAccountEventGlobalWhenItSpansSeveralTenants() {
 
-        when(memberships.findByUser(accountID)).thenReturn(List.of(
-                new StructureMembership(accountID, firstStructureID, Set.of(UserRole.EMPLOYEE)),
-                new StructureMembership(accountID, secondStructureID, Set.of(UserRole.EMPLOYEE))));
-        when(structures.findById(firstStructureID)).thenReturn(
-                Optional.of(new OrganizationalStructure(firstStructureID, "Structure A", UUID.randomUUID())));
-        when(structures.findById(secondStructureID)).thenReturn(
-                Optional.of(new OrganizationalStructure(secondStructureID, "Structure B", UUID.randomUUID())));
+		UUID accountID = UUID.randomUUID();
+		UUID firstStructureID = UUID.randomUUID();
+		UUID secondStructureID = UUID.randomUUID();
 
-        resolvingService().record(AuditAction.ACCOUNT_PASSWORD_CHANGE, AuditResult.SUCCESS,
-                Set.of(new AuditTarget(AuditTargetType.ACCOUNT, accountID)));
+		when(memberships.findByUser(accountID)).thenReturn(List.of(
+				new StructureMembership(accountID, firstStructureID, Set.of(UserRole.EMPLOYEE)),
+				new StructureMembership(accountID, secondStructureID, Set.of(UserRole.EMPLOYEE))));
+		when(structures.findById(firstStructureID)).thenReturn(
+				Optional.of(new OrganizationalStructure(firstStructureID, "Structure A", UUID.randomUUID())));
+		when(structures.findById(secondStructureID)).thenReturn(
+				Optional.of(new OrganizationalStructure(secondStructureID, "Structure B", UUID.randomUUID())));
 
-        assertNull(savedEvent().getTenantId());
-    }
+		resolvingService().record(AuditAction.ACCOUNT_PASSWORD_CHANGE, AuditResult.SUCCESS,
+				Set.of(new AuditTarget(AuditTargetType.ACCOUNT, accountID)));
+
+		assertNull(savedEvent().getTenantId());
+	}
 
 	private AuditEvent savedEvent() {
 		ArgumentCaptor<AuditEvent> eventCaptor = ArgumentCaptor.forClass(AuditEvent.class);
 		verify(store).save(eventCaptor.capture());
 		return eventCaptor.getValue();
 	}
-	
-    private final OrganizationalStructureStore structures = mock(OrganizationalStructureStore.class);
-    private final TenantOrganizationStore tenants = mock(TenantOrganizationStore.class);
-    private final StructureMembershipStore memberships = mock(StructureMembershipStore.class);
 
-    private AuditService resolvingService() {
-        return new AuditService(store::save, new SpringAuditContextProvider(), structures, tenants, memberships);
-    }
+	private final OrganizationalStructureStore structures = mock(OrganizationalStructureStore.class);
+	private final TenantOrganizationStore tenants = mock(TenantOrganizationStore.class);
+	private final StructureMembershipStore memberships = mock(StructureMembershipStore.class);
+
+	private AuditService resolvingService() {
+		return new AuditService(store::save, new SpringAuditContextProvider(), structures, tenants, memberships);
+	}
 }

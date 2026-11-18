@@ -95,9 +95,9 @@ class CsrfHttpTest {
 	private AuditService auditService;
 	@MockitoBean
 	private AccountMfaService mfa;
-    @MockitoBean
-    private LoginDelay loginDelay;
-    
+	@MockitoBean
+	private LoginDelay loginDelay;
+
 	private final String userName = "alice";
 	private final String password = "test-password";
 

@@ -26,7 +26,8 @@ import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
 import fr.gestionplus.server.auth.UserRole;
 
-class AccountInvitationCancellationPostgresqlIntegrationTest extends AbstractAccountInvitationPostgresqlIntegrationTest {
+class AccountInvitationCancellationPostgresqlIntegrationTest
+		extends AbstractAccountInvitationPostgresqlIntegrationTest {
 
 	@Test
 	void cancellationRemovesEveryPreparedMembershipAndKeepsAdministrativeTenantMembership() {

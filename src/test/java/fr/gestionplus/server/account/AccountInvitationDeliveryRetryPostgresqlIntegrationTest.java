@@ -30,7 +30,8 @@ import fr.gestionplus.server.auth.UserAccountStatus;
 import fr.gestionplus.server.auth.UserRole;
 import fr.gestionplus.server.organization.StructureMembership;
 
-class AccountInvitationDeliveryRetryPostgresqlIntegrationTest extends AbstractAccountInvitationPostgresqlIntegrationTest {
+class AccountInvitationDeliveryRetryPostgresqlIntegrationTest
+		extends AbstractAccountInvitationPostgresqlIntegrationTest {
 
 	@Test
 	void failedDeliveryIsRetainedAndCanBeRetriedWithoutTheOriginalSession() {

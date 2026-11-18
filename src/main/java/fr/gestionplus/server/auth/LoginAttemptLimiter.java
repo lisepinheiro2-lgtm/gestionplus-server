@@ -72,10 +72,10 @@ public class LoginAttemptLimiter {
 				&& (lastFailure == null || source.failures.getLast().isAfter(lastFailure))) {
 			lastFailure = source.failures.getLast();
 		}
-		
-        if (source != null) {
-            source.expire(now);
-        }
+
+		if (source != null) {
+			source.expire(now);
+		}
 
 		if (isSaturated(addresses, now) && source == null && !account.knownAccount) {
 

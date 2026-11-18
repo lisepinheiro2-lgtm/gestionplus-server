@@ -65,7 +65,8 @@ class ActivationIdentityChallengeServiceTest {
 		service = new ActivationIdentityChallengeService(challenges, invitations, accounts, generator, digester,
 				sender, clocks, transactions);
 		when(invitations.findByID(INVITATION_ID)).thenReturn(Optional.of(
-				new Invitation(INVITATION_ID, USER_ID, STRUCTURE_ID, "invitation-digest", NOW.plusSeconds(3600), null)));
+				new Invitation(INVITATION_ID, USER_ID, STRUCTURE_ID, "invitation-digest", NOW.plusSeconds(3600),
+						null)));
 		UserAccount account = UserAccount.pending(USER_ID, UUID.randomUUID(), "Exemple", "Test",
 				"sms@example.invalid", PHONE);
 		when(accounts.findById(USER_ID)).thenReturn(Optional.of(account));

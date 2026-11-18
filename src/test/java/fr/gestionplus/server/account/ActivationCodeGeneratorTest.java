@@ -23,11 +23,13 @@ class ActivationCodeGeneratorTest {
 		for (int index = 0; index < 100; index++) {
 			assertTrue(generator.generate().matches("[0-9]{6}"));
 		}
+
 	}
 
 	@ParameterizedTest
 	@CsvSource({ "0,000000", "7,000007", "42,000042", "999999,999999" })
 	void preservesSixDigitsAtTheBoundsAndWithLeadingZeros(int value, String expectedCode) {
+
 		try (MockedConstruction<SecureRandom> randoms = mockConstruction(SecureRandom.class,
 				(random, context) -> when(random.nextInt(1_000_000)).thenReturn(value))) {
 			ActivationCodeGenerator generator = new ActivationCodeGenerator();
@@ -35,10 +37,12 @@ class ActivationCodeGeneratorTest {
 			assertEquals(expectedCode, generator.generate());
 			verify(randoms.constructed().getFirst()).nextInt(1_000_000);
 		}
+
 	}
 
 	@Test
 	void drawsANewRandomValueForEachCode() {
+
 		try (MockedConstruction<SecureRandom> randoms = mockConstruction(SecureRandom.class,
 				(random, context) -> when(random.nextInt(1_000_000)).thenReturn(7, 42))) {
 			ActivationCodeGenerator generator = new ActivationCodeGenerator();
@@ -47,5 +51,6 @@ class ActivationCodeGeneratorTest {
 			assertEquals("000042", generator.generate());
 			verify(randoms.constructed().getFirst(), times(2)).nextInt(1_000_000);
 		}
+
 	}
 }

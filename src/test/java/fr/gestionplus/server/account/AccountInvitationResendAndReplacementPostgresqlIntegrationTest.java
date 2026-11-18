@@ -20,7 +20,8 @@ import org.springframework.security.access.AccessDeniedException;
 import fr.gestionplus.server.account.AccountInvitationStore.Invitation;
 import fr.gestionplus.server.auth.UserAccountStatus;
 
-class AccountInvitationResendAndReplacementPostgresqlIntegrationTest extends AbstractAccountInvitationPostgresqlIntegrationTest {
+class AccountInvitationResendAndReplacementPostgresqlIntegrationTest
+		extends AbstractAccountInvitationPostgresqlIntegrationTest {
 
 	@Test
 	void unsuccessfulResendPreservesOldLinkAndSuccessfulResendInvalidatesIt() {
