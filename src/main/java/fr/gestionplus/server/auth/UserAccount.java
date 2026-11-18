@@ -30,7 +30,7 @@ public class UserAccount {
 		this.lastName = requireIdentityValue(lastName, "Le nom");
 		this.firstName = requireIdentityValue(firstName, "Le prénom");
 		this.email = requireIdentityValue(email, "L’adresse e-mail");
-		this.phoneNumber = requireIdentityValue(phoneNumber, "Le numéro de téléphone");
+		this.phoneNumber = requirePhoneNumber(phoneNumber, "Le numéro de téléphone");
 
 		if (userName != null) {
 			this.userName = userName.strip();
@@ -67,6 +67,20 @@ public class UserAccount {
 
 		if (value == null || value.isBlank()) {
 			throw new IllegalArgumentException(fieldLabel + " est obligatoire.");
+		}
+
+		return value;
+	}
+
+	private static String requirePhoneNumber(String value, String fieldLabel) {
+
+		if (value == null || value.isBlank()) {
+			throw new IllegalArgumentException(fieldLabel + " est obligatoire.");
+		}
+
+		if (!value.matches("\\+[0-9]{1,15}")) {
+			throw new IllegalArgumentException(
+					fieldLabel + " doit être au format international : + suivi de 1 à 15 chiffres.");
 		}
 
 		return value;
@@ -137,6 +151,6 @@ public class UserAccount {
 	}
 
 	public void setPhoneNumber(String phoneNumber) {
-		this.phoneNumber = requireIdentityValue(phoneNumber, "Le numéro de téléphone");
+		this.phoneNumber = requirePhoneNumber(phoneNumber, "Le numéro de téléphone");
 	}
 }
