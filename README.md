@@ -53,7 +53,7 @@ Après raccordement serveur–client, fournir l’expéditeur SMS concret, valid
 
 ## Accès HTTP présents dans les sources
 
-Configuration HTTP relue le **15 novembre 2026**, sans démarrage du serveur. Les routes applicatives actuellement autorisées sont les suivantes :
+Configuration HTTP relue le **18 novembre 2026**. Les routes applicatives actuellement autorisées sont les suivantes :
 
 | Méthode et chemin | Accès et comportement |
 | --- | --- |
@@ -66,6 +66,12 @@ Configuration HTTP relue le **15 novembre 2026**, sans démarrage du serveur. Le
 La configuration `formLogin` conserve les pages HTML par défaut de Spring Security pour `GET /login` et la confirmation `GET /logout`. Ces pages ne constituent pas le parcours Swing avec MFA. Le traitement interne des erreurs servlet est autorisé ; les autres routes restent refusées par défaut.
 
 Les services d’invitation, d’activation, d’enrôlement et récupération MFA, de changement de mot de passe et de gouvernance existent côté Java. **Leurs parcours HTTP publics et leur intégration Swing restent à construire.** Le traitement d’un conflit de nom à l’activation est préparé en 409 générique, sans détail sur un autre compte ; les autres contraintes PostgreSQL ne sont pas assimilées indistinctement à ce conflit.
+
+### Demande de code SMS par HTTP
+
+Le commit `48465e5` déclare `POST /api/invitations/{invitationID}/sms-challenge` avec un UUID dans le chemin et un corps `application/json` de la forme `{"token":"…"}`. Le contrôleur délègue au service avec cet UUID et ce jeton. Spring MVC renvoie `200` avec un corps vide en cas de succès. [Contrôleur de demande de code SMS](src/main/java/fr/gestionplus/server/api/AccountActivationController.java)
+
+Le traitement MVC renvoie `400 INVALID_REQUEST` pour un UUID invalide ou un corps JSON absent ou mal formé, `403 FORBIDDEN` pour un refus métier avec authentification, `409 CONFLICT` pour un conflit de création du défi et `503 SERVICE_UNAVAILABLE` pour une livraison d’invitation en attente ou une indisponibilité reconnue. Le même refus métier sans authentification donne `401 AUTHENTICATION_REQUIRED`. La chaîne Spring Security actuelle refuse ce POST avant le contrôleur. [Traduction des erreurs MVC](src/main/java/fr/gestionplus/server/api/ApiExceptionHandler.java) · [Jalon de la route SMS](docs/AVANCEMENT.md#route-demande-code-sms-2026-11-18)
 
 ## Migrations présentes et état de la base
 
@@ -101,14 +107,14 @@ La présence de ces fichiers **ne prouve pas leur application sur une base**. V2
 - Tous les envois d’invitations, initiaux comme planifiés, passent par le guichet limité à trois tâches ; un refus laisse la demande durable pour reprise. Les notifications de désactivation utilisent également des transactions courtes et une réservation durable, avec trois tentatives puis abandon audité.
 - HIBP précède la transaction et le verrou lors de la définition d’un nouveau mot de passe. L’activation pré-vérifie l’invitation et son jeton avant HIBP ; la relecture sous verrou reste l’autorité en cas de course.
 - [Stockage PostgreSQL des défis SMS d’activation](docs/AVANCEMENT.md#defis-sms-activation-stockage-2026-11-15) : remplacement avec révocation et historique dans une transaction, troisième échec révoquant le défi, consommation unique liée à la transaction métier.
-- [Demande de code SMS](docs/AVANCEMENT.md#demande-code-sms-2026-11-17) : contrôle de l’invitation et du jeton avant la création du défi, audit des refus et échecs avec `INVITATION_SMS_REQUEST`. Cette méthode Java n’ajoute pas de route HTTP.
+- [Demande de code SMS](docs/AVANCEMENT.md#demande-code-sms-2026-11-17) : contrôle de l’invitation et du jeton avant la création du défi, audit des refus et échecs avec `INVITATION_SMS_REQUEST`. Le contrôleur de `48465e5` appelle ce service.
 - [Service d’activation séparé des invitations](docs/AVANCEMENT.md#activation-defis-sms-refactorisation-2026-11-15) : `AccountActivationService` vérifie la preuve d’identité avant sa transaction, puis relit sous verrou l’invitation, le compte, le défi validé et le téléphone. Le vérificateur renvoie un `Optional<UUID>` ; le défi est consommé dans la transaction qui active le compte, avec les contrôles de jeton, de droits et l’audit conservés.
 - `HmacActivationIdentityVerifier` contrôle le téléphone et l’état du défi, puis compare l’empreinte du code. Un code correct renvoie l’UUID du défi. Un code incorrect sur un défi utilisable compte comme un échec. [Vérificateur HMAC](docs/AVANCEMENT.md#verification-hmac-sms-2026-11-18)
 - Limitation des connexions par compte et adresse, ralentissement global des tentatives non traçables en saturation, pause sur les refus du limiteur et Argon2 réel ou factice suivi de la pause sur les chemins de rejet documentés. Les [mesures locales](docs/AVANCEMENT.md#mesures-apres-argon2-factice-2026-11-14) rapprochent les médianes sans démontrer l’indistinguabilité complète ni l’inexploitabilité à distance.
 - Audit des cibles compte rattaché à l’entreprise lorsqu’elle peut être déterminée sans ambiguïté ; verrou du compte de l’acteur sur le changement de responsable ; désactivation du titulaire SUPER_ADMIN sortant sans accès local restant.
 - Vérification des changements concurrents par verrous PostgreSQL et relecture de l’état avant opération. Un test de garde impose une revue lors de l’ajout d’une permission au catalogue ; il doit être exécuté avant intégration.
 
-Le délai de renvoi de 60 secondes depuis la création s’applique à un défi encore utilisable. Le troisième code incorrect comptabilisé révoque le défi et permet une nouvelle demande immédiate dans la limite de trois défis par couple invitation et compte. Le défi révoqué reste compté. Le service relit le compte sous verrou et revérifie le délai et le quota. L’invitation et le téléphone utilisés restent ceux lus avant le verrou. L’expéditeur concret, le parcours HTTP et le raccordement Swing restent à réaliser. [Réserves sur les audits, le temps et la compensation](docs/AVANCEMENT.md#reserves-sms-2026-11-18)
+Le délai de renvoi de 60 secondes depuis la création s’applique à un défi encore utilisable. Le troisième code incorrect comptabilisé révoque le défi et permet une nouvelle demande immédiate dans la limite de trois défis par couple invitation et compte. Le défi révoqué reste compté. Le service relit le compte sous verrou et revérifie le délai et le quota. L’invitation et le téléphone utilisés restent ceux lus avant le verrou. L’expéditeur concret, l’ouverture de la route dans Spring Security et le raccordement Swing restent à réaliser. [Réserves sur les audits, le temps et la compensation](docs/AVANCEMENT.md#reserves-sms-2026-11-18)
 
 Les preuves d’enrôlement MFA et de confirmation renforcée exigent également leurs implémentations opérationnelles. La nomination ADMIN préparée pour un compte en attente, avec son délai de 24 heures, reste à réaliser. Les appareils de confiance, la récupération exceptionnelle SUPER_ADMIN, la gouvernance des contacts de récupération et le mode hors ligne `ADMIN_EMERGENCY` sur poste autorisé restent des chantiers distincts. Aucun compte administrateur ni secret de démonstration n’est fourni.
 

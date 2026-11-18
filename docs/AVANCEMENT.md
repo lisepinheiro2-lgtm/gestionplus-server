@@ -1,6 +1,7 @@
 ---
 summary: "Garde E.164 du téléphone des comptes et bilan local de 875/875 rapporté le 18 novembre. Vérificateur HMAC, tests SMS et réserves documentés."
 read_when:
+  - "reprendre le contrôleur de demande de code SMS et son contrat HTTP"
   - "reprendre le garde téléphonique des comptes et les 875/875 tests rapportés le 18 novembre"
   - "reprendre le vérificateur HMAC du code SMS, les tests et les réserves du 18 novembre"
   - "reprendre la demande de code SMS, ses tests corrigés et le résultat local de 838/838"
@@ -31,11 +32,19 @@ read_when:
 
 # Avancement et feuille de route
 
+<a id="route-demande-code-sms-2026-11-18"></a>
+
+## Contrôleur de demande de code SMS — 18 novembre 2026
+
+Le commit `48465e5` déclare `POST /api/invitations/{invitationID}/sms-challenge`. Le contrôleur transmet au service l’UUID extrait du chemin et le jeton lu dans le corps JSON `{"token":"…"}`. Les réponses `400`, `403`, `409` et `503` relèvent du traitement MVC. Un refus métier anonyme reçoit actuellement `401`. La chaîne Spring Security continue de refuser ce POST avant le contrôleur. [Contrat HTTP et accès](../README.md#demande-de-code-sms-par-http)
+
+Sept scénarios `MockMvc` autonomes couvrent la délégation exacte et la réponse vide, l’UUID ou le JSON invalide, le refus avec et sans authentification, le conflit et la livraison en attente. Ils utilisent le contrôleur et `ApiExceptionHandler` avec un service simulé. Les tests sont écrits et relus. L’ouverture ciblée de la route et la validation avec les filtres Spring Security restent à traiter.
+
 <a id="garde-telephone-e164-2026-11-18"></a>
 
 ## Garde E.164 du téléphone des comptes — 18 novembre 2026, après-midi
 
-Le commit `47642d1` ajoute `requirePhoneNumber` dans [`UserAccount`](../src/main/java/fr/gestionplus/server/auth/UserAccount.java). La construction du compte et `setPhoneNumber` passent par ce même garde. Le format attendu est un `+` suivi de 1 à 15 chiffres ASCII. Un numéro absent, vide ou mal formé déclenche une `IllegalArgumentException` avec un message en français.
+Le commit `47642d1` ajoute `requirePhoneNumber` dans [`UserAccount`](../src/main/java/fr/gestionplus/server/auth/UserAccount.java). La construction du compte et `setPhoneNumber` passent par ce même garde. Le contrôle porte sur la forme seule, un `+` suivi de 1 à 15 chiffres ASCII. Un numéro absent, vide ou mal formé déclenche une `IllegalArgumentException` avec un message en français.
 
 Le commit `80b0805` adapte les données de test avec 54 occurrences de `+12025550100` et une de `+12025550101` pour un compte distinct. Les deux valeurs appartiennent à la plage fictive réservée `555-0100` à `555-0199`. [Plage réservée par la NANPA](https://nanpa.com/numbering/555-line-numbers)
 
@@ -58,7 +67,7 @@ La règle de renvoi retenue le 18 novembre protège le défi courant pendant les
 | [HmacActivationIdentityVerifierTest.java](../src/test/java/fr/gestionplus/server/account/HmacActivationIdentityVerifierTest.java) | Huit méthodes, dont une paramétrée : défi absent, autre téléphone, expiration exacte ou dépassée, révocation, consommation, trois échecs déjà atteints, succès sans consommation, mauvais code compté une fois. Horloge fixe, store simulé et vrai digesteur. |
 | [AccountActivationSmsPostgresqlIntegrationTest.java](../src/test/java/fr/gestionplus/server/account/AccountActivationSmsPostgresqlIntegrationTest.java) | Quatre scénarios : activation et consommation unique avec refus du rejeu ; trois erreurs révoquant le défi ; expiration avant consommation ; rollback sur conflit de nom puis réutilisation du code. Le mock hérité délègue à une instance du vérificateur concret, avec vrai digesteur et stockage PostgreSQL ; expéditeur et credentials simulés. |
 
-**Preuves et limites.** À la première relecture statique des tests, le bilan disponible était de **838/838 rapportés par Lise le 17 novembre**. Le [bilan global rapporté l’après-midi du 18 novembre](#garde-telephone-e164-2026-11-18) consigne le lancement local suivant. Les nouveaux scénarios sont séquentiels et ne prouvent ni l’envoi réel, ni la concurrence, ni la sélection du bean concret dans un assemblage applicatif complet. Le vérificateur n’est plus à développer ; l’expéditeur SMS concret, l’API HTTP et le raccordement Swing restent à construire. Les limites antérieures sur l’invitation, le téléphone et l’appel hors transaction englobante restent suivies. Le tableau des [composants applicatifs](#beans-definitifs-apres-raccordement) est actualisé ; les autres descriptions datées du 17 novembre conservent leur valeur historique.
+**Preuves et limites.** À la première relecture statique des tests, le bilan disponible était de **838/838 rapportés par Lise le 17 novembre**. Le [bilan global rapporté l’après-midi du 18 novembre](#garde-telephone-e164-2026-11-18) consigne le lancement local suivant. Les nouveaux scénarios sont séquentiels et ne prouvent ni l’envoi réel, ni la concurrence, ni la sélection du bean concret dans un assemblage applicatif complet. L’expéditeur SMS concret et le raccordement Swing restent à construire. L’ouverture dans Spring Security du [contrôleur de demande de SMS](#route-demande-code-sms-2026-11-18) reste à traiter. Les limites antérieures sur l’invitation, le téléphone et l’appel hors transaction englobante restent suivies. Le tableau des [composants applicatifs](#beans-definitifs-apres-raccordement) est actualisé ; les autres descriptions datées du 17 novembre conservent leur valeur historique.
 
 <a id="reserves-sms-2026-11-18"></a>
 
@@ -159,7 +168,7 @@ Dans ce cadre, le service ouvre sa transaction de remplacement, attend sa valida
 - **Assemblage de l'application :** le constructeur exige `ActivationMessageSender`. Les contextes de test disposent désormais du mock partagé sous `src/test` ; aucun expéditeur concret n'est ajouté à la production. Son absence reste à traiter avant le démarrage de l'application. Aucun démarrage ni chargement de contexte n'a été exécuté pour valider cette adaptation.
 - **Concurrence et invitation :** le compte est bien relu sous verrou et filtré sur `PENDING_ACTIVATION` ; le délai et le quota sont revérifiés par `refuseIfResendBlocked` après cette relecture. Seul l'état de l'invitation n'est pas relu sous ce verrou par ce service. Les tests unitaires couvrent des changements simulés entre les contrôles ; les quatre scénarios PostgreSQL du service restent séquentiels et ne prouvent pas le comportement d'appels réellement concurrents.
 - **Transaction appelante :** le contrat impose désormais un appel sans transaction englobante, comme détaillé ci-dessus. Le `TransactionTemplate` conserve sa propagation `REQUIRED` et le service ne vérifie pas cette précondition. Les tests de commit avant envoi couvrent seulement l'appel autonome.
-- **Parcours incomplet à l’étape `5a5d26f`.** La création de défi reçoit un UUID d’invitation. La demande protégée par le jeton apparaît sur `6c374a1` et le vérificateur HMAC sur `e103f72`. L’envoi SMS réel, la route HTTP et l’intégration Swing restent à réaliser. [Jalon du 18 novembre](#verification-hmac-sms-2026-11-18)
+- **Parcours incomplet à l’étape `5a5d26f`.** La création de défi reçoit un UUID d’invitation. La demande protégée par le jeton apparaît sur `6c374a1` et le vérificateur HMAC sur `e103f72`. Le [contrôleur HTTP de demande de SMS](#route-demande-code-sms-2026-11-18) arrive sur `48465e5`. L’envoi SMS réel et l’intégration Swing restent à réaliser.
 
 **Validation et portée des résultats.** Lise rapporte désormais **788/788 tests réussis sur `5a5d26f`**, le 17 novembre 2026. Il s'agit de son résultat local rapporté, pas d'une exécution de l'assistant. Les sources de ce commit contiennent 18 méthodes unitaires du service, dont quatre ajoutées pour les changements détectés sous verrou, et quatre scénarios PostgreSQL du service. Les **745/745 sur `9c1a5a0` le 16 novembre** et les **723/723 sur `02a8f44` le 15 novembre** restent des jalons historiques. La validation porte sur cet état du code ; elle n'établit pas un envoi SMS réel, un raccordement Swing complet ou une preuve de concurrence absente des scénarios.
 
