@@ -362,7 +362,8 @@ class CsrfHttpTest {
 
 	private UserAccount createTestAccount() {
 		UserAccount account = new UserAccount(UUID.randomUUID(), userName, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), UUID.randomUUID(), "Exemple", "Test", "test@example.invalid", "0600000000");
+				Set.of(UserRole.EMPLOYEE), UUID.randomUUID(), "Exemple", "Test", "test@example.invalid",
+				"+12025550100");
 		when(accountStore.findById(account.getUserID())).thenReturn(Optional.of(account));
 		return account;
 	}

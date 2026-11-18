@@ -48,7 +48,7 @@ class OrganizationalStructureJpaPersistenceTest extends AuditStorageIntegrationT
 		UUID structureID = UUID.randomUUID();
 		UUID tenantID = UUID.randomUUID();
 		Employee employee = new Employee(UUID.randomUUID(), "Super", "Admin", 35, "super@example.invalid",
-				"0600000000", null);
+				"+12025550100", null);
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UUID userID = UUID.randomUUID();

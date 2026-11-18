@@ -435,7 +435,7 @@ class StructureAccessPostgresqlIntegrationTest extends AuditStorageIntegrationTe
 	void lastPreparedAccessQueuesNotificationAndDisablesThePendingAccount() {
 		UUID pendingID = UUID.randomUUID();
 		accountStore.createAccount(UserAccount.pending(pendingID, "Test", "Attente", "pending@example.invalid",
-				"0600000000"));
+				"+12025550100"));
 		joinTenant(pendingID);
 		service.addStructureAccess(pendingID, structureId, Set.of(UserRole.EMPLOYEE));
 		assertFalse(authorizationService.canInStructure(pendingID, structureId, Permission.VIEW_OWN_SCHEDULE));
@@ -495,7 +495,7 @@ class StructureAccessPostgresqlIntegrationTest extends AuditStorageIntegrationTe
 		service.addStructureAccess(manager.getUserID(), structureId, Set.of(UserRole.MANAGER));
 		UserAccount managerSession = accountStore.findById(manager.getUserID()).orElseThrow();
 		Employee newEmployee = new Employee(UUID.randomUUID(), "Test", "Attente", 35, "pending@example.invalid",
-				"0600000000", null, structureId);
+				"+12025550100", null, structureId);
 		employeeRepository.saveAndFlush(new EmployeeEntity(newEmployee));
 
 		authenticate(managerSession);
@@ -522,7 +522,7 @@ class StructureAccessPostgresqlIntegrationTest extends AuditStorageIntegrationTe
 		joinTenant(secretary.getUserID());
 		service.addStructureAccess(secretary.getUserID(), structureId, Set.of(UserRole.SECRETARY));
 		Employee employee = new Employee(UUID.randomUUID(), "Test", "Attente", 35, "pending@example.invalid",
-				"0600000000", null, structureId);
+				"+12025550100", null, structureId);
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 		authenticate(accountStore.findById(secretary.getUserID()).orElseThrow());
 
@@ -532,7 +532,7 @@ class StructureAccessPostgresqlIntegrationTest extends AuditStorageIntegrationTe
 
 		assertEquals(UserAccountStatus.PENDING_ACTIVATION, accountStore.findById(pendingID).orElseThrow().getStatu());
 		assertThrows(AccessDeniedException.class, () -> provisioningService.createPendingAccount(structureId, null,
-				"Exemple", "Test", "other@example.invalid", "0600000000"));
+				"Exemple", "Test", "other@example.invalid", "+12025550100"));
 		assertThrows(AccessDeniedException.class,
 				() -> service.addStructureAccess(pendingID, createStructure("Autre"), Set.of(UserRole.EMPLOYEE)));
 	}
@@ -540,7 +540,7 @@ class StructureAccessPostgresqlIntegrationTest extends AuditStorageIntegrationTe
 	@Test
 	void superAdminCannotCreateAnAccountWithoutAnEmployee() {
 		assertThrows(AccessDeniedException.class, () -> provisioningService.createPendingAccount(structureId, null,
-				"Exemple", "Test", "other@example.invalid", "0600000000"));
+				"Exemple", "Test", "other@example.invalid", "+12025550100"));
 	}
 
 	@Test
@@ -888,7 +888,7 @@ class StructureAccessPostgresqlIntegrationTest extends AuditStorageIntegrationTe
 
 		UUID userId = UUID.randomUUID();
 		Employee employee = new Employee(UUID.randomUUID(), "Test", "Utilisateur", 35,
-				"test_" + userId + "@example.invalid", "0600000000", null, employeeStructureID);
+				"test_" + userId + "@example.invalid", "+12025550100", null, employeeStructureID);
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userId, "test_" + userId, UserAccountStatus.ACTIVE, Set.of(role),

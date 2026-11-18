@@ -287,7 +287,7 @@ class LoginAttemptLimiterTest {
 		AccountMfaService mfa = mock(AccountMfaService.class);
 		when(mfa.verifyForLogin(any(), any())).thenReturn(AccountMfaService.Verification.NOT_REQUIRED);
 		UserAccount account = new UserAccount(UUID.randomUUID(), "target", UserAccountStatus.ACTIVE, Set.of(),
-				UUID.randomUUID(), "Doe", "Jane", "jane@example.com", "0000000000");
+				UUID.randomUUID(), "Doe", "Jane", "jane@example.com", "+12025550100");
 		LoginService login = mock(LoginService.class);
 		when(login.evaluate("target", "correct"))
 				.thenReturn(new LoginService.LoginAttempt(account, account.getUserID(), null));

@@ -22,7 +22,7 @@ public class UserAccountEntityTest {
 	void preservesAccountDuringConversion() {
 		UUID userId = UUID.randomUUID();
 		Employee employee = new Employee(UUID.randomUUID(), "Test", "Employee", 35, "test@example.invalid",
-				"0600000000", null);
+				"+12025550100", null);
 		String name = "userName";
 		UserAccount userAccount = new UserAccount(userId, name, UserAccountStatus.ACTIVE,
 				Set.of(UserRole.SECRETARY, UserRole.ACCOUNTANT), employee.getEmployeeID(),
@@ -45,7 +45,7 @@ public class UserAccountEntityTest {
 	@Test
 	void preservesRolelessAccountWhenDisabled() {
 		UUID userID = UUID.randomUUID();
-		UserAccount pending = UserAccount.pending(userID, "Exemple", "Test", "test@example.invalid", "0600000000");
+		UserAccount pending = UserAccount.pending(userID, "Exemple", "Test", "test@example.invalid", "+12025550100");
 		UserAccountEntity entity = new UserAccountEntity(pending);
 
 		entity.disable();
@@ -61,7 +61,7 @@ public class UserAccountEntityTest {
 	@Test
 	void rejectsGlobalRoleWhenCreatingPendingAccount() {
 		UserAccount account = new UserAccount(UUID.randomUUID(), null, UserAccountStatus.PENDING_ACTIVATION,
-				Set.of(UserRole.EMPLOYEE), null, "Exemple", "Test", "test@example.invalid", "0600000000");
+				Set.of(UserRole.EMPLOYEE), null, "Exemple", "Test", "test@example.invalid", "+12025550100");
 
 		assertThrows(IllegalStateException.class, new UserAccountEntity(account)::validateCreation);
 	}
@@ -70,7 +70,7 @@ public class UserAccountEntityTest {
 	void preservesHistoricalAccountWithoutEmployeeDuringConversion() {
 		UUID userId = UUID.randomUUID();
 		UserAccount userAccount = new UserAccount(userId, "historicalUser", UserAccountStatus.ACTIVE,
-				Set.of(UserRole.ADMIN), null, "Exemple", "Test", "test@example.invalid", "0600000000");
+				Set.of(UserRole.ADMIN), null, "Exemple", "Test", "test@example.invalid", "+12025550100");
 
 		UserAccount restored = new UserAccountEntity(userAccount).toDomain();
 

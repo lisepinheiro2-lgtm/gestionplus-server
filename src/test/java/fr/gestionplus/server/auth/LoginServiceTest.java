@@ -42,7 +42,8 @@ public class LoginServiceTest {
 		service = new CredentialService(encoder, new PasswordPolicy(rawPassword -> false));
 		loginDelay = mock(LoginDelay.class);
 		userId = UUID.randomUUID();
-		employee = new Employee(UUID.randomUUID(), "Test", "Employee", 35, "test@example.invalid", "0600000000", null);
+		employee = new Employee(UUID.randomUUID(), "Test", "Employee", 35, "test@example.invalid",
+				"+12025550100", null);
 		credential = service.createCredential(userId, "jekel-test-password");
 		name = "userName";
 		userAccount = new UserAccount(userId, name, UserAccountStatus.ACTIVE,

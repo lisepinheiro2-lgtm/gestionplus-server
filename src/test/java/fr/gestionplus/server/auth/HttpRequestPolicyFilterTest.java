@@ -128,7 +128,7 @@ class HttpRequestPolicyFilterTest {
 	@Test
 	void anUnauthenticatedPrincipalCannotBeUsedToAttributeARefusal() throws Exception {
 		UserAccount unverified = new UserAccount(UUID.randomUUID(), "unverified", UserAccountStatus.ACTIVE,
-				Set.of(), UUID.randomUUID(), "Exemple", "Test", "test@example.invalid", "0600000000");
+				Set.of(), UUID.randomUUID(), "Exemple", "Test", "test@example.invalid", "+12025550100");
 		SecurityContextHolder.getContext()
 				.setAuthentication(UsernamePasswordAuthenticationToken.unauthenticated(unverified, null));
 		MockHttpServletRequest request = login();

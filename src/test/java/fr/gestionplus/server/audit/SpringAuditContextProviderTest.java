@@ -51,7 +51,7 @@ public class SpringAuditContextProviderTest {
 
 		UUID userID = UUID.randomUUID();
 		UserAccount account = new UserAccount(userID, "test", UserAccountStatus.ACTIVE, Set.of(UserRole.SECRETARY),
-				UUID.randomUUID(), "Exemple", "Test", "test@example.invalid", "0600000000");
+				UUID.randomUUID(), "Exemple", "Test", "test@example.invalid", "+12025550100");
 		SpringAuditContextProvider context = new SpringAuditContextProvider();
 		Authentication authentication = UsernamePasswordAuthenticationToken.authenticated(account, null, List.of());
 		SecurityContextHolder.getContext().setAuthentication(authentication);

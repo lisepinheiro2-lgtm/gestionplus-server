@@ -132,7 +132,7 @@ class AccountDeactivationNotificationDeliveryTest {
 		Notification notification = new Notification(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
 				UUID.randomUUID(), Kind.ACCOUNT_DEACTIVATION, attempts);
 		UserAccount actor = UserAccount.pending(notification.actorUserID(), "Exemple", "Test", "actor@example.invalid",
-				"0600000000");
+				"+12025550100");
 		when(notifications.lockNext()).thenReturn(Optional.of(notification));
 		when(accountStore.findById(notification.actorUserID())).thenReturn(Optional.of(actor));
 		return notification;

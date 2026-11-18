@@ -238,7 +238,7 @@ abstract class AbstractAccountInvitationPostgresqlIntegrationTest extends AuditS
 	protected UserAccount createAccount(UserAccountStatus status, Set<UserRole> roles, UUID employeeStructureID) {
 		UUID userID = UUID.randomUUID();
 		Employee employee = new Employee(UUID.randomUUID(), "Exemple", "Test", 35, userID + "@example.invalid",
-				"0600000000", null, employeeStructureID);
+				"+12025550100", null, employeeStructureID);
 		employees.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = status == UserAccountStatus.PENDING_ACTIVATION

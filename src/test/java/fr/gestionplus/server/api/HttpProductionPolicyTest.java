@@ -76,7 +76,7 @@ class HttpProductionPolicyTest {
 	@Test
 	void attributesAnInsecureRequestToTheExistingAuthenticatedSession() throws Exception {
 		UserAccount account = new UserAccount(UUID.randomUUID(), "transport-test", UserAccountStatus.ACTIVE,
-				Set.of(), UUID.randomUUID(), "Exemple", "Test", "test@example.invalid", "0600000000");
+				Set.of(), UUID.randomUUID(), "Exemple", "Test", "test@example.invalid", "+12025550100");
 		var context = SecurityContextHolder.createEmptyContext();
 		context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(account, null, List.of()));
 		MockHttpSession session = new MockHttpSession();

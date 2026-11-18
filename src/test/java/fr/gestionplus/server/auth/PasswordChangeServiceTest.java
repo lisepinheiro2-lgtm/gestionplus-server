@@ -161,6 +161,6 @@ class PasswordChangeServiceTest {
 
 	private UserAccount account(UUID id, UserAccountStatus status, long version) {
 		return new UserAccount(id, "test_" + id, status, Set.of(), UUID.randomUUID(), "Exemple", "Test",
-				"test@example.invalid", "0600000000", version);
+				"test@example.invalid", "+12025550100", version);
 	}
 }

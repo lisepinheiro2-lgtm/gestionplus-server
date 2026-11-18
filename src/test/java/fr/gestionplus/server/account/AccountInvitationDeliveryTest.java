@@ -60,9 +60,10 @@ class AccountInvitationDeliveryTest {
 		when(deliveries.complete(claim)).thenReturn(true);
 		when(deliveries.retry(claim)).thenReturn(true);
 		when(deliveries.cancel(claim)).thenReturn(true);
+		UserAccount pending = UserAccount.pending(request.userID(), UUID.randomUUID(), "Exemple", "Test",
+				request.email(), "+12025550100");
 		when(scope.lockAndAuthorize(request.actorID(), request.actorVersion(), request.userID(), request.structureID(),
-				request.roles())).thenReturn(UserAccount.pending(request.userID(), UUID.randomUUID(), "Exemple", "Test",
-						request.email(), "0600000000"));
+				request.roles())).thenReturn(pending);
 		when(tokens.token(request.requestID(), request.invitationID())).thenReturn(token);
 		when(sender.send(request.email(), request.invitationID(), token)).thenReturn(true);
 	}
@@ -154,7 +155,7 @@ class AccountInvitationDeliveryTest {
 	@Test
 	void permissionsRevokedDuringSmtpPreventFinalization() {
 		UserAccount pending = UserAccount.pending(request.userID(), UUID.randomUUID(), "Exemple", "Test",
-				request.email(), "0600000000");
+				request.email(), "+12025550100");
 		when(scope.lockAndAuthorize(request.actorID(), request.actorVersion(), request.userID(), request.structureID(),
 				request.roles())).thenReturn(pending).thenThrow(new AccessDeniedException("Droits révoqués"));
 

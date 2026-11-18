@@ -49,7 +49,7 @@ class UserCredentialJpaRepositoryTest extends AuditStorageIntegrationTest {
 
 		UUID userId = UUID.randomUUID();
 		Employee employee = new Employee(UUID.randomUUID(), "Test", "Employee", 35, "test@example.invalid",
-				"0600000000", null);
+				"+12025550100", null);
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userId, "test_" + userId, UserAccountStatus.ACTIVE,

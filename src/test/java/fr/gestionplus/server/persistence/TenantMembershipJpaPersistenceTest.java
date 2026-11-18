@@ -49,8 +49,8 @@ class TenantMembershipJpaPersistenceTest extends AuditStorageIntegrationTest {
 		UUID userID = UUID.randomUUID();
 		UUID tenantID = UUID.randomUUID();
 
-		Employee employee = new Employee(UUID.randomUUID(), "Alice", "Test", 35, "alice@example.invalid", "0600000000",
-				null);
+		Employee employee = new Employee(UUID.randomUUID(), "Alice", "Test", 35, "alice@example.invalid",
+				"+12025550100", null);
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userID, "alice_" + userID, UserAccountStatus.ACTIVE,
@@ -83,7 +83,7 @@ class TenantMembershipJpaPersistenceTest extends AuditStorageIntegrationTest {
 
 		UUID userID = UUID.randomUUID();
 		Employee employee = new Employee(UUID.randomUUID(), "Alice", "Test", 35, "alice_" + userID + "@example.invalid",
-				"0600000000", null);
+				"+12025550100", null);
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userID, "alice_" + userID, UserAccountStatus.ACTIVE, Set.of(role),

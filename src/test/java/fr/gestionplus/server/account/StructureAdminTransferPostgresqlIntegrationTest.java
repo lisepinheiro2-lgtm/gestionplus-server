@@ -492,7 +492,7 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 	private UserAccount createAccount(UUID userID, UserRole role) {
 
 		Employee employee = new Employee(UUID.randomUUID(), "Test", "Utilisateur", 35,
-				"test_" + userID + "@example.invalid", "0600000000", null);
+				"test_" + userID + "@example.invalid", "+12025550100", null);
 
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 

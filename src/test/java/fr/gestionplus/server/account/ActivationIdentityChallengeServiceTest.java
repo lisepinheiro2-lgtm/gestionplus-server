@@ -45,7 +45,7 @@ class ActivationIdentityChallengeServiceTest {
 	private static final UUID INVITATION_ID = UUID.randomUUID();
 	private static final UUID USER_ID = UUID.randomUUID();
 	private static final UUID STRUCTURE_ID = UUID.randomUUID();
-	private static final String PHONE = "0600000000";
+	private static final String PHONE = "+12025550100";
 	private static final String CODE = "000042";
 	private static final String DIGEST = "a".repeat(64);
 

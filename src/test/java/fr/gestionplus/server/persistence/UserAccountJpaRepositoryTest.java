@@ -49,7 +49,7 @@ class UserAccountJpaRepositoryTest extends AuditStorageIntegrationTest {
 
 		UUID userId = UUID.randomUUID();
 		Employee employee = new Employee(UUID.randomUUID(), "Test", "Employee", 35, "test@example.invalid",
-				"0600000000", null);
+				"+12025550100", null);
 		employeeRepository.saveAndFlush(new EmployeeEntity(employee));
 
 		UserAccount account = new UserAccount(userId, "test_" + userId, UserAccountStatus.ACTIVE,
@@ -82,7 +82,7 @@ class UserAccountJpaRepositoryTest extends AuditStorageIntegrationTest {
 	void persistsPendingAccountWithoutEmployeeOrGlobalRoles() {
 		UUID userID = UUID.randomUUID();
 
-		UserAccount pending = UserAccount.pending(userID, "Exemple", "Test", "test@example.invalid", "0600000000");
+		UserAccount pending = UserAccount.pending(userID, "Exemple", "Test", "test@example.invalid", "+12025550100");
 		accountStore.createAccount(pending);
 		entityManager.flush();
 		entityManager.clear();
@@ -103,7 +103,7 @@ class UserAccountJpaRepositoryTest extends AuditStorageIntegrationTest {
 	void rejectsNewAccountWithoutEmployee() {
 		UUID userId = UUID.randomUUID();
 		UserAccount account = new UserAccount(userId, "test_" + userId, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), null, "Exemple", "Test", "test@example.invalid", "0600000000");
+				Set.of(UserRole.EMPLOYEE), null, "Exemple", "Test", "test@example.invalid", "+12025550100");
 
 		InvalidDataAccessApiUsageException failure = assertThrows(InvalidDataAccessApiUsageException.class,
 				() -> accountStore.createAccount(account));
@@ -118,7 +118,7 @@ class UserAccountJpaRepositoryTest extends AuditStorageIntegrationTest {
 		assertFalse(employeeRepository.existsById(employeeID));
 
 		UserAccount account = new UserAccount(userId, "test_" + userId, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), employeeID, "Exemple", "Test", "test@example.invalid", "0600000000");
+				Set.of(UserRole.EMPLOYEE), employeeID, "Exemple", "Test", "test@example.invalid", "+12025550100");
 
 		InvalidDataAccessApiUsageException failure = assertThrows(InvalidDataAccessApiUsageException.class,
 				() -> accountStore.createAccount(account));
@@ -130,7 +130,7 @@ class UserAccountJpaRepositoryTest extends AuditStorageIntegrationTest {
 	void rejectsNewJpaAccountWithoutEmployee() {
 		UUID userId = UUID.randomUUID();
 		UserAccount account = new UserAccount(userId, "test_" + userId, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), null, "Exemple", "Test", "test@example.invalid", "0600000000");
+				Set.of(UserRole.EMPLOYEE), null, "Exemple", "Test", "test@example.invalid", "+12025550100");
 
 		assertThrows(IllegalStateException.class, () -> entityManager.persist(new UserAccountEntity(account)));
 	}
@@ -142,7 +142,7 @@ class UserAccountJpaRepositoryTest extends AuditStorageIntegrationTest {
 		assertFalse(employeeRepository.existsById(employeeID));
 
 		UserAccount account = new UserAccount(userId, "test_" + userId, UserAccountStatus.ACTIVE,
-				Set.of(UserRole.EMPLOYEE), employeeID, "Exemple", "Test", "test@example.invalid", "0600000000");
+				Set.of(UserRole.EMPLOYEE), employeeID, "Exemple", "Test", "test@example.invalid", "+12025550100");
 
 		assertThrows(DataIntegrityViolationException.class,
 				() -> repository.saveAndFlush(new UserAccountEntity(account)));

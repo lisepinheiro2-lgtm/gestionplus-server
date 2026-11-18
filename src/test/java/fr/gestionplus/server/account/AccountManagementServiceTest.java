@@ -103,7 +103,7 @@ class AccountManagementServiceTest {
 
 	private UserAccount account(UUID userID, UserAccountStatus statu, Set<UserRole> roles) {
 		UserAccount account = new UserAccount(userID, "test_" + userID, statu, roles, UUID.randomUUID(), "Exemple",
-				"Test", "test@example.invalid", "0600000000");
+				"Test", "test@example.invalid", "+12025550100");
 		when(store.findById(userID)).thenReturn(Optional.of(account));
 		when(store.findByIdForUpdate(userID)).thenReturn(Optional.of(account));
 		return account;
@@ -288,7 +288,7 @@ class AccountManagementServiceTest {
 	void rejectsUnauthenticatedSpringIdentity() {
 		UserAccount actorUser = new UserAccount(actorUserId, "alice", UserAccountStatus.ACTIVE,
 				Set.of(UserRole.SUPER_ADMIN), UUID.randomUUID(), "Exemple", "Alice", "alice@example.invalid",
-				"0600000000");
+				"+12025550100");
 		SecurityContextHolder.getContext()
 				.setAuthentication(UsernamePasswordAuthenticationToken.unauthenticated(actorUser, null));
 
@@ -310,7 +310,7 @@ class AccountManagementServiceTest {
 	@Test
 	void rejectsNullTargetOrStructure() {
 		authenticate(new UserAccount(actorUserId, "alice", UserAccountStatus.ACTIVE, Set.of(UserRole.ADMIN),
-				UUID.randomUUID(), "Exemple", "Alice", "alice@example.invalid", "0600000000"));
+				UUID.randomUUID(), "Exemple", "Alice", "alice@example.invalid", "+12025550100"));
 
 		assertThrows(NullPointerException.class, () -> accessService.revokeStructureAccess(null, structureID));
 		assertThrows(NullPointerException.class, () -> accessService.revokeStructureAccess(targetUserId, null));
@@ -358,7 +358,7 @@ class AccountManagementServiceTest {
 		prepare(Set.of(UserRole.EMPLOYEE), Set.of(UserRole.EMPLOYEE));
 		UserAccount actorUser = new UserAccount(actorUserId, "alice", UserAccountStatus.ACTIVE,
 				Set.of(UserRole.SUPER_ADMIN, UserRole.ADMIN), UUID.randomUUID(), "Exemple", "Alice",
-				"alice@example.invalid", "0600000000");
+				"alice@example.invalid", "+12025550100");
 		SecurityContextHolder.getContext().setAuthentication(UsernamePasswordAuthenticationToken
 				.authenticated(actorUser, null, List.of(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"))));
 

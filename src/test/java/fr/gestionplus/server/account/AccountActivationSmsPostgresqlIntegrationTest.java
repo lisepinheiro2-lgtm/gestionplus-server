@@ -100,6 +100,7 @@ class AccountActivationSmsPostgresqlIntegrationTest extends AbstractAccountInvit
 	@Test
 	void threeIncorrectCodesRevokeTheChallengeAndPreventActivationWithTheCorrectCode() {
 		String wrongCode = code.equals("000000") ? "000001" : "000000";
+
 		for (int attempt = 1; attempt <= 2; attempt++) {
 			assertThrows(AccessDeniedException.class, () -> completeActivation(wrongCode));
 			ActivationIdentityChallenge current = currentChallenge().orElseThrow();
