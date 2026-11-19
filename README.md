@@ -45,9 +45,9 @@ flowchart LR
 
 Au 18 novembre 2026, `e103f72` ajoute le vérificateur HMAC du code d’activation et `68ce7ef` ajoute ses tests unitaires et PostgreSQL. `47642d1` ajoute le garde E.164 du téléphone des comptes. Le dernier bilan local rapporté par Lise est de **875/875 tests réussis le 18 novembre**. [Garde téléphonique et bilan des tests](docs/AVANCEMENT.md#garde-telephone-e164-2026-11-18)
 
-**Assemblage des tests :** `ActivationMessageSender` est simulé par `@MockitoBean` dans la base commune `AuditStorageIntegrationTest`, héritée par les contextes `@SpringBootTest` actuels. Cette déclaration reste dans `src/test` ; aucun expéditeur SMS concret n’est fourni pour l’application.
+**Assemblage des tests :** `ActivationMessageSender` est simulé par `@MockitoBean` dans la base commune `AuditStorageIntegrationTest`, héritée par les contextes `@SpringBootTest` actuels. Cette déclaration reste dans `src/test`. L’application fournit désormais `FakeActivationMessageSender`, activé uniquement par `gestionplus.sms.fictif=true` : il journalise le numéro et le code sans envoyer de SMS réel.
 
-Après raccordement serveur–client, fournir l’expéditeur SMS concret, valider son intégration avec le vérificateur HMAC et inventorier les autres composants applicatifs provisoires. [État des composants SMS](docs/AVANCEMENT.md#beans-definitifs-apres-raccordement)
+**Ordre de raccordement :** l’expéditeur minimal doit être disponible **avant le raccordement serveur–client** ; `FakeActivationMessageSender` couvre ce besoin pour les essais locaux sous activation explicite. Après raccordement, intégrer l’expéditeur SMS réel, valider son intégration avec le vérificateur HMAC et inventorier les autres composants applicatifs provisoires. [État des composants SMS](docs/AVANCEMENT.md#beans-definitifs-apres-raccordement)
 
 **Contrat d’appel :** `requestActivationChallenge(invitationID, token)` et sa délégation à `createChallenge(invitationID)` doivent être appelées **sans transaction Spring déjà active**. Cette précondition est [documentée explicitement](docs/AVANCEMENT.md#contrat-appel-creation-defis-sms) ; elle n’est pas contrôlée automatiquement par les services.
 
