@@ -18,7 +18,7 @@ public class AccountActivationController {
 		this.activationService = activationService;
 	}
 
-	@PostMapping("/api/invitations/{invitationID}/sms-challenge")
+	@PostMapping(AccountActivationRoutes.SMS_CHALLENGE_PATH)
 	public void requestActivationChallenge(@PathVariable UUID invitationID, @RequestBody SmsChallengeRequest request) {
 
 		activationService.requestActivationChallenge(invitationID, request.token());

@@ -25,6 +25,7 @@ import org.springframework.security.web.session.HttpSessionEventPublisher;
 import org.springframework.web.filter.FormContentFilter;
 
 import fr.gestionplus.server.account.AccountStore;
+import fr.gestionplus.server.api.AccountActivationRoutes;
 import fr.gestionplus.server.api.HttpApiError;
 import fr.gestionplus.server.audit.AuditReason;
 import fr.gestionplus.server.audit.AuditService;
@@ -105,7 +106,7 @@ public class HttpSecurityConfig {
 		http.authorizeHttpRequests(auth -> auth.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
 				.requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
 				.requestMatchers(HttpMethod.GET, "/api/auth/me", SessionLifetime.STATUS_PATH).authenticated()
-				.requestMatchers(HttpMethod.POST, "/api/invitations/{invitationID}/sms-challenge").permitAll()
+				.requestMatchers(HttpMethod.POST, AccountActivationRoutes.SMS_CHALLENGE_PATH).permitAll()
 				.anyRequest().denyAll());
 
 		http.sessionManagement(sessions -> sessions.maximumSessions(-1).sessionRegistry(registry)
