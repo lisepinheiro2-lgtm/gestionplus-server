@@ -4,6 +4,8 @@ package fr.gestionplus.server.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -23,10 +25,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -34,8 +39,10 @@ import org.springframework.boot.test.context.TestComponent;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
@@ -44,12 +51,14 @@ import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.filter.FormContentFilter;
 
 import com.jayway.jsonpath.JsonPath;
 
+import fr.gestionplus.server.account.AccountActivationService;
 import fr.gestionplus.server.account.AccountStore;
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditMetadata;
@@ -71,15 +80,21 @@ import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
 import fr.gestionplus.server.auth.UserRole;
 
-@WebMvcTest({ CsrfController.class, AuthSessionController.class })
+@WebMvcTest({ CsrfController.class, AuthSessionController.class, AccountActivationController.class })
 @Import({ HttpSecurityConfig.class, GestionAuthenticationProvider.class, LoginAttemptLimiter.class,
 		CsrfHttpTest.UnlistedController.class })
 class CsrfHttpTest {
+
+	private static final String SMS_CHALLENGE_PATH = "/api/invitations/{invitationID}/sms-challenge";
+	private static final UUID INVITATION_ID = UUID.randomUUID();
+	private static final String INVITATION_TOKEN = "a".repeat(43);
 
 	@Autowired
 	private MockMvc mockMvc;
 	@Autowired
 	private FilterChainProxy securityFilters;
+	@Autowired
+	private SessionRegistry sessionRegistry;
 	@Autowired
 	@Qualifier("requestPolicyRegistration")
 	private FilterRegistrationBean<?> requestPolicyRegistration;
@@ -89,6 +104,8 @@ class CsrfHttpTest {
 
 	@MockitoBean
 	private LoginService loginService;
+	@MockitoBean
+	private AccountActivationService activationService;
 	@MockitoBean
 	private AccountStore accountStore;
 	@MockitoBean
@@ -104,6 +121,93 @@ class CsrfHttpTest {
 	@BeforeEach
 	void allowOrdinaryAccountsToLogInWithoutMfa() {
 		when(mfa.verifyForLogin(any(UserAccount.class), nullable(String.class))).thenReturn(Verification.NOT_REQUIRED);
+	}
+
+	@Test
+	void anonymousSmsChallengeUsesTheCsrfSessionWithoutAuthenticatingIt() throws Exception {
+		MvcResult csrf = requestCsrf(null);
+		MockHttpSession session = (MockHttpSession) csrf.getRequest().getSession(false);
+		String sessionID = session.getId();
+		assertNull(session.getAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY));
+
+		MvcResult result = mockMvc.perform(smsChallengeRequest().session(session)
+				.header("X-CSRF-TOKEN", getToken(csrf))).andExpect(status().isOk())
+				.andExpect(content().string("")).andReturn();
+
+		verify(activationService).requestActivationChallenge(INVITATION_ID, INVITATION_TOKEN);
+		assertSame(session, result.getRequest().getSession(false));
+		assertEquals(sessionID, session.getId());
+		assertFalse(session.isInvalid());
+		assertNull(session.getAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY));
+		assertNull(sessionRegistry.getSessionInformation(sessionID));
+
+		mockMvc.perform(get("/api/auth/me").session(session)).andExpect(status().isUnauthorized())
+				.andExpect(content().json("{\"code\":\"AUTHENTICATION_REQUIRED\"}"));
+		verifyNoInteractions(loginService, mfa);
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = { false, true })
+	void rejectsAnonymousSmsChallengeWithoutCsrfBeforeCallingTheService(boolean existingSession) throws Exception {
+		MockHttpServletRequestBuilder request = smsChallengeRequest();
+
+		if (existingSession) {
+			MvcResult csrf = requestCsrf(null);
+			request.session((MockHttpSession) csrf.getRequest().getSession(false));
+		}
+
+		mockMvc.perform(request).andExpect(status().isForbidden())
+				.andExpect(content().json("{\"code\":\"FORBIDDEN\"}"));
+
+		verifyNoInteractions(activationService, loginService, mfa);
+		verifyAccessRefusal(null, AuditReason.CSRF_REJECTED);
+	}
+
+	@Test
+	void rejectsAnSmsChallengeWithAnotherSessionsCsrfToken() throws Exception {
+		MvcResult firstCsrf = requestCsrf(null);
+		MvcResult secondCsrf = requestCsrf(null);
+		MockHttpSession secondSession = (MockHttpSession) secondCsrf.getRequest().getSession(false);
+
+		mockMvc.perform(smsChallengeRequest().session(secondSession)
+				.header("X-CSRF-TOKEN", getToken(firstCsrf))).andExpect(status().isForbidden())
+				.andExpect(content().json("{\"code\":\"FORBIDDEN\"}"));
+
+		verifyNoInteractions(activationService, loginService, mfa);
+		verifyAccessRefusal(null, AuditReason.CSRF_REJECTED);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "/api/unlisted-security-test", "/api/invitations/{invitationID}/sms-challenge",
+			"/api/invitations/{invitationID}/sms-challenge/extra", "/api/invitations/{invitationID}/sms-challenges" })
+	void deniesUnlistedGetRequestsBeforeMvcEvenWithoutAMatchingController(String path) throws Exception {
+		MvcResult result = mockMvc.perform(get(path.replace("{invitationID}", INVITATION_ID.toString())))
+				.andExpect(status().isUnauthorized())
+				.andExpect(content().json("{\"code\":\"AUTHENTICATION_REQUIRED\"}")).andReturn();
+
+		assertNull(result.getRequest().getSession(false));
+		verifyNoInteractions(activationService, loginService, mfa);
+		verifyAccessRefusal(null, AuditReason.AUTHENTICATION_REQUIRED);
+	}
+
+	@ParameterizedTest
+	@MethodSource("unlistedPostRequests")
+	void deniesUnlistedPostsDespiteValidCsrfForAnonymousAndAuthenticatedSessions(String path, boolean authenticated)
+			throws Exception {
+		UserAccount account = authenticated ? createTestAccount() : null;
+		MockHttpSession session = authenticated ? authenticatedSession(account) : null;
+		MvcResult csrf = requestCsrf(session);
+		session = (MockHttpSession) csrf.getRequest().getSession(false);
+
+		mockMvc.perform(post(path.replace("{invitationID}", INVITATION_ID.toString())).session(session)
+				.header("X-CSRF-TOKEN", getToken(csrf)).contentType(MediaType.APPLICATION_JSON).content("{}"))
+				.andExpect(status().is(authenticated ? 403 : 401))
+				.andExpect(content().json(authenticated ? "{\"code\":\"FORBIDDEN\"}"
+						: "{\"code\":\"AUTHENTICATION_REQUIRED\"}"));
+
+		verifyNoInteractions(activationService);
+		verifyAccessRefusal(account,
+				authenticated ? AuditReason.ACCESS_NOT_AUTHORIZED : AuditReason.AUTHENTICATION_REQUIRED);
 	}
 
 	@Test
@@ -159,7 +263,7 @@ class CsrfHttpTest {
 				.header("X-Username", userName).content(new byte[16385]))
 				.andExpect(status().is(413)).andExpect(content().json("{\"code\":\"PAYLOAD_TOO_LARGE\"}"));
 
-		verifyRequestPolicyRefusal(authenticated ? account : null, AuditReason.INVALID_INPUT);
+		verifyAccessRefusal(authenticated ? account : null, AuditReason.INVALID_INPUT);
 	}
 
 	@ParameterizedTest
@@ -172,7 +276,7 @@ class CsrfHttpTest {
 				.param("password", "private-first-password", "private-second-password").param("totp", "012345"))
 				.andExpect(status().isBadRequest()).andExpect(content().json("{\"code\":\"INVALID_REQUEST\"}"));
 
-		verifyRequestPolicyRefusal(authenticated ? account : null, AuditReason.INVALID_INPUT);
+		verifyAccessRefusal(authenticated ? account : null, AuditReason.INVALID_INPUT);
 	}
 
 	private MockHttpSession authenticatedSession(UserAccount account) throws Exception {
@@ -185,7 +289,7 @@ class CsrfHttpTest {
 		return (MockHttpSession) login.getRequest().getSession(false);
 	}
 
-	private void verifyRequestPolicyRefusal(UserAccount account, AuditReason reason) {
+	private void verifyAccessRefusal(UserAccount account, AuditReason reason) {
 		UUID actorID = account == null ? null : account.getUserID();
 		Set<AuditTarget> targets = actorID == null ? Set.of()
 				: Set.of(new AuditTarget(AuditTargetType.ACCOUNT, actorID));
@@ -360,6 +464,17 @@ class CsrfHttpTest {
 		return JsonPath.read(result.getResponse().getContentAsString(), "$.token");
 	}
 
+	private MockHttpServletRequestBuilder smsChallengeRequest() {
+		return post(SMS_CHALLENGE_PATH, INVITATION_ID).contentType(MediaType.APPLICATION_JSON)
+				.content("{\"token\":\"" + INVITATION_TOKEN + "\"}");
+	}
+
+	private static Stream<Arguments> unlistedPostRequests() {
+		return Stream.of("/api/unlisted-security-test", "/api/invitations/{invitationID}/sms-challenge/extra",
+				"/api/invitations/{invitationID}/sms-challenges")
+				.flatMap(path -> Stream.of(Arguments.of(path, false), Arguments.of(path, true)));
+	}
+
 	private UserAccount createTestAccount() {
 		UserAccount account = new UserAccount(UUID.randomUUID(), userName, UserAccountStatus.ACTIVE,
 				Set.of(UserRole.EMPLOYEE), UUID.randomUUID(), "Exemple", "Test", "test@example.invalid",
@@ -460,7 +575,10 @@ class CsrfHttpTest {
 
 	@Test
 	void refusesCurrentUserWithoutSession() throws Exception {
-		mockMvc.perform(get("/api/auth/me")).andExpect(status().isUnauthorized());
+		MvcResult result = mockMvc.perform(get("/api/auth/me")).andExpect(status().isUnauthorized())
+				.andExpect(content().json("{\"code\":\"AUTHENTICATION_REQUIRED\"}")).andReturn();
+
+		assertNull(result.getRequest().getSession(false));
 	}
 
 	@Test
