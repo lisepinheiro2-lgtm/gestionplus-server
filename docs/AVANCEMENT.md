@@ -1,6 +1,7 @@
 ---
-summary: "Garde E.164 du téléphone des comptes et bilan local de 875/875 rapporté le 18 novembre. Vérificateur HMAC, tests SMS et réserves documentés."
+summary: "Chaîne Spring Security réelle dans MockMvc, sessions et SMS fictif sur 4c630ee ; 900/900 tests réussis rapportés par Lise le 19 novembre 2026."
 read_when:
+  - "reprendre les 900/900 tests, la chaîne HTTP réelle, les sessions et le simulateur SMS du 19 novembre"
   - "reprendre le contrôleur de demande de code SMS et son contrat HTTP"
   - "reprendre le garde téléphonique des comptes et les 875/875 tests rapportés le 18 novembre"
   - "reprendre le vérificateur HMAC du code SMS, les tests et les réserves du 18 novembre"
@@ -32,9 +33,36 @@ read_when:
 
 # Avancement et feuille de route
 
+<a id="securite-http-sessions-2026-11-19"></a>
+
+## Chaîne Spring Security et cycle des sessions — 19 novembre 2026
+
+**Référence et validation.** Dernier commit local relu : `4c630ee`. Lise confirme **900/900 tests réussis dans Eclipse** sur cet état, après correction de la préparation de la session. Il s’agit de son résultat local rapporté, pas d’une exécution de l’assistant. Les bilans antérieurs conservent leurs dates et leurs versions.
+
+| Commit | Modification vérifiée dans les sources |
+| --- | --- |
+| `4008538` | Ajout de `FakeActivationMessageSender`, conditionné par `gestionplus.sms.fictif=true`. Il journalise le téléphone et le code, sans fournisseur ni SMS réel. |
+| `a1edc64` | `AccountActivationRoutes.SMS_CHALLENGE_PATH` définit le chemin partagé par le contrôleur et la règle de sécurité. La classe est finale, avec constructeur privé ; les tests conservent une URL attendue indépendante. |
+| `f8388a4` | README : expéditeur minimal disponible avant le raccordement serveur–client, fournisseur SMS réel à intégrer ensuite. |
+| `4c630ee` | Complément de `CsrfHttpTest` et ajout de `SessionLifecycleHttpTest`, avec la correction de simulation de l’identifiant de session. |
+
+**Chaîne réelle dans MockMvc.** [CsrfHttpTest](../src/test/java/fr/gestionplus/server/api/CsrfHttpTest.java) charge les contrôleurs et `HttpSecurityConfig` via `@WebMvcTest`. Le POST SMS anonyme passe avec le jeton et la session obtenus par le vrai `GET /api/auth/csrf`. Sans jeton, ou avec celui d’une autre session, le refus est `403 FORBIDDEN`, audité `CSRF_REJECTED`, avant l’appel métier. Les routes inconnues et les chemins voisins restent refusés : `401` pour un anonyme, `403` pour un utilisateur authentifié avec CSRF valide. `GET /api/auth/me` sans session reçoit `401`.
+
+Le POST SMS réutilise la session anonyme nécessaire au CSRF : il n’en change pas l’identifiant, n’y ajoute pas de contexte authentifié et ne l’inscrit pas au registre des sessions authentifiées. Une lecture protégée reste refusée. Les sept tests `standaloneSetup` du contrôleur sont conservés ; leur portée reste distincte de ces tests avec filtres.
+
+**Cycle de session.** Les quatre scénarios de [SessionLifecycleHttpTest](../src/test/java/fr/gestionplus/server/api/SessionLifecycleHttpTest.java) couvrent connexion, lecture de l’utilisateur, déconnexion puis refus de lecture ; expiration à l’échéance publiée ; invalidation ; échec de connexion sans authentification de la session CSRF. Après expiration ou invalidation, le logout utilise un nouveau contexte CSRF anonyme. Le vrai `SessionLifetime` utilise une horloge pilotée pour éviter les attentes.
+
+La préparation du login fournit désormais `setRequestedSessionId(anonymousSessionID)` : fournir seulement l’objet session à MockMvc ne représentait pas l’identifiant renvoyé par le navigateur. L’assertion de rotation de l’identifiant est conservée.
+
+**Portée et suite.** Les filtres de production sont chargés, mais les services métier, le stockage et l’audit sont simulés dans ces deux classes. Ces scénarios ne prouvent ni un transport réseau réel, ni la persistance des sessions entre serveurs, ni un envoi SMS réel. Le raccordement Swing et le fournisseur SMS restent à construire. Le choix C reste une activation locale explicite ; aucune garde automatique contre `prod` avec le flag fictif n’est présente. Les réserves transactionnelles, d’invitation, de téléphone, d’audit et de compensation déjà annexées restent suivies.
+
+Cette actualisation documentaire repose sur les commits et les sources relus et sur le bilan fourni par Lise. Aucun test, compilation, serveur ou migration n’est lancé par l’assistant.
+
 <a id="route-demande-code-sms-2026-11-18"></a>
 
 ## Contrôleur de demande de code SMS — 18 novembre 2026
+
+Instantané historique avant l’ouverture ciblée de la route sur `d093ac7` et les tests avec filtres de `4c630ee`. Voir le [jalon du 19 novembre](#securite-http-sessions-2026-11-19) pour l’état actuel.
 
 Le commit `48465e5` déclare `POST /api/invitations/{invitationID}/sms-challenge`. Le contrôleur transmet au service l’UUID extrait du chemin et le jeton lu dans le corps JSON `{"token":"…"}`. Les réponses `400`, `403`, `409` et `503` relèvent du traitement MVC. Un refus métier anonyme reçoit actuellement `401`. La chaîne Spring Security continue de refuser ce POST avant le contrôleur. [Contrat HTTP et accès](../README.md#demande-de-code-sms-par-http)
 
@@ -146,7 +174,7 @@ Cette fenêtre résiduelle, décrite comme microscopique en séance, n'a pas ét
 
 | Contrat | État actuel | Travail prévu après raccordement |
 | --- | --- | --- |
-| `ActivationMessageSender` | Mock partagé dans `AuditStorageIntegrationTest`, uniquement sous `src/test` ; aucun bean applicatif concret. | Implémenter et configurer l'expéditeur relié au fournisseur SMS, puis vérifier les envois et les échecs réels. |
+| `ActivationMessageSender` | Mock partagé dans `AuditStorageIntegrationTest` pour les tests ; simulateur applicatif conditionnel `FakeActivationMessageSender` depuis `4008538`, disponible pour les essais locaux avant raccordement. | Intégrer et configurer le fournisseur SMS réel, puis vérifier les envois et les échecs réels. |
 | `ActivationIdentityVerifier` | Depuis `e103f72`, composant `HmacActivationIdentityVerifier` présent. Dans les quatre nouveaux scénarios de `68ce7ef`, le mock hérité lui délègue les appels. | Valider la sélection du bean concret et le parcours réel ; conserver les mocks utiles aux autres tests. La vérification du code est implémentée, son assemblage complet reste à valider. |
 
 Au même jalon, inventorier les éventuels autres beans applicatifs provisoires, puis les remplacer ou les configurer pour le fonctionnement réel. Les mocks de tests, notamment `Clock`, `AccountInvitationSender` et `CredentialService`, restent utiles à l'isolation des tests : leur présence ne signifie pas que leurs équivalents applicatifs sont tous provisoires. L'adaptateur `MailAccountInvitationSender` existe déjà dans le code principal.
@@ -725,7 +753,7 @@ La configuration actuelle contient bien `spring.jpa.hibernate.ddl-auto: validate
 
 ## Tests : sources et résultats sont deux informations différentes
 
-Le dernier bilan global rapporté par Lise est de **875/875 tests réussis** le 18 novembre 2026. [Garde téléphonique et portée du bilan](#garde-telephone-e164-2026-11-18)
+Le dernier bilan global rapporté par Lise est de **900/900 tests réussis dans Eclipse le 19 novembre 2026 sur `4c630ee`**. Le résultat est rapporté par Lise, sans exécution de l’assistant. [Validation et limites](#securite-http-sessions-2026-11-19).
 
 Les campagnes ci-dessous restent historiques. Le [bilan du 5 novembre](#tests-autorisations-2026-11-05) décrit les tests adaptés à cette date. Le [bilan du 9 novembre](#audit-rattachements-2026-11-09) consigne séparément le lancement local de 356 tests réussi par l’utilisatrice.
 

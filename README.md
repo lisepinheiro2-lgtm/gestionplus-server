@@ -43,7 +43,7 @@ flowchart LR
 - Les adaptateurs JPA/JDBC et les migrations V1 à V27 présentes dans les sources, dont le stockage des défis SMS d’activation.
 - L’audit transactionnel et son secours chiffré, les files d’envoi et les tests unitaires et PostgreSQL associés.
 
-Au 18 novembre 2026, `e103f72` ajoute le vérificateur HMAC du code d’activation et `68ce7ef` ajoute ses tests unitaires et PostgreSQL. `47642d1` ajoute le garde E.164 du téléphone des comptes. Le dernier bilan local rapporté par Lise est de **875/875 tests réussis le 18 novembre**. [Garde téléphonique et bilan des tests](docs/AVANCEMENT.md#garde-telephone-e164-2026-11-18)
+Au 19 novembre 2026, le dernier état relu est `4c630ee` : expéditeur SMS fictif conditionnel, chemin HTTP partagé, tests avec la vraie chaîne Spring Security et cycle de session. Lise confirme **900/900 tests réussis dans Eclipse** sur cet état ; ce résultat local est rapporté par Lise, sans exécution par l’assistant. [Jalon et portée des preuves](docs/AVANCEMENT.md#securite-http-sessions-2026-11-19)
 
 **Assemblage des tests :** `ActivationMessageSender` est simulé par `@MockitoBean` dans la base commune `AuditStorageIntegrationTest`, héritée par les contextes `@SpringBootTest` actuels. Cette déclaration reste dans `src/test`. L’application fournit désormais `FakeActivationMessageSender`, activé uniquement par `gestionplus.sms.fictif=true` : il journalise le numéro et le code sans envoyer de SMS réel.
 
@@ -53,7 +53,7 @@ Au 18 novembre 2026, `e103f72` ajoute le vérificateur HMAC du code d’activati
 
 ## Accès HTTP présents dans les sources
 
-Configuration HTTP relue le **18 novembre 2026**. Les routes applicatives actuellement autorisées sont les suivantes :
+Configuration HTTP relue le **19 novembre 2026**, sur `4c630ee`. Les routes applicatives actuellement autorisées sont les suivantes :
 
 | Méthode et chemin | Accès et comportement |
 | --- | --- |
@@ -62,16 +62,17 @@ Configuration HTTP relue le **18 novembre 2026**. Les routes applicatives actuel
 | `GET /api/auth/me` | Session authentifiée encore valide ; renvoie le nom d’utilisateur courant. |
 | `GET /api/auth/session` | Session authentifiée ; renvoie `expiresAt` et `warnAt`. Cette consultation ne prolonge pas l’activité. |
 | `POST /logout` | Jeton CSRF obligatoire ; déconnexion et réponse 204. |
+| `POST /api/invitations/{invitationID}/sms-challenge` | Accessible sans connexion avec session et jeton CSRF ; invitation et jeton d’invitation vérifiés par le service. Succès MVC : 200 sans corps. |
 
 La configuration `formLogin` conserve les pages HTML par défaut de Spring Security pour `GET /login` et la confirmation `GET /logout`. Ces pages ne constituent pas le parcours Swing avec MFA. Le traitement interne des erreurs servlet est autorisé ; les autres routes restent refusées par défaut.
 
-Les services d’invitation, d’activation, d’enrôlement et récupération MFA, de changement de mot de passe et de gouvernance existent côté Java. **Leurs parcours HTTP publics et leur intégration Swing restent à construire.** Le traitement d’un conflit de nom à l’activation est préparé en 409 générique, sans détail sur un autre compte ; les autres contraintes PostgreSQL ne sont pas assimilées indistinctement à ce conflit.
+Les services d’invitation, d’activation, d’enrôlement et récupération MFA, de changement de mot de passe et de gouvernance existent côté Java. **En dehors des accès décrits ici, leurs points d’entrée HTTP et leur intégration Swing restent à construire.** Le traitement d’un conflit de nom à l’activation est préparé en 409 générique, sans détail sur un autre compte ; les autres contraintes PostgreSQL ne sont pas assimilées indistinctement à ce conflit.
 
 ### Demande de code SMS par HTTP
 
 Le commit `48465e5` déclare `POST /api/invitations/{invitationID}/sms-challenge` avec un UUID dans le chemin et un corps `application/json` de la forme `{"token":"…"}`. Le contrôleur délègue au service avec cet UUID et ce jeton. Spring MVC renvoie `200` avec un corps vide en cas de succès. [Contrôleur de demande de code SMS](src/main/java/fr/gestionplus/server/api/AccountActivationController.java)
 
-Le traitement MVC renvoie `400 INVALID_REQUEST` pour un UUID invalide ou un corps JSON absent ou mal formé, `403 FORBIDDEN` pour un refus métier avec authentification, `409 CONFLICT` pour un conflit de création du défi et `503 SERVICE_UNAVAILABLE` pour une livraison d’invitation en attente ou une indisponibilité reconnue. Le même refus métier sans authentification donne `401 AUTHENTICATION_REQUIRED`. La chaîne Spring Security actuelle refuse ce POST avant le contrôleur. [Traduction des erreurs MVC](src/main/java/fr/gestionplus/server/api/ApiExceptionHandler.java) · [Jalon de la route SMS](docs/AVANCEMENT.md#route-demande-code-sms-2026-11-18)
+Le traitement MVC renvoie `400 INVALID_REQUEST` pour un UUID invalide ou un corps JSON absent ou mal formé, `403 FORBIDDEN` pour un refus métier avec authentification, `409 CONFLICT` pour un conflit de création du défi et `503 SERVICE_UNAVAILABLE` pour une livraison d’invitation en attente ou une indisponibilité reconnue. Le même refus métier sans authentification donne `401 AUTHENTICATION_REQUIRED`. La chaîne Spring Security autorise ciblément ce POST anonyme ; CSRF reste obligatoire. Sans jeton CSRF, le refus est 403 avant le service. Le chemin est partagé via `AccountActivationRoutes.SMS_CHALLENGE_PATH`. [Tests avec les vrais filtres](docs/AVANCEMENT.md#securite-http-sessions-2026-11-19) · [Traduction des erreurs MVC](src/main/java/fr/gestionplus/server/api/ApiExceptionHandler.java) · [Jalon de la route SMS](docs/AVANCEMENT.md#route-demande-code-sms-2026-11-18)
 
 ## Migrations présentes et état de la base
 
@@ -131,13 +132,14 @@ Les [contrats communs du 11 novembre](https://github.com/lisepinheiro2-lgtm/gest
 - ADMIN_EMERGENCY : deux postes par ADMIN, mot de passe et TOTP, sans durée fixe ; non implémenté. Sa révocation définitive interdit les modifications en attente. La récupération du travail de l’ancien ADMIN et la preuve de fraîcheur entre postes restent à clarifier.
 - Notifications de correction, historique Swing, quarantaine et accusés en ligne avec blocage limité aux dépendances restent à construire.
 
-Les services d’activation, MFA et gouvernance ne constituent pas des API métier disponibles : les accès HTTP effectifs restent ceux du tableau ci-dessus.
+Les accès HTTP effectifs sont ceux du tableau ci-dessus, dont la demande de défi SMS. Les autres points d’entrée des services d’activation, MFA et gouvernance restent à construire.
 
 ## Tests et niveau de preuve
 
 | Élément | État disponible |
 | --- | --- |
-| Dernier bilan global rapporté dans le suivi | **875/875 tests réussis, rapportés le 18 novembre**. Les 838/838 du 17 novembre restent le jalon de la demande de code SMS. |
+| Dernier bilan global rapporté dans le suivi | **900/900 tests réussis dans Eclipse, confirmés par Lise le 19 novembre sur `4c630ee`**, après correction du test de rotation de session. Exécution locale de Lise, pas de l’assistant. |
+| Chaîne HTTP et sessions | `CsrfHttpTest` avec les filtres réels et `SessionLifecycleHttpTest` : CSRF, refus par défaut, session anonyme SMS, login/logout, expiration, invalidation et échec de connexion. Services métier simulés ; pas de transport réseau réel. [Portée détaillée](docs/AVANCEMENT.md#securite-http-sessions-2026-11-19) |
 | Tests dédiés de sécurité | `PasswordChangeServiceTest`, `MfaSecretCipherTest`, `MailAccountInvitationSenderTest` et `SuperAdminSuccessionServiceTest` rédigés. |
 | Confidentialité et permissions | Tests de non-divulgation dans l’audit, les objets d’authentification et les erreurs ; garde du catalogue de permissions et des droits SECRETARY/SECURITY_OFFICER. |
 | PostgreSQL | Scénarios rédigés de collisions de noms, activation contre expiration, rollback du changement de mot de passe et de la succession, en complément des tests de concurrence déjà présents. |

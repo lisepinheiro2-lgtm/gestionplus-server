@@ -40,11 +40,21 @@ Les [tests de la demande de code SMS](AVANCEMENT.md#demande-code-sms-2026-11-17)
 
 Depuis `e103f72`, `HmacActivationIdentityVerifier` recherche le défi courant, contrôle le téléphone et `isUsable`, puis compare l’empreinte recalculée avec `MessageDigest.isEqual`. Il renvoie l’UUID sans consommer le défi si le code correspond et enregistre un échec si le code diffère. La consommation reste dans `AccountActivationService.activateInTransaction`. `68ce7ef` ajoute `HmacActivationIdentityVerifierTest` (huit méthodes, dont une paramétrée) et `AccountActivationSmsPostgresqlIntegrationTest` (quatre scénarios). Dans cette dernière, le mock hérité délègue au vérificateur concret. L’expéditeur et le service de credentials restent simulés. [Jalon et portée des tests](AVANCEMENT.md#verification-hmac-sms-2026-11-18)
 
-`AuditStorageIntegrationTest` fournit aux contextes `@SpringBootTest` un expéditeur SMS simulé via `@MockitoBean`. L’application a besoin d’un expéditeur concret. Le vérificateur HMAC est déjà déclaré comme composant Spring.
+`AuditStorageIntegrationTest` conserve son `@MockitoBean` pour les tests. L’application dispose de `FakeActivationMessageSender` depuis `4008538`, activé uniquement par `gestionplus.sms.fictif=true`, sans envoi SMS réel. Le vérificateur HMAC est un composant Spring.
 
-Après le raccordement serveur–client, fournir l’expéditeur applicatif, valider son fonctionnement avec le vérificateur HMAC et inventorier les autres composants provisoires. Les mocks de tests conservent leur rôle. [État des composants SMS](AVANCEMENT.md#beans-definitifs-apres-raccordement)
+Avant le raccordement serveur–client, disposer de l’expéditeur minimal fictif pour les essais locaux. Après raccordement, intégrer le fournisseur SMS réel, valider son assemblage avec le vérificateur HMAC et inventorier les autres composants provisoires. [État des composants SMS](AVANCEMENT.md#beans-definitifs-apres-raccordement)
 
 **Contrainte obligatoire pour l’appelant :** invoquer `createChallenge(invitationID)` **sans transaction Spring déjà active**, donc hors d’une méthode exécutée sous `@Transactional` et hors d’un `TransactionTemplate` actif. Le service conserve la propagation `REQUIRED` et ne contrôle pas automatiquement cette précondition ; un appel transactionnel pourrait envoyer avant le commit. Voir le [contrat d’appel détaillé](AVANCEMENT.md#contrat-appel-creation-defis-sms). Le compte est relu sous verrou et le délai/quota sont revérifiés avant le remplacement. L’invitation n’est pas relue à cet endroit et le téléphone utilisé reste celui lu avant verrou ; voir la [fenêtre résiduelle documentée](AVANCEMENT.md#telephone-avant-verrou-defis-sms).
+
+### Simulation SMS locale et tests HTTP — 19 novembre 2026
+
+Dans Eclipse, activer le simulateur par l’argument VM `-Dgestionplus.sms.fictif=true`, uniquement dans la configuration locale choisie. Il journalise le téléphone et le code : employer des données fictives. Le flag n’est pas activé par défaut dans les fichiers versionnés et aucune garde ne rejette automatiquement son utilisation avec `prod`. Avant un usage réel, désactiver le fictif et vérifier la sélection du fournisseur SMS réel.
+
+Pour une vérification de démarrage, préparer une base PostgreSQL isolée et diriger `spring.datasource.url` vers cette base dans les arguments du programme. Flyway utilise alors la même source de données si aucune connexion de migration distincte n’est configurée. Avec Spring Boot 4.1.2, fournir seulement `spring.flyway.url` crée une connexion séparée sans reprendre automatiquement le mot de passe de l’application ; des identifiants Flyway explicites sont nécessaires pour ce mode. La séparation des identités du profil `prod` reste inchangée.
+
+Les deux contrôles de démarrage ont été réalisés par Lise le 19 novembre sur une base locale isolée : démarrage réussi avec le flag, puis échec identifiant précisément le bean `ActivationMessageSender` manquant sans flag. Ces contrôles ne prouvent pas l’envoi d’un défi.
+
+Depuis `4c630ee`, lire `CsrfHttpTest` pour les accès SMS et CSRF avec les vrais filtres, puis `SessionLifecycleHttpTest` pour les sessions. Ce sont des tests `@WebMvcTest`, avec services métier simulés, sans PostgreSQL. Les jetons proviennent du vrai endpoint CSRF ; la durée de session utilise le vrai `SessionLifetime` et une horloge pilotée. Le bilan global de **900/900** est une validation locale rapportée par Lise. [Détail des preuves](AVANCEMENT.md#securite-http-sessions-2026-11-19)
 
 ## Prérequis d'une exécution locale
 
@@ -103,7 +113,7 @@ sh ./mvnw spring-boot:run -Dspring-boot.run.arguments=--server.address=127.0.0.1
 
 Le wrapper sélectionne Maven, puis le plugin compile et lance l'application. L'argument limite l'écoute HTTP à cette machine sans modifier la configuration livrée. Arrêter avec `Ctrl+C`.
 
-La configuration locale expose les premiers parcours Spring Security : `GET /api/auth/csrf`, `POST /login`, `GET /api/auth/me`, `GET /api/auth/session` et `POST /logout`, avec les contrôles de session et CSRF correspondants. Les autres routes applicatives restent refusées par défaut, y compris le POST de demande de code SMS déclaré dans le contrôleur. L’ouverture de ce POST et le raccordement Swing restent à traiter. Voir les [accès et limites du README](../README.md#accès-http-présents-dans-les-sources) et les [preuves datées](AVANCEMENT.md).
+La configuration locale autorise les parcours de connexion/session et le POST SMS anonyme avec CSRF et jeton d’invitation. Les autres routes applicatives sont refusées par défaut. Les tests avec les filtres réels sont inclus dans le bilan 900/900 rapporté par Lise sur `4c630ee` ; Swing reste à raccorder. Voir les [accès HTTP](../README.md#accès-http-présents-dans-les-sources) et le [jalon du 19 novembre](AVANCEMENT.md#securite-http-sessions-2026-11-19).
 
 Le contrôle des mots de passe compromis comporte un appel sortant vers Pwned Passwords lorsqu'il est invoqué. Les tests de cette intégration utilisent un client HTTP simulé ; cela ne prouve pas le comportement du service externe réel.
 
@@ -123,7 +133,7 @@ Les [benchmarks manuels d’authentification](benchmarks/authentication/README.m
 
 ## Limites et suite des validations
 
-Le dernier résultat global rapporté par Lise est de **875/875 tests réussis** le 18 novembre 2026. [Garde téléphonique et portée du bilan](AVANCEMENT.md#garde-telephone-e164-2026-11-18)
+Le dernier résultat global rapporté par Lise est de **900/900 tests réussis dans Eclipse le 19 novembre 2026 sur `4c630ee`**. Aucune exécution de l’assistant. [Chaîne HTTP, sessions et limites](AVANCEMENT.md#securite-http-sessions-2026-11-19)
 
 Au raccordement, tenir compte du contrat hors transaction et des lectures de l’invitation et du téléphone avant verrou. Les réserves portent aussi sur le rattachement des audits SMS à l’entreprise, les instants utilisés après attente des verrous et le double échec de l’envoi et de sa compensation. [Réserves du 18 novembre](AVANCEMENT.md#reserves-sms-2026-11-18)
 

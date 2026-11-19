@@ -18,6 +18,7 @@ Ce serveur fait partie du même projet Gestion+ que le client Swing. Leur réuni
 | --- | --- |
 | Comprendre le produit, la couverture des domaines et les frontières client/serveur | [Vision d’ensemble](https://github.com/lisepinheiro2-lgtm/gestionplus-client/blob/main/docs/vision-ensemble.md) |
 | Retrouver les décisions structures, droits, archives/facturation, concurrence, hors ligne et documents du 29 octobre | [Synthèse serveur DEC01–DEC06](AVANCEMENT.md#décisions-métier-transversales--29-octobre-2026) et [référence commune](https://github.com/lisepinheiro2-lgtm/gestionplus-client/blob/main/docs/vision-ensemble.md#decisions-metier-2026-10-29) |
+| Dernier état : 900/900 rapportés sur `4c630ee`, sécurité HTTP, sessions et SMS fictif | [Jalon du 19 novembre](AVANCEMENT.md#securite-http-sessions-2026-11-19) |
 | Reprendre le chantier, distinguer implémenté, en cours et prévu | [Avancement et feuille de route](AVANCEMENT.md) |
 | Création des défis SMS, tests et limites du 17 novembre | [Service, quota et assemblage à compléter](AVANCEMENT.md#creation-defis-sms-2026-11-17) |
 | Demande de code SMS | [Jeton d’invitation, audit et tests du service](AVANCEMENT.md#demande-code-sms-2026-11-17) · [Contrôleur et accès HTTP](AVANCEMENT.md#route-demande-code-sms-2026-11-18) |
@@ -34,13 +35,13 @@ Ce serveur fait partie du même projet Gestion+ que le client Swing. Leur réuni
 
 ## État et lecture des preuves
 
-Au 18 novembre 2026, `e103f72` fournit le vérificateur HMAC et `68ce7ef` ajoute huit méthodes unitaires, dont une paramétrée, et quatre scénarios PostgreSQL. Le serveur consomme le défi dans la transaction d’activation. L’avancement consigne le bilan global au jalon du garde téléphonique. [Vérification HMAC](AVANCEMENT.md#verification-hmac-sms-2026-11-18) · [Dernier bilan rapporté](AVANCEMENT.md#garde-telephone-e164-2026-11-18)
+Au 19 novembre 2026, `4c630ee` complète les tests avec la vraie chaîne Spring Security et les cycles de session. **900/900 tests réussis dans Eclipse sont confirmés par Lise sur cet état**, sans exécution de l’assistant. [Validation et limites](AVANCEMENT.md#securite-http-sessions-2026-11-19)
 
-Le raccordement doit respecter l’appel hors transaction. L’invitation et le téléphone sont lus avant le verrou de création. Le contrôleur de demande SMS existe depuis `48465e5`. L’ouverture de son POST dans Spring Security, l’expéditeur SMS applicatif et l’intégration Swing restent à réaliser. [Composants SMS](AVANCEMENT.md#beans-definitifs-apres-raccordement) · [Réserves du 18 novembre](AVANCEMENT.md#reserves-sms-2026-11-18)
+Le POST SMS est autorisé sans connexion avec CSRF et jeton d’invitation. Le simulateur conditionnel est présent depuis `4008538` et le chemin partagé depuis `a1edc64`. L’expéditeur minimal précède le raccordement serveur–client ; le fournisseur SMS réel et Swing restent à intégrer. Le contrat d’appel hors transaction et les réserves de l’invitation et du téléphone restent applicables. [Composants SMS](AVANCEMENT.md#beans-definitifs-apres-raccordement)
 
 La démonstration autonome Swing reste distincte. La sécurité de l’usage connecté doit être imposée côté serveur ; l’absence de connexion n’autorise pas un repli privilégié local.
 
-Sommaire actualisé le **18 novembre 2026** à partir des sources locales.
+Sommaire actualisé le **19 novembre 2026** à partir des sources locales.
 
 ## Suivi public et suivi privé
 
