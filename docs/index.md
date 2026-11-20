@@ -8,6 +8,18 @@ read_when:
 
 # Documentation du serveur Spring Boot
 
+<a id="reprise-swing-2026-11-20"></a>
+
+## Reprise du raccordement — 20 novembre 2026
+
+TOTP, identité, accueil et déconnexion/reconnexion Swing sont validés manuellement par Lise sur un environnement isolé. Les **284/284** concernent le client `03387cc` ; les **900/900** restent la validation serveur de `4c630ee` du 19 novembre.
+
+- [Recette réelle, auteurs des contrôles et limites](AVANCEMENT.md#connexion-swing-2026-11-20).
+- [Préparer un essai isolé sans publier de secret](DEVELOPPEMENT.md#essai-client-isole-2026-11-20).
+- [Suite client : métier connecté et expiration](https://github.com/lisepinheiro2-lgtm/gestionplus-client/blob/main/docs/ROADMAP.md#suite-connexion-2026-11-20).
+
+Les états historiques ci-dessous restent datés ; aucune suite n'est relancée par cette actualisation.
+
 [Présentation du serveur](../README.md) · [Vision d’ensemble de Gestion+](https://github.com/lisepinheiro2-lgtm/gestionplus-client/blob/main/docs/vision-ensemble.md) · [Documentation du client](https://github.com/lisepinheiro2-lgtm/gestionplus-client/blob/main/docs/index.md)
 
 Ce serveur fait partie du même projet Gestion+ que le client Swing. Leur réunion à terme est un objectif ; cette organisation documentaire n’effectue aucune fusion de dépôts, de modules ou de code.
@@ -37,11 +49,11 @@ Ce serveur fait partie du même projet Gestion+ que le client Swing. Leur réuni
 
 Au 19 novembre 2026, `4c630ee` complète les tests avec la vraie chaîne Spring Security et les cycles de session. **900/900 tests réussis dans Eclipse sont confirmés par Lise sur cet état**, sans exécution de l’assistant. [Validation et limites](AVANCEMENT.md#securite-http-sessions-2026-11-19)
 
-Le POST SMS est autorisé sans connexion avec CSRF et jeton d’invitation. Le simulateur conditionnel est présent depuis `4008538` et le chemin partagé depuis `a1edc64`. L’expéditeur minimal précède le raccordement serveur–client ; le fournisseur SMS réel et Swing restent à intégrer. Le contrat d’appel hors transaction et les réserves de l’invitation et du téléphone restent applicables. [Composants SMS](AVANCEMENT.md#beans-definitifs-apres-raccordement)
+Le POST SMS est autorisé sans connexion avec CSRF et jeton d’invitation. Le simulateur conditionnel est présent depuis `4008538` et le chemin partagé depuis `a1edc64`. L’expéditeur minimal précède le raccordement serveur–client ; le fournisseur SMS réel et le parcours d’activation SMS dans Swing restent à intégrer ; la connexion et les sessions Swing sont désormais raccordées. Le contrat d’appel hors transaction et les réserves de l’invitation et du téléphone restent applicables. [Composants SMS](AVANCEMENT.md#beans-definitifs-apres-raccordement)
 
 La démonstration autonome Swing reste distincte. La sécurité de l’usage connecté doit être imposée côté serveur ; l’absence de connexion n’autorise pas un repli privilégié local.
 
-Sommaire actualisé le **19 novembre 2026** à partir des sources locales.
+Sommaire actualisé le **20 novembre 2026** ; les preuves du 19 novembre gardent leur portée.
 
 ## Suivi public et suivi privé
 

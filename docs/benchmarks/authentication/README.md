@@ -1,5 +1,15 @@
 # Mesurer l’authentification
 
+<a id="compatibilite-2026-11-20"></a>
+
+## Portée des relevés et compatibilité — 20 novembre 2026
+
+Les relevés ci-dessous restent ceux de leurs commits respectifs. **Aucun benchmark n'a été relancé pendant la recette Swing ni cette actualisation.** Le compte local avec TOTP appartient à un environnement distinct, hors dépôt ; il ne produit pas de nouveaux chiffres Argon2.
+
+Le commit `e6f1ce3` de `LocalLoginPathBenchmark.java` examiné le 20 novembre porte uniquement sur la mise en forme ; il ne constitue pas une adaptation fonctionnelle ni une nouvelle validation.
+
+**Compatibilité du mode Login à reprendre avant une nouvelle mesure :** les fixtures utilisent encore des téléphones composés de zéros, tandis que `UserAccount` exige désormais un format commençant par `+`. Les propriétés isolées ne prévoient pas non plus l'activation du bean expéditeur SMS fictif désormais nécessaire au contexte. Cette lecture statique ne modifie ni l'outil ni les conclusions historiques ; adaptation et exécution nécessitent leur propre autorisation.
+
 Ces outils manuels permettent de comparer les performances d’une machine à l’autre et d’évaluer un changement de la pause de connexion. Le mode retenu est isolé : il crée son propre serveur et sa propre base jetable, y compris lorsqu’il est lancé sur la machine destinée au déploiement.
 
 Les [mesures de référence du 14 novembre 2026](reference-2026-11-14/README.md) comprennent les rapports, les CSV et les résumés JSON d’Argon2 seul et du parcours HTTP. Leur validité reste attachée au code et à l’environnement indiqués. L’ajout des outils réutilisables n’est pas une nouvelle mesure.

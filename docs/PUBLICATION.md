@@ -7,6 +7,14 @@ read_when:
 
 # Publier les sources et travailler sur deux ordinateurs
 
+<a id="confidentialite-essai-local-2026-11-20"></a>
+
+## Données d'essai et publication — 20 novembre 2026
+
+Le parcours connecté réel est décrit dans l'[avancement](AVANCEMENT.md#connexion-swing-2026-11-20). Outils locaux, fichiers Eclipse, paramètres PostgreSQL, identifiants, facteurs TOTP, clés et codes de récupération restent hors dépôt. Les documents publics présentent le comportement et les preuves sans recopier ces fichiers privés.
+
+Le SUPER_ADMIN fictif de la base isolée n'est pas un compte par défaut de l'application publiée. Les opérations de commit et de push restent sous le contrôle de Lise.
+
 [Présentation](../README.md) · [Avancement](AVANCEMENT.md) · [Sommaire](index.md)
 
 ## Situation à la reprise — 28 octobre 2026

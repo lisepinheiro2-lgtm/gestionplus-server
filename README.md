@@ -1,8 +1,18 @@
 # Gestion+ · Serveur
 
+<a id="connexion-swing-2026-11-20"></a>
+
+## Premier raccordement Swing — 20 novembre 2026
+
+Le client `03387cc` communique réellement avec la connexion/session du serveur `b2ca9e3`. Lise confirme une recette locale avec SUPER_ADMIN fictif et TOTP : connexion, accueil avec identité, déconnexion/reconnexion et maintien de la démonstration autonome.
+
+**284/284 tests client réussis** sont rapportés par Lise. Le dernier résultat serveur reste **900/900 sur `4c630ee` le 19 novembre**. La préparation isolée de l'assistant et ses contrôles HTTP sont [distingués ici](docs/AVANCEMENT.md#connexion-swing-2026-11-20).
+
+Les cartes métier connectées, le suivi Swing de l'expiration et le fournisseur SMS réel restent à développer. Aucun compte ni secret prêt à l'emploi n'est ajouté au dépôt.
+
 **Le chantier backend de Gestion+, une application de gestion du personnel, des clients, des interventions et des remplacements.**
 
-Gestion+ est un projet personnel de portfolio, développé progressivement pour approfondir Java, la conception d'une application de bureau et la construction d'un serveur sécurisé. Il est né d'un client Java Swing qui fonctionne aujourd'hui avec des fichiers CSV locaux. Ce dépôt prépare son évolution vers une architecture avec comptes, permissions et stockage centralisé.
+Gestion+ est un projet personnel de portfolio, développé progressivement pour approfondir Java, la conception d'une application de bureau et la construction d'un serveur sécurisé. Il est né d'un client Java Swing qui fonctionne aujourd'hui avec des fichiers CSV locaux. Le premier raccordement de connexion/session est présent ; l'évolution vers les API métier connectées et le stockage centralisé se poursuit.
 
 > **En développement actif — version déclarée : 0.0.1-SNAPSHOT.**
 > Les sources sont proposées pour découvrir le travail en cours. Le serveur ne fournit pas encore une application utilisable de bout en bout et n'est pas prêt pour un usage en entreprise ou une exposition sur Internet.
@@ -22,14 +32,15 @@ Le développement privilégie une séparation lisible entre métier, persistance
 
 | Élément | Fonctionnement actuel | Cible |
 | --- | --- | --- |
-| [Client Swing](https://github.com/lisepinheiro2-lgtm/gestionplus-client) | Application de bureau autonome avec CSV locaux. | Échanges avec le serveur pour l'utilisation connectée. |
+| [Client Swing](https://github.com/lisepinheiro2-lgtm/gestionplus-client) | Démo CSV fictive et mode connecté pour identité, accueil et déconnexion. | Raccordement des écrans aux API métier autorisées. |
 | Ce serveur Spring Boot | Parcours HTTP de connexion/session et services métier de comptes, permissions et audit en développement. | Intégration complète des services avec Swing et API métier contrôlées. |
 | PostgreSQL | Configuration locale et migrations présentes dans les sources ; état réel d'une base non déduit de ces fichiers. | Stockage du serveur, accessible par celui-ci. |
 
 ```mermaid
 flowchart LR
-    S["Client Swing"] -->|"Actuel"| C["CSV locaux"]
-    S -. "Intégration prévue" .-> B["Serveur Spring Boot"]
+    S["Client Swing"] -->|"Démonstration"| C["CSV fictifs locaux"]
+    S -->|"Connexion et session"| B["Serveur Spring Boot"]
+    S -. "API métier à raccorder" .-> B
     B -->|"Adaptateurs et migrations présents"| P["PostgreSQL"]
 ```
 
@@ -115,7 +126,7 @@ La présence de ces fichiers **ne prouve pas leur application sur une base**. V2
 - Audit des cibles compte rattaché à l’entreprise lorsqu’elle peut être déterminée sans ambiguïté ; verrou du compte de l’acteur sur le changement de responsable ; désactivation du titulaire SUPER_ADMIN sortant sans accès local restant.
 - Vérification des changements concurrents par verrous PostgreSQL et relecture de l’état avant opération. Un test de garde impose une revue lors de l’ajout d’une permission au catalogue ; il doit être exécuté avant intégration.
 
-Le délai de renvoi de 60 secondes depuis la création s’applique à un défi encore utilisable. Le troisième code incorrect comptabilisé révoque le défi et permet une nouvelle demande immédiate dans la limite de trois défis par couple invitation et compte. Le défi révoqué reste compté. Le service relit le compte sous verrou et revérifie le délai et le quota. L’invitation et le téléphone utilisés restent ceux lus avant le verrou. L’expéditeur concret, l’ouverture de la route dans Spring Security et le raccordement Swing restent à réaliser. [Réserves sur les audits, le temps et la compensation](docs/AVANCEMENT.md#reserves-sms-2026-11-18)
+Le délai de renvoi de 60 secondes depuis la création s’applique à un défi encore utilisable. Le troisième code incorrect comptabilisé révoque le défi et permet une nouvelle demande immédiate dans la limite de trois défis par couple invitation et compte. Le défi révoqué reste compté. Le service relit le compte sous verrou et revérifie le délai et le quota. L’invitation et le téléphone utilisés restent ceux lus avant le verrou. Le simulateur SMS conditionnel et l’ouverture de la route dans Spring Security sont présents. Le fournisseur SMS réel et le parcours d’activation SMS dans Swing restent à réaliser. [Réserves sur les audits, le temps et la compensation](docs/AVANCEMENT.md#reserves-sms-2026-11-18)
 
 Les preuves d’enrôlement MFA et de confirmation renforcée exigent également leurs implémentations opérationnelles. La nomination ADMIN préparée pour un compte en attente, avec son délai de 24 heures, reste à réaliser. Les appareils de confiance, la récupération exceptionnelle SUPER_ADMIN, la gouvernance des contacts de récupération et le mode hors ligne `ADMIN_EMERGENCY` sur poste autorisé restent des chantiers distincts. Aucun compte administrateur ni secret de démonstration n’est fourni.
 

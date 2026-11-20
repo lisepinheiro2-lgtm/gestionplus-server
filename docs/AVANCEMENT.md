@@ -1,5 +1,5 @@
 ---
-summary: "Chaîne Spring Security réelle dans MockMvc, sessions et SMS fictif sur 4c630ee ; 900/900 tests réussis rapportés par Lise le 19 novembre 2026."
+summary: "Connexion Swing réelle locale avec TOTP et 284/284 client rapportés ; 900/900 serveur sur 4c630ee restent datés du 19 novembre."
 read_when:
   - "reprendre les 900/900 tests, la chaîne HTTP réelle, les sessions et le simulateur SMS du 19 novembre"
   - "reprendre le contrôleur de demande de code SMS et son contrat HTTP"
@@ -32,6 +32,18 @@ read_when:
 ---
 
 # Avancement et feuille de route
+
+<a id="connexion-swing-2026-11-20"></a>
+
+## Première recette Swing–serveur avec TOTP — 20 novembre 2026
+
+**Références :** client `03387cc`, serveur `b2ca9e3`. Lise rapporte **284/284 tests client réussis dans Eclipse** et confirme manuellement TOTP, accueil `HomePanel`, identité, déconnexion, formulaire, reconnexion et maintien de la démo CSV.
+
+L'assistant a préparé hors dépôt une copie du serveur, PostgreSQL dédié et un SUPER_ADMIN fictif avec TOTP réel chiffré. Les migrations **V1–V27 ont été appliquées uniquement à cette nouvelle base**. Le rôle PostgreSQL applicatif est distinct de celui des migrations et n'est pas superutilisateur.
+
+Le contrôle HTTP réel de l'assistant a donné : sans TOTP **401**, avec TOTP **200**, identité **200**, échéance **200**, logout **204**, puis lecture protégée **401**. Ces contrôles précèdent la simplification ultérieure des identifiants locaux, dont le nouveau parcours HTTP reste à confirmer. Ces contrôles et la recette de Lise ne constituent ni une nouvelle suite serveur ni une validation de déploiement. Le dernier résultat global serveur reste **900/900 rapportés par Lise sur `4c630ee` le 19 novembre**.
+
+L'essai est limité à la boucle locale, aux données fictives et au simulateur SMS. Identifiants, clés, codes de récupération et outils d'amorçage ne sont pas versionnés. API métier connectées, fournisseur SMS réel et suivi Swing de l'expiration restent à compléter.
 
 <a id="securite-http-sessions-2026-11-19"></a>
 

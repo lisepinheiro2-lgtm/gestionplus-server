@@ -7,6 +7,18 @@ read_when:
 
 # Explorer et lancer le serveur localement
 
+<a id="essai-client-isole-2026-11-20"></a>
+
+## Essai du client sur environnement isolé — 20 novembre 2026
+
+Le client `03387cc` est raccordé à la connexion/session ; seule sa démo CSV reste autonome. Voir le [bilan et ses limites](AVANCEMENT.md#connexion-swing-2026-11-20).
+
+Pour une recette autorisée, préparer une base séparée, une application sur `127.0.0.1` et une URL client correspondante. Le client utilise `http://localhost:8080` par défaut ; une autre URL se configure par `-Dgestionplus.server.url=...`. Le compte doit être ACTIVE, avec credential, rattachements cohérents et TOTP réel lorsque son rôle l'exige. Un SUPER_ADMIN désigné doit être rattaché à son entreprise et à son salarié ; son MFA reste obligatoire.
+
+L'environnement de Lise et ses outils sont hors dépôt. Paramètres PostgreSQL, mots de passe, clés, liens de provisionnement et codes de récupération restent privés. Aucun compte par défaut ni migration de peuplement administrateur n'est livré ici.
+
+L'amorçage d'une base fictive est une préparation administrative locale ; il ne valide pas le provisionnement en production, l'activation par SMS ou le parcours complet d'enrôlement MFA. Les clés et données de cet essai ne doivent pas être réutilisées pour un déploiement. HTTP local ne remplace pas les exigences TLS de la cible.
+
 [Présentation](../README.md) · [Avancement et limites](AVANCEMENT.md)
 
 Le code peut être étudié sans démarrer le serveur ni installer une base. Les commandes de lancement ci-dessous sont des instructions pour une exécution future ; elles n'ont pas été exécutées pendant la préparation de cette documentation.
