@@ -5,6 +5,7 @@ import java.util.Map;
 
 import org.springframework.security.access.AccessDeniedException;
 
+import fr.gestionplus.server.account.ActivationDeniedException;
 import fr.gestionplus.server.audit.AuditReason;
 import fr.gestionplus.server.audit.AuditedAccessDeniedException;
 import jakarta.servlet.http.HttpServletResponse;
@@ -22,7 +23,8 @@ public enum HttpApiError {
 	PAYLOAD_TOO_LARGE(413),
 	UNSUPPORTED_MEDIA_TYPE(415),
 	INTERNAL_ERROR(500),
-	SERVICE_UNAVAILABLE(503);
+	SERVICE_UNAVAILABLE(503),
+	ACTIVATION_DENIED(403);
 
 	private final int status;
 
@@ -50,6 +52,10 @@ public enum HttpApiError {
 	}
 
 	public static HttpApiError fromAccessDenied(AccessDeniedException failure) {
+
+		if (failure instanceof ActivationDeniedException) {
+			return ACTIVATION_DENIED;
+		}
 
 		if (failure instanceof AuditedAccessDeniedException stale && stale.getReason() == AuditReason.STALE_SESSION) {
 			return AUTHENTICATION_REQUIRED;

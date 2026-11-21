@@ -10,6 +10,7 @@ import java.util.UUID;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 
+import fr.gestionplus.server.audit.AuditReason;
 import fr.gestionplus.server.auth.AuthenticatedUserProvider;
 import fr.gestionplus.server.auth.AuthorizationService;
 import fr.gestionplus.server.auth.Permission;
@@ -162,6 +163,10 @@ class AccountInvitationScope {
 
 		}
 
+	}
+
+	static AccessDeniedException activationDenied() {
+		return new ActivationDeniedException("Activation impossible.", AuditReason.ACCESS_NOT_AUTHORIZED);
 	}
 
 	static AccessDeniedException denied() {

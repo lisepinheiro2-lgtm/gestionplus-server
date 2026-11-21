@@ -73,7 +73,7 @@ public class AccountActivationService {
 	public void requestActivationChallenge(UUID invitationID, String token) {
 
 		if (invitationID == null || !isValidToken(token)) {
-			throw AccountInvitationScope.denied();
+			throw AccountInvitationScope.activationDenied();
 		}
 
 		requireValidInvitation(invitationID, token);
@@ -103,7 +103,7 @@ public class AccountActivationService {
 				|| !isValidToken(token)
 				|| proof == null
 				|| proof.isBlank()) {
-			throw AccountInvitationScope.denied();
+			throw AccountInvitationScope.activationDenied();
 		}
 
 	}
@@ -122,7 +122,7 @@ public class AccountActivationService {
 
 		if (!isUsable(invitation, clock.instant())
 				|| !tokenMatches(invitation, token)) {
-			throw AccountInvitationScope.denied();
+			throw AccountInvitationScope.activationDenied();
 		}
 
 		return invitation;
@@ -132,12 +132,12 @@ public class AccountActivationService {
 
 		UserAccount account = accountStore.findById(invitation.userID())
 				.filter(current -> current.getStatu() == UserAccountStatus.PENDING_ACTIVATION)
-				.orElseThrow(AccountInvitationScope::denied);
+				.orElseThrow(AccountInvitationScope::activationDenied);
 
 		ActivationIdentityVerifier verifier = identityVerifiers.getIfAvailable();
 
 		if (verifier == null) {
-			throw AccountInvitationScope.denied();
+			throw AccountInvitationScope.activationDenied();
 		}
 
 		Optional<UUID> verifiedChallenge = verifier.verify(
@@ -147,7 +147,7 @@ public class AccountActivationService {
 				proof);
 
 		if (verifiedChallenge == null || verifiedChallenge.isEmpty()) {
-			throw AccountInvitationScope.denied();
+			throw AccountInvitationScope.activationDenied();
 		}
 
 		return verifiedChallenge.get();
@@ -162,15 +162,15 @@ public class AccountActivationService {
 				.orElseThrow(() -> activationUnavailable(invitationID, token));
 
 		UserAccount account = accountStore.findByIdForUpdate(candidate.userID())
-				.orElseThrow(AccountInvitationScope::denied);
+				.orElseThrow(AccountInvitationScope::activationDenied);
 
 		Invitation invitation = invitationStore.findByID(invitationID)
-				.orElseThrow(AccountInvitationScope::denied);
+				.orElseThrow(AccountInvitationScope::activationDenied);
 
 		if (account.getStatu() != UserAccountStatus.PENDING_ACTIVATION
 				|| !isUsable(invitation, clock.instant())
 				|| !tokenMatches(invitation, token)) {
-			throw AccountInvitationScope.denied();
+			throw AccountInvitationScope.activationDenied();
 		}
 
 		scope.requireEmployee(account, invitation.structureID());
@@ -178,12 +178,12 @@ public class AccountActivationService {
 
 		ActivationIdentityChallenge challenge = challengeStore
 				.findCurrentByInvitationAndUser(invitationID, account.getUserID())
-				.orElseThrow(AccountInvitationScope::denied);
+				.orElseThrow(AccountInvitationScope::activationDenied);
 
 		if (!challenge.challengeID().equals(challengeID)
 				|| !Objects.equals(challenge.phoneNumber(), account.getPhoneNumber())
 				|| !challenge.isUsable(clock.instant())) {
-			throw AccountInvitationScope.denied();
+			throw AccountInvitationScope.activationDenied();
 		}
 
 		UserCredential credential = credentialService
@@ -191,7 +191,7 @@ public class AccountActivationService {
 
 		if (!isUsable(invitation, clock.instant())
 				|| !challengeStore.consumeIfCurrent(challengeID, clock.instant())) {
-			throw AccountInvitationScope.denied();
+			throw AccountInvitationScope.activationDenied();
 		}
 
 		accountStore.activateAccount(account.getUserID(), userName, credential);
@@ -240,7 +240,7 @@ public class AccountActivationService {
 			return new InvitationDeliveryPendingException();
 		}
 
-		return AccountInvitationScope.denied();
+		return AccountInvitationScope.activationDenied();
 	}
 
 	private boolean isUsable(Invitation invitation, Instant now) {

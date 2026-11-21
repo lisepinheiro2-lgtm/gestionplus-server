@@ -19,6 +19,7 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import fr.gestionplus.server.account.AccountActivationConflictException;
+import fr.gestionplus.server.account.ActivationDeniedException;
 import fr.gestionplus.server.account.InvitationDeliveryPendingException;
 import fr.gestionplus.server.audit.AuditReason;
 import fr.gestionplus.server.audit.AuditService;
@@ -46,6 +47,11 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	@ExceptionHandler(AccessDeniedException.class)
 	ResponseEntity<Object> denied(AccessDeniedException failure, HttpServletRequest request,
 			Authentication authentication) {
+
+		if (failure instanceof ActivationDeniedException activationDenied) {
+			audit.refused(request, null, activationDenied.getReason());
+			return response(HttpApiError.ACTIVATION_DENIED);
+		}
 
 		if (authentication == null || !authentication.isAuthenticated()
 				|| authentication instanceof AnonymousAuthenticationToken) {

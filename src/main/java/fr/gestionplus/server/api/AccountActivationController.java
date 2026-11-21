@@ -25,6 +25,15 @@ public class AccountActivationController {
 
 	}
 
+	@PostMapping(AccountActivationRoutes.ACTIVATION_PATH)
+	public void requestActivation(@PathVariable UUID invitationID, @RequestBody Activation request) {
+		activationService.completeActivation(invitationID, request.token(), request.proof(), request.userName(),
+				request.password());
+	}
+
+	record Activation(String token, String proof, String userName, String password) {
+	}
+
 	record SmsChallengeRequest(String token) {
 	}
 }

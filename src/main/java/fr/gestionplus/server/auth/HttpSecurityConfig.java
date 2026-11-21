@@ -108,8 +108,10 @@ public class HttpSecurityConfig {
 				.requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
 				.requestMatchers(HttpMethod.GET, "/api/auth/me", SessionLifetime.STATUS_PATH).authenticated()
 				.requestMatchers(HttpMethod.GET, OrganizationalStructureRoutes.STRUCTURES_PATH,
-						OrganizationalStructureRoutes.STRUCTURE_PATH).authenticated()
+						OrganizationalStructureRoutes.STRUCTURE_PATH)
+				.authenticated()
 				.requestMatchers(HttpMethod.POST, AccountActivationRoutes.SMS_CHALLENGE_PATH).permitAll()
+				.requestMatchers(HttpMethod.POST, AccountActivationRoutes.ACTIVATION_PATH).permitAll()
 				.anyRequest().denyAll());
 
 		http.sessionManagement(sessions -> sessions.maximumSessions(-1).sessionRegistry(registry)
