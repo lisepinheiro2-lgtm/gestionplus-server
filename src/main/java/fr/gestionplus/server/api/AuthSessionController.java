@@ -25,7 +25,7 @@ public class AuthSessionController {
 
 		if (authentication == null || !(authentication.getPrincipal() instanceof UserAccount)
 				|| !authentication.isAuthenticated()) {
-			throw new AuthenticationCredentialsNotFoundException("Vous ne passerez paaaaas !!!");
+			throw new AuthenticationCredentialsNotFoundException("Crédential introuvable.");
 		}
 
 		UserAccount account = (UserAccount) authentication.getPrincipal();
