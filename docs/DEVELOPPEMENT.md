@@ -1,11 +1,47 @@
 ---
-summary: "Repères du code Spring Boot et préparation d’une exécution locale sur base isolée."
+summary: "Multi-instance f4c6931 : Redis, clés communes, TLS, proxy explicite et audit propre à chaque instance."
 read_when:
   - "explorer les couches Java JPA PostgreSQL et les migrations sans lancer le serveur"
   - "préparer ultérieurement un lancement ou des tests expressément autorisés"
 ---
 
 # Explorer et lancer le serveur localement
+
+<a id="multi-instance-2026-11-21"></a>
+
+## Préparer plusieurs instances — 21 novembre 2026
+
+État relu `f4c6931` : Spring Session Data Redis et les adaptateurs Redis de sécurité sont requis pour l’assemblage applicatif. `SessionLifetime(Clock)` et `SessionRegistryImpl` subsistent dans la configuration servlet **réservée aux tests** ; ce n’est pas une solution de secours de production.
+
+### Paramètres externes, sans valeurs secrètes
+
+| Paramètre externe / propriété | Contrat vérifié |
+| --- | --- |
+| `REDIS_HOST`, `REDIS_PORT` | Hôte requis, port 6379 par défaut. Toutes les instances d’un même déploiement doivent joindre le même service Redis et utiliser la même base logique effective. Ne pas réutiliser l’espace de noms d’un autre environnement. |
+| `REDIS_USER`, `REDIS_PASSWORD` | Mot de passe externe requis ; utilisateur `default` uniquement comme valeur locale par défaut. Le profil `prod` exige `REDIS_USER` sans repli. Préparer les ACL Redis hors dépôt. |
+| `REDIS_SSL_ENABLED` | Contrôle TLS Redis en configuration générale (false par défaut local) ; `prod` impose `spring.data.redis.ssl.enabled=true`. Préparer certificats et confiance TLS ; aucun TLS réel n’est validé par les tests jetables. |
+| `GESTIONPLUS_CLUSTER_NAMESPACE` | Espace de noms commun aux instances d’un environnement, distinct entre environnements ; format `[a-z][a-z0-9-]{2,47}`. Spring Session utilise `gestionplus:<namespace>:sessions` ; les autres clés sont préfixées par scope. Ce paramètre ne configure pas Redis Cluster. |
+| `GESTIONPLUS_RATE_LIMIT_KEY` | Clé HMAC commune, 32 à 64 octets encodés en Base64 ; propriété `gestionplus.cluster.rate-limit-key`. Aucune valeur d’exemple secrète à publier. |
+| `gestionplus.mfa.key`, `gestionplus.activation.delivery-key`, `gestionplus.activation.challenge-key` | Clés externes communes au déploiement. L’empreinte stockée dans Redis au premier démarrage est comparée par les suivants, avec la clé HMAC commune. Incohérence ou Redis indisponible bloque le démarrage ; rotation/restauration doivent être coordonnées, sans effacer l’empreinte pour contourner le contrôle. |
+| `gestionplus.audit.fallback.key` / `gestionplus.audit.fallback.directory` | Clé externe du journal chiffré et **répertoire durable propre à chaque instance**. Le contrôle d’empreinte multi-instance ci-dessus ne comprend pas cette clé d’audit. Prévoir collecte/reprise et sauvegarde des journaux de chaque instance ; Redis ne partage pas ces fichiers. |
+| Profil `reverse-proxy` / `GESTIONPLUS_TRUSTED_PROXIES` | Adresses IP ou réseaux CIDR explicites séparés par virgules. Profil : stratégie native Tomcat, `x-forwarded-for` et `x-forwarded-proto`. Sans ce profil, les en-têtes transférés ne sont pas interprétés. Aucun proxy de confiance universel ou implicite. |
+
+Vérifier la configuration Redis effective et ses remplacements externes, notamment `SPRING_DATA_REDIS_URL` : la seule lecture de `REDIS_HOST` ne prouve pas la destination utilisée. Les tests isolés fournissent leur propre fabrique de connexion pour éviter cette dépendance à la configuration du poste.
+
+Les délais de connexion/commande Redis sont configurés à 2 secondes. `ConfigureRedisAction.NO_OP` signifie que l’application ne configure pas le serveur Redis : préparer ses permissions et notifications nécessaires au repository indexé (les conteneurs de test utilisent `notify-keyspace-events=Egx`). Protéger Redis et PostgreSQL par le réseau ; le proxy doit maîtriser les en-têtes transmis et les serveurs applicatifs ne doivent pas être accessibles par un chemin contournant cette confiance. Le proxy réel, les règles réseau et l’infrastructure de production restent à configurer.
+
+Le profil `prod` conserve HTTPS serveur, cookie Secure et exigence HTTPS, en plus de TLS Redis ; le profil proxy ne constitue pas à lui seul une terminaison TLS validée. Les sources ne suffisent pas à prouver certificats, ACL, sauvegardes, reprise ou haute disponibilité.
+
+### Contrats à lire et validations disponibles
+
+Lire `DistributedSessionConfiguration`, `DistributedSessionRegistry`, `SessionLifetime`, `RedisSessionActivityStore` et `session-activity.lua` pour sessions/échéances ; `SessionValueSerializer` pour les types JSON autorisés ; `RedisLoginAttemptLimiter`/`login-attempts.lua` pour la limitation partagée.
+
+`RequestRateLimiter.acquire(scope, address, limit, window)` accepte un scope `[a-z][a-z0-9-]{1,63}`, une limite 1–10 000 et une fenêtre de 1 seconde à 1 jour ; résultat `Decision(allowed, retryAfter)`. Il est destiné au filtre public développé séparément par Lise. **un squelette local de `PublicInvitationRateLimitFilter` est en cours chez Lise, hors du commit et des validations du lot** : contrat/adaptateur ne signifie pas filtrage HTTP déjà raccordé.
+
+Les 291/291 tests ciblés antérieurs, les dix scénarios à deux JVM, l’isolation Redis et la distinction MockMvc/Redis réel sont décrits dans l’[avancement](AVANCEMENT.md#multi-instance-2026-11-21). Le benchmark HTTP inclut désormais un Redis jetable mais n’a été que compilé ; ses réserves sont dans le [protocole](benchmarks/authentication/README.md#multi-instance-2026-11-21). Aucune commande exécutée pendant cette actualisation.
+
+
+**Jalon antérieur au lot multi-instance du 21 novembre : lire la reprise ci-dessus pour l’état courant et les décisions remplacées.**
 
 <a id="reprise-2026-11-21"></a>
 

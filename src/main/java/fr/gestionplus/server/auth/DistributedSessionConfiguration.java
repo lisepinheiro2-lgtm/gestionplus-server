@@ -17,6 +17,7 @@ import org.springframework.session.data.redis.RedisIndexedSessionRepository;
 import org.springframework.session.data.redis.RedisSessionMapper;
 import org.springframework.session.data.redis.config.ConfigureRedisAction;
 
+import fr.gestionplus.server.persistence.RedisRequestRateLimiter;
 import fr.gestionplus.server.persistence.RedisSecuritySupport;
 
 @Configuration(proxyBeanMethods = false)
@@ -79,5 +80,10 @@ public class DistributedSessionConfiguration {
 				return mapper.apply(id, attributes);
 			});
 		};
+	}
+
+	@Bean
+	public RequestRateLimiter requestRateLimiter(RedisSecuritySupport redis) {
+		return new RedisRequestRateLimiter(redis);
 	}
 }

@@ -49,10 +49,9 @@ public class HttpSecurityConfig {
 
 	@Bean
 	public SecurityFilterChain securityFilterChain(HttpSecurity http, SessionRegistry registry,
-			AccountStore accountStore,
-			AuditService auditService, SessionLifetime lifetime, AccountMfaService mfa,
-			HttpRequestPolicyFilter requestPolicy, ObjectProvider<FormContentFilter> formContentFilters)
-			throws Exception {
+			AccountStore accountStore, AuditService auditService, SessionLifetime lifetime, AccountMfaService mfa,
+			HttpRequestPolicyFilter requestPolicy, ObjectProvider<FormContentFilter> formContentFilters,
+			RequestRateLimiter rateLimiter) throws Exception {
 
 		HttpSecurityAudit audit = new HttpSecurityAudit(auditService);
 		SecurityContextLogoutHandler logoutHandler = new SecurityContextLogoutHandler();
@@ -134,6 +133,7 @@ public class HttpSecurityConfig {
 
 		http.addFilterAfter(requestPolicy, SecurityContextHolderFilter.class);
 		formContentFilters.ifAvailable(filter -> http.addFilterAfter(filter, HttpRequestPolicyFilter.class));
+		http.addFilterAfter(new PublicInvitationRateLimitFilter(audit, rateLimiter), HttpRequestPolicyFilter.class);
 		http.addFilterBefore(new CurrentAccountSessionFilter(accountStore, audit, lifetime, mfa),
 				AuthorizationFilter.class);
 		return http.build();

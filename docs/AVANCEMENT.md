@@ -1,5 +1,5 @@
 ---
-summary: "Reprise au 21 novembre : code relu, validations attribuées, corrections et limites conservées."
+summary: "Multi-instance f4c6931 : sécurité Redis partagée, 291 tests ciblés et limites de production."
 read_when:
   - "reprendre les 900/900 tests, la chaîne HTTP réelle, les sessions et le simulateur SMS du 19 novembre"
   - "reprendre le contrôleur de demande de code SMS et son contrat HTTP"
@@ -32,6 +32,51 @@ read_when:
 ---
 
 # Avancement et feuille de route
+
+<a id="multi-instance-2026-11-21"></a>
+
+## Sécurité partagée entre instances — 21 novembre 2026
+
+**Référence relue : `f4c6931`**, après `a5cddea`. Les arbres serveur et documentation privée étaient propres au début de cette mission. La conception **multi-instance remplace la décision antérieure « première instance unique, multiserveur reporté »** ; les passages datés ci-dessous en conservent l’historique.
+
+### Code présent et responsabilités
+
+| Domaine | Adaptation vérifiée |
+| --- | --- |
+| Sessions | `spring-boot-starter-session-data-redis`, repository indexé Spring Session et `DistributedSessionConfiguration` : cookies, CSRF et contexte authentifié utilisables entre instances partageant Redis et le même espace de noms. |
+| Registre et révocation | `DistributedSessionRegistry` recherche les sessions par `userID`. Une expiration révoque l’activité partagée et supprime la session Redis ; `SessionRevocationService` conserve ses appels après commit. État du compte et version de sécurité restent recontrôlés en PostgreSQL. Le registre n’expose pas une liste globale des comptes connectés. |
+| Activité et échéances | `SessionLifetime` délègue à `RedisSessionActivityStore` et `session-activity.lua`, avec l’heure Redis commune. Inactivité 30 minutes, durée absolue 8 heures, avertissement 2 minutes avant l’échéance la plus proche. Mise à jour atomique et monotone à partir du début de requête ; le polling de session/CSRF ne prolonge pas l’activité. |
+| Réponse tardive | Après logout, `touch` ne recrée pas une activité absente. Le mapper de session écarte un hash incomplet ; une requête terminée tardivement ne rétablit pas l’authentification. Le scénario validé peut encore renvoyer 200 pour la requête déjà en vol, puis 401 sur les deux JVM : aucune annulation rétroactive du travail en cours n’est promise. |
+| Sérialisation | `SessionValueSerializer` encode du JSON avec types explicitement autorisés : chaînes, entiers, booléens, CSRF, contexte authentifié Gestion+ et maps bornées à clés texte. Pas de désérialisation Java arbitraire ni de choix libre de classe. Limites de 65 536 octets, profondeur 8 et collections bornées à 64 ; credentials non nuls refusés dans le contexte. |
+| Limiteur de connexion | `LoginAttemptLimiter` devient un contrat ; `RedisLoginAttemptLimiter` et `login-attempts.lua` partagent les décisions atomiques. Règles conservées : fenêtre 15 minutes, restriction de 5 minutes au dixième échec, ralentissement compte/adresse plafonné à 2 secondes, saturation encadrée. Capacité de 8 192 comptes et 8 192 adresses ; réservation par compte valable 2 minutes, avec identifiant de réservation vérifié à la finalisation. Les identifiants de compte/adresse sont dérivés par HMAC. |
+| Limiteur de requêtes | `RequestRateLimiter.acquire(String scope, String address, int limit, Duration window)` renvoie `Decision(allowed, retryAfter)`. `RedisRequestRateLimiter` fournit une fenêtre glissante atomique, avec capacité de 8 192 adresses par scope ; dépassement de capacité ou réservation de connexion invalide ne se transforme pas en autorisation. |
+| Indisponibilité | `DistributedSecurityAvailabilityFilter`, `HttpSecurityConfig` et les adaptateurs traitent la sécurité partagée indisponible en **503 SERVICE_UNAVAILABLE** quand la réponse n’est pas déjà engagée. Aucune bascule silencieuse vers des sessions ou compteurs locaux en production ; une réponse déjà engagée ne peut pas être réécrite. |
+| Clés et proxy | `RedisSecuritySupport.verifyConfiguration` vérifie une empreinte commune des clés au démarrage ; incohérence refusée. Profil `reverse-proxy` et `TrustedProxyConfiguration` exigent des IP/CIDR de confiance explicites. Voir le guide pour paramètres, TLS et répertoires d’audit. |
+
+### Attribution et état du filtre public
+
+- **Lise / socle antérieur :** `a5cddea` contient déjà POST `/api/invitations/{invitationID}/activation` et le refus générique 403 `ACTIVATION_DENIED`. Ces réalisations ne proviennent pas de l’adaptation multi-instance ; les anciennes cases 1 et 2 du gist sont historiques.
+- **Codex / adaptations du lot multi-instance :** partage des sessions, activité, registre, limiteurs Redis, sérialisation, cohérence des clés, proxy et adaptations de vérification/benchmark décrits ici ; validations isolées attribuées ci-dessous.
+- **Travail parallèle de Lise :** le filtre public est un chantier séparé. Absent du commit `f4c6931` et au premier contrôle, **`PublicInvitationRateLimitFilter` est apparu comme fichier local non suivi pendant cette mission**, avec l’ajout local de `TOO_MANY_REQUESTS(429)` dans `HttpApiError`. Au dernier examen, le filtre est un squelette : `doFilterInternal` est vide et aucun raccordement dans `HttpSecurityConfig` n’est présent. Ce travail parallèle de Lise est laissé intact et n’est pas couvert par les 291 tests antérieurs. Aucun filtre public n’a été créé par Codex dans ce lot. Ne pas annoncer les routes publiques protégées par ce seul contrat.
+- **Autres changements du même commit :** composants `FreeMobileActivationMessageSender`/`FreeMobileSmsTestConfiguration`, adaptation des erreurs SMS et mise en forme sont présents. Le commit Git rassemble plusieurs travaux ; sa signature ne suffit pas à attribuer toutes ses lignes à Codex. La présence du mode SMS de test ne valide pas un fournisseur de production.
+
+### Validation antérieure, relue sans réexécution
+
+**Codex : 291/291 tests ciblés réussis, sur 23 classes**, dans une copie isolée construite depuis le socle `a5cddea` avec l’arbre adapté. Aucun échec, erreur ou test ignoré dans le relevé. La suite complète n’a pas été exécutée : **aucun nouveau total global**. Les sources ont ensuite été mises en forme avant le commit ; ce relevé reste attaché à la copie testée, sans nouvelle exécution déduite de la publication du commit.
+
+Dont **10 scénarios HTTP sur deux JVM distinctes**, avec Redis et PostgreSQL jetables : connexion sur une JVM et identité sur l’autre, CSRF/logout partagés, version de sécurité, polling sans prolongation, expiration absolue, réponse tardive après logout, redémarrage d’une JVM, mauvais identifiants/CSRF absent, TOTP et anti-rejeu entre instances, indisponibilité Redis avec 503.
+
+Les anciens tests MockMvc conservent `ServletSecurityTestConfiguration` avec sessions servlet simulées, réservée aux tests. Ils ne prouvent pas le partage Redis ; les dix scénarios à deux JVM utilisent **Redis réel**. L’isolation a aussi été vérifiée malgré une configuration Redis externe volontairement inaccessible.
+
+**Benchmark HTTP compilé uniquement**, après ajout d’un Redis jetable : aucune nouvelle mesure de performance. Aucune migration ajoutée ; migrations existantes appliquées uniquement aux bases jetables. Serveurs et conteneurs d’essai arrêtés ; aucun SMS réel envoyé. Ces opérations ont précédé cette actualisation documentaire : aucun test, build, serveur ou migration n’est relancé ici.
+
+### Limites conservées
+
+Redis partagé ne prouve ni Redis Cluster ni une haute disponibilité complète. Reverse proxy réel, filtrage réseau, certificats/TLS, disponibilité et exploitation de Redis/PostgreSQL restent à configurer et à valider. Les tests du proxy portent sur la configuration et la valve Tomcat, pas sur une infrastructure déployée. Files d’envoi, reprises, plafonds/quota globaux et journaux d’audit propres à chaque instance demandent encore une validation d’exploitation multi-instance ; le partage des sessions ne la remplace pas.
+
+Le filtre public, l’enrôlement MFA opérationnel, les confirmations privilégiées, ADMIN_EMERGENCY et les parcours métier restent des chantiers distincts. Les anciens résultats et réserves datés restent conservés ; seules les décisions incompatibles avec cette reprise sont remplacées.
+
+**Jalon antérieur au lot multi-instance du 21 novembre : lire la reprise ci-dessus pour l’état courant et les décisions remplacées.**
 
 <a id="reprise-2026-11-21"></a>
 
@@ -122,7 +167,9 @@ Comparaison le 21 novembre avec l’[ancien gist de suivi](https://gist.github.c
 
 ### Annexe multiserveur et autres suites préservées
 
-**Premier déploiement : monolithe sur une seule instance.** Multiserveur reporté : sessions et limiteurs sont locaux à chaque instance ; une bascule peut perdre la reconnaissance de la session ou le blocage des tentatives. Avant une seconde instance, prévoir un stockage partagé et revalider files d’envoi, reprises, quotas et garanties temporelles. Aucune solution base/Redis n’est choisie ou livrée par cette actualisation.
+**Décision historique remplacée par la conception multi-instance du 21 novembre ; texte conservé pour mémoire.**
+
+> **Premier déploiement : monolithe sur une seule instance.** Multiserveur reporté : sessions et limiteurs sont locaux à chaque instance ; une bascule peut perdre la reconnaissance de la session ou le blocage des tentatives. Avant une seconde instance, prévoir un stockage partagé et revalider files d’envoi, reprises, quotas et garanties temporelles. Aucune solution base/Redis n’est choisie ou livrée par cette actualisation.
 
 Préférences par compte (`CPT04`), planning et interventions connectés, documents sensibles et ADMIN_EMERGENCY restent suivis. Les réserves déjà annexées sur transactions, concurrence, temps, audit, conservation, hors ligne et déploiement sont maintenues avec leurs limites, sans les recompter comme nouvelles anomalies.
 

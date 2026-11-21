@@ -7,6 +7,19 @@ read_when:
 
 # Publier les sources et travailler sur deux ordinateurs
 
+<a id="multi-instance-2026-11-21"></a>
+
+## Préparer la publication multi-instance — 21 novembre 2026
+
+Sur `f4c6931`, les sessions et protections de connexion partagées reposent sur Redis. Publier les sources n’installe ni Redis, ni reverse proxy, ni réseau de production. Les **291/291 tests ciblés** de Codex dans une copie isolée, dont dix scénarios à deux JVM avec Redis/PostgreSQL jetables, ne constituent pas une suite complète ou une recette d’infrastructure de production.
+
+Préparer hors dépôt les paramètres Redis, un espace de noms commun par environnement, les clés communes et leur rotation coordonnée, TLS et les proxies de confiance explicites. Prévoir un répertoire d’audit chiffré durable **distinct pour chaque instance**, avec reprise/collecte et sauvegarde. Voir les [paramètres et limites](DEVELOPPEMENT.md#multi-instance-2026-11-21) ; aucune valeur secrète n’est fournie par la documentation.
+
+Conserver hors dépôt preuves privées, paramètres locaux, mots de passe, clés, comptes réels et journaux. Le profil `prod` exige TLS Redis et conserve HTTPS/cookie Secure ; le réseau, les ACL, certificats, notifications Redis et restaurations restent à configurer et à valider. Le contrôle de cohérence des clés ne constitue pas un dispositif de rotation ou de haute disponibilité.
+
+L’ancienne décision d’instance unique est remplacée par la conception multi-instance. Redis partagé ne signifie pas Redis Cluster validé. Files d’envoi, reprises et quotas globaux exigent encore leur propre vérification en exploitation. Commits, pushs et déploiements restent à la main de Lise ; aucune de ces opérations n’est effectuée par cette actualisation.
+
+
 <a id="confidentialite-essai-local-2026-11-20"></a>
 
 ## Données d'essai et publication — 20 novembre 2026

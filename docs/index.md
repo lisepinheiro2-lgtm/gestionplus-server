@@ -1,12 +1,28 @@
 ---
 title: "Documentation du serveur Spring Boot"
-summary: "Reprise au 21 novembre : structures autorisées, HIBP, preuves et tâches ouvertes."
+summary: "Reprise f4c6931 : multi-instance Redis, 291 tests ciblés et limites de production."
 read_when:
   - "commencer une séance sur le serveur ou retrouver un document"
   - "préparer l’intégration Swing Spring Boot PostgreSQL"
 ---
 
 # Documentation du serveur Spring Boot
+
+<a id="multi-instance-2026-11-21"></a>
+
+## Reprise multi-instance — 21 novembre 2026
+
+**Serveur `f4c6931`** : sessions Spring Session Data Redis, registre/révocations et activité partagés, JSON à types autorisés, limiteurs atomiques Redis, cohérence des clés et profil proxy explicite. La conception multi-instance remplace l’ancienne décision d’instance unique.
+
+- [Code, attribution et preuves : 291/291 tests ciblés, dont 10 scénarios sur deux JVM](AVANCEMENT.md#multi-instance-2026-11-21).
+- [Paramètres externes Redis, TLS, clés communes, proxy et audit par instance](DEVELOPPEMENT.md#multi-instance-2026-11-21).
+- [Publication et préparation de l’exploitation](PUBLICATION.md#multi-instance-2026-11-21).
+- [Benchmark HTTP adapté, compilé sans nouvelle mesure](benchmarks/authentication/README.md#multi-instance-2026-11-21).
+
+`RequestRateLimiter` et son adaptateur Redis existent ; le filtre public est absent du commit ; un squelette local de Lise est apparu depuis, sans raccordement HTTP au contrôle. Redis partagé ne valide ni Redis Cluster ni une haute disponibilité complète. Suite complète non exécutée ; anciens résultats globaux conservés avec leurs versions. Aucun test ni lancement pendant cette mise à jour.
+
+
+**Jalon antérieur au lot multi-instance du 21 novembre : lire la reprise ci-dessus pour l’état courant et les décisions remplacées.**
 
 <a id="reprise-2026-11-21"></a>
 

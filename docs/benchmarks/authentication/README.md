@@ -1,5 +1,20 @@
 # Mesurer l’authentification
 
+<a id="multi-instance-2026-11-21"></a>
+
+## Redis jetable et validation de l’outil — 21 novembre 2026
+
+Sur `f4c6931`, `LocalLoginPathBenchmark` et son lanceur PowerShell sont adaptés au nouvel assemblage : le mode HTTP prépare aussi un **Redis jetable** (`redis:8.4-alpine`) avec mot de passe éphémère, en plus de PostgreSQL (`postgres:16-alpine`). Les deux images doivent être disponibles localement ; aucune récupération automatique n’est prévue par l’outil. Propriétés Redis, clés et espace de noms de mesure sont propres à la copie isolée ; le mode SMS fictif est activé et le mode Free de test désactivé.
+
+**Validation antérieure de Codex : compilation uniquement. Aucun parcours chronométré ni nouvelle mesure de performance.** Les résultats du 14 novembre conservent leurs commits, leur protocole et leurs valeurs ; ils ne mesurent pas le nouvel accès Redis. Cette actualisation ne lance pas l’outil et ne prouve ni son exécution HTTP complète, ni Redis Cluster, ni TLS, ni la haute disponibilité.
+
+**Réserve conservée :** les fixtures SQL contiennent encore des téléphones composés de zéros alors que `UserAccount` exige un format commençant par `+`. Le point d’assemblage SMS fictif du 20 novembre a été traité dans les propriétés isolées ; la compatibilité des fixtures et du parcours HTTP reste à confirmer avant toute mesure autorisée.
+
+Lors d’une exécution HTTP future autorisée, l’outil démarrera serveur, PostgreSQL et Redis jetables, appliquera les migrations existantes uniquement à sa base neuve, créera les données fictives, puis fermera ses services. Les clés et mots de passe générés ne doivent pas être publiés. Le mode `Argon2` reste distinct et sans contexte Redis ; la compilation de l’outil ne constitue aucune nouvelle mesure Argon2.
+
+
+**Historique du 20 novembre : assemblage Redis/SMS adapté depuis ; la réserve des téléphones et l’absence de nouvelle mesure restent celles précisées ci-dessus.**
+
 <a id="compatibilite-2026-11-20"></a>
 
 ## Portée des relevés et compatibilité — 20 novembre 2026
@@ -23,7 +38,7 @@ Le [dernier relevé après ajout du coût factice Argon2](after-dummy-argon2-202
 | Mode | Ce qui est exécuté | Ce qui est chronométré |
 | --- | --- | --- |
 | `Argon2` | Trois JVM successives, encodeur obtenu par la fabrique `PasswordSecurityConfig.passwordEncoder()`, sans contexte Spring démarré. | Uniquement `matches()` : 100 vérifications de chauffe puis 200 mesures correctes et 200 incorrectes par JVM, soit 1 200 mesures au total. |
-| `Login` | Serveur Spring Boot réel, PostgreSQL 16 en conteneur neuf, migrations du projet et données fictives. | GET CSRF, POST `/login` et durée des deux échanges : 25 tentatives de chauffe puis 150 mesures pour chacun des quatre cas, soit 600 mesures hors chauffe. |
+| `Login` | Serveur Spring Boot réel, PostgreSQL 16 et Redis en conteneurs neufs, migrations du projet et données fictives. | GET CSRF, POST `/login` et durée des deux échanges : 25 tentatives de chauffe puis 150 mesures pour chacun des quatre cas, soit 600 mesures hors chauffe. |
 
 Le mode `Login` utilise HTTP/1.1 sur `127.0.0.1` avec un port aléatoire. TLS et l’exigence HTTPS sont désactivés dans ce seul contexte de mesure ; les YAML de l’application restent inchangés. Les threads virtuels sont activés et le pool Hikari est fixé à dix connexions. La pause et le limiteur du projet restent actifs. La classe de pause effectivement chargée et les empreintes des sources sont consignées pour éviter d’annoncer une ancienne plage après un recalibrage.
 
@@ -51,7 +66,7 @@ Chaque tentative utilise un compte ou identifiant distinct et une adresse source
 
 - Un clone Git du serveur, JDK 25 et PowerShell 7 ou supérieur. `JAVA_HOME`, lorsqu’il est défini, doit désigner ce JDK ; sinon Java et le wrapper Maven utilisent l’environnement du poste.
 - Les dépendances Maven du projet et le plugin `maven-dependency-plugin:3.8.1`. Le premier lancement peut télécharger le wrapper et les dépendances ; aucune dépendance applicative n’est ajoutée au `pom.xml`.
-- Pour `Login` : Docker accessible et l’image `postgres:16-alpine` présente localement. L’outil ne télécharge pas cette image automatiquement. Si nécessaire, la préparer séparément avec `docker pull postgres:16-alpine`. Testcontainers peut aussi préparer son conteneur auxiliaire de nettoyage.
+- Pour `Login` : Docker accessible et les images `postgres:16-alpine` et `redis:8.4-alpine` présentes localement. L’outil ne télécharge pas cette image automatiquement. Si nécessaire, la préparer séparément avec `docker pull postgres:16-alpine`. Testcontainers peut aussi préparer son conteneur auxiliaire de nettoyage.
 - Une période sans tests, builds ou travaux lourds concurrents. Relever la machine, la version effective de PostgreSQL et les conditions de charge pour chaque comparaison.
 
 Le lanceur copie seulement les fichiers suivis de `src/main`, le POM et le wrapper dans un nouveau dossier de travail. Il ajoute les deux programmes de mesure à la copie, puis compile cette copie avec `test-compile`. Les tests du projet ne sont pas copiés et aucune phase Maven `test` n’est lancée. Les fichiers de configuration locaux ignorés par Git ne sont pas copiés. Les modifications des fichiers suivis sont incluses telles qu’elles existent au lancement ; les nouveaux fichiers applicatifs non suivis ne le sont pas. Le commit, l’état Git et les empreintes des fichiers copiés sont enregistrés.
@@ -64,7 +79,7 @@ Depuis la racine du dépôt :
 pwsh -File ./tools/benchmarks/Run-AuthenticationBenchmark.ps1 -Mode Argon2
 ```
 
-Pour le parcours HTTP, cette commande autorise techniquement le lanceur à compiler sa copie, démarrer son serveur et son conteneur, appliquer les migrations et créer les comptes fictifs dans ce conteneur, effectuer les mesures puis fermer ses services :
+Pour le parcours HTTP, cette commande autorise techniquement le lanceur à compiler sa copie, démarrer son serveur et ses conteneurs PostgreSQL/Redis, appliquer les migrations et créer les comptes fictifs dans ce conteneur, effectuer les mesures puis fermer ses services :
 
 ```powershell
 pwsh -File ./tools/benchmarks/Run-AuthenticationBenchmark.ps1 -Mode Login

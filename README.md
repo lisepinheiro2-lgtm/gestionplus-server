@@ -1,5 +1,20 @@
 # Gestion+ · Serveur
 
+<a id="multi-instance-2026-11-21"></a>
+
+## Fonctionnement multi-instance — 21 novembre 2026
+
+**État relu : `f4c6931`.** La conception multi-instance remplace la décision antérieure de premier déploiement sur une seule instance. Spring Session Data Redis partage sessions et CSRF ; registre, révocations, activité de session et limitation des connexions utilisent Redis commun. Les mises à jour d’activité sont monotones et une requête terminée après logout ne rétablit pas la session. JSON limité à des types explicitement autorisés, cohérence des clés vérifiée entre instances et profil `reverse-proxy` à proxies de confiance explicites.
+
+Une sécurité partagée indisponible entraîne un **503**, sans repli local silencieux en production. Le contrat `RequestRateLimiter.acquire(scope, address, limit, window)` est prêt pour le filtre public développé séparément par Lise ; **le filtre public est absent du commit `f4c6931` ; un squelette local de Lise est apparu pendant cette mission, sans filtrage HTTP raccordé au contrôle**.
+
+**Validation antérieure de Codex : 291/291 tests ciblés sur 23 classes**, dont dix scénarios HTTP sur deux JVM et Redis/PostgreSQL jetables. Les anciens MockMvc utilisent une configuration servlet simulée réservée aux tests. Suite complète non exécutée, aucun nouveau total global. Benchmark compilé seulement : aucune nouvelle mesure. Aucune migration ajoutée, aucun SMS réel envoyé pendant ces validations ; services d’essai arrêtés.
+
+Voir [code, attributions et limites](docs/AVANCEMENT.md#multi-instance-2026-11-21) et [configuration externe Redis, TLS, clés et audit par instance](docs/DEVELOPPEMENT.md#multi-instance-2026-11-21). Redis Cluster, haute disponibilité complète, reverse proxy réel et infrastructure de production ne sont pas validés. Aucun test, build, serveur ou migration lancé pendant cette actualisation documentaire.
+
+
+**Jalon antérieur au lot multi-instance du 21 novembre : lire la reprise ci-dessus pour l’état courant et les décisions remplacées.**
+
 <a id="reprise-2026-11-21"></a>
 
 ## Structures autorisées et revue — 21 novembre 2026
@@ -207,7 +222,7 @@ Les [décisions consolidées du 11 novembre](https://github.com/lisepinheiro2-lg
 | --- | --- |
 | Have I Been Pwned indisponible | Décidé : bloquer création et changement de mot de passe avec explication dans Swing, sans contournement silencieux. Le service interrompt déjà l’opération par exception ; un code temporaire explicite et l’affichage Swing restent à réaliser. La connexion avec un mot de passe existant ne dépend pas de cet appel. Aucun fonctionnement permissif ou cache de substitution n’est activé. |
 | Rotation des clés MFA | Décidé : rechiffrement transparent lors d’une rotation normale, sans réinscription. En cas de compromission : sessions révoquées, accès privilégiés concernés suspendus et nouvel enrôlement après vérification renforcée. Aucun de ces parcours de rotation/incident n’est implémenté. Le format actuel n’identifie pas une clé parmi plusieurs ; mécanisme de transition, conservation des anciennes clés et restauration restent à concevoir. Remplacer simplement la configuration rend les anciens facteurs illisibles. |
-| Plusieurs instances | Sessions HTTP, registre de sessions et limitation des tentatives restent locaux. Une instance unique garde ces limites connues. L’affinité de session seule ne règle pas la limitation globale ni la reprise après panne. Un déploiement distribué demanderait sessions et registre partagés, compteurs atomiques communs, coordination des révocations, sérialisation du principal et des sessions, horloges cohérentes et traitement des journaux locaux. Les versions de session et compteurs TOTP PostgreSQL ne remplacent pas ces garanties. |
+| Plusieurs instances | Sessions Spring Session Data Redis, registre/révocations, activité et limiteurs Redis partagés sur `f4c6931`. Dix scénarios à deux JVM validés dans une copie isolée. Redis Cluster, haute disponibilité complète et infrastructure de production non validés ; voir la reprise multi-instance et le guide. |
 | Secrets et TLS | Options : variables d’environnement protégées, fichiers montés à accès restreint ou gestionnaire de secrets ; choisir sauvegarde, accès et renouvellement. La configuration actuelle termine TLS dans Spring Boot. Une terminaison par proxy demanderait une configuration explicite de confiance, du transport vers le serveur et de la validation côté Swing. Les traces HTTP détaillées, paramètres SQL et diagnostics SMTP doivent être examinés pour éviter toute fuite. |
 
 Repères externes pour ces arbitrages : [API Pwned Passwords](https://haveibeenpwned.com/API/v3#PwnedPasswords), [gestion des clés OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html), [sessions Spring Security en environnement distribué](https://docs.spring.io/spring-session/reference/spring-security.html) et [configuration SSL Spring Boot](https://docs.spring.io/spring-boot/reference/features/ssl.html).
