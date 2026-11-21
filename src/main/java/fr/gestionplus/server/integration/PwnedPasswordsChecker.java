@@ -57,7 +57,7 @@ public class PwnedPasswordsChecker implements CompromisedPasswordChecker {
 			String[] lines = responseBody.split("\\R");
 
 			for (String line : lines) {
-				String[] parts = line.split(":");
+				String[] parts = line.split(":", -1);
 
 				if (parts.length != 2) {
 					throw new IllegalStateException("Réponse invalide du service de vérification des mots de passe.");
@@ -78,22 +78,14 @@ public class PwnedPasswordsChecker implements CompromisedPasswordChecker {
 
 				}
 
-				if (parts[0].equalsIgnoreCase(suffix)) {
-					int count = Integer.parseInt(parts[1]);
+				if (!parts[1].matches("[0-9]+")) {
+					throw new IllegalStateException("Réponse invalide du service de vérification des mots de passe.");
+				}
 
-					if (count > 0) {
-						return true;
-					}
+				long count = Long.parseLong(parts[1]);
 
-					if (count == 0) {
-						continue;
-					}
-
-					if (count < 0) {
-						throw new IllegalStateException(
-								"Réponse invalide du service de vérification des mots de passe.");
-					}
-
+				if (parts[0].equalsIgnoreCase(suffix) && count > 0) {
+					return true;
 				}
 
 			}

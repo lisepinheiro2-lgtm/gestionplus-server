@@ -16,6 +16,8 @@ import java.util.HexFormat;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
 class PwnedPasswordsCheckerTest {
@@ -119,5 +121,44 @@ class PwnedPasswordsCheckerTest {
 				() -> checker.isCompromised("test"));
 
 		assertSame(networkFailure, exception.getCause());
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "invalid", "-1", "+1", " 1", "1 ", "", "1:2", "1:",
+			"9223372036854775808" })
+	void rejectsInvalidCountsEvenForAnUnrelatedHash(String count) throws Exception {
+		mockHttpResponse(200, unrelatedSuffix("fictitious_password") + ":" + count);
+		assertThrows(IllegalStateException.class, () -> checker.isCompromised("fictitious_password"));
+	}
+
+	@Test
+	void doesNotAcceptAnInvalidUnrelatedLineAfterAMatchingPaddingEntry() throws Exception {
+		String password = "fictitious_password";
+		mockHttpResponse(200, suffix(password) + ":0\r\n" + unrelatedSuffix(password) + ":invalid");
+		assertThrows(IllegalStateException.class, () -> checker.isCompromised(password));
+	}
+
+	@Test
+	void acceptsValidPaddingAndSeveralUnrelatedHashes() throws Exception {
+		String password = "fictitious_password";
+		mockHttpResponse(200, unrelatedSuffix(password) + ":35\r\n" + suffix(password) + ":0\r\n");
+		assertFalse(checker.isCompromised(password));
+	}
+
+	@Test
+	void acceptsAValidCountLargerThanAnInteger() throws Exception {
+		String password = "fictitious_password";
+		mockHttpResponse(200, suffix(password) + ":2147483648");
+		assertTrue(checker.isCompromised(password));
+	}
+
+	private static String unrelatedSuffix(String password) throws NoSuchAlgorithmException {
+		String matching = suffix(password);
+		return (matching.charAt(0) == '0' ? "1" : "0") + matching.substring(1);
+	}
+
+	private static String suffix(String password) throws NoSuchAlgorithmException {
+		byte[] hash = MessageDigest.getInstance("SHA-1").digest(password.getBytes(StandardCharsets.UTF_8));
+		return HexFormat.of().formatHex(hash).toUpperCase(java.util.Locale.ROOT).substring(5);
 	}
 }
