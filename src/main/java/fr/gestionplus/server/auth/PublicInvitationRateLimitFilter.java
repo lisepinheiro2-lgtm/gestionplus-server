@@ -4,7 +4,8 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.Objects;
 
-import org.springframework.util.AntPathMatcher;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import fr.gestionplus.server.api.AccountActivationRoutes;
@@ -20,6 +21,10 @@ final class PublicInvitationRateLimitFilter extends OncePerRequestFilter {
 	private static final String SCOPE = "invitation-activation";
 	private static final int LIMIT = 30;
 	private static final Duration WINDOW = Duration.ofMinutes(15);
+	private static final PathPatternRequestMatcher ACTIVATION_POST = PathPatternRequestMatcher.withDefaults()
+			.matcher(HttpMethod.POST, AccountActivationRoutes.ACTIVATION_PATH);
+	private static final PathPatternRequestMatcher SMS_CHALLENGE_POST = PathPatternRequestMatcher.withDefaults()
+			.matcher(HttpMethod.POST, AccountActivationRoutes.SMS_CHALLENGE_PATH);
 	private final RequestRateLimiter rateLimiter;
 	private final HttpSecurityAudit audit;
 
@@ -41,7 +46,9 @@ final class PublicInvitationRateLimitFilter extends OncePerRequestFilter {
 
 		if (!decision.allowed()) {
 			audit.refused(request, null, AuditReason.RATE_LIMITED);
-			response.setHeader("Retry-After", String.valueOf(decision.retryAfter().getSeconds()));
+			Duration retryAfter = decision.retryAfter();
+			long seconds = Math.max(1, retryAfter.getSeconds() + (retryAfter.getNano() == 0 ? 0 : 1));
+			response.setHeader("Retry-After", Long.toString(seconds));
 			HttpApiError.TOO_MANY_REQUESTS.write(response);
 			return;
 		}
@@ -50,13 +57,6 @@ final class PublicInvitationRateLimitFilter extends OncePerRequestFilter {
 	}
 
 	private boolean isPublicActivationPost(HttpServletRequest request) {
-
-		String uri = request.getRequestURI().substring(request.getContextPath().length());
-		String activationPattern = AccountActivationRoutes.ACTIVATION_PATH.replace("{invitationID}", "*");
-		String smsPattern = AccountActivationRoutes.SMS_CHALLENGE_PATH.replace("{invitationID}", "*");
-		AntPathMatcher matcher = new AntPathMatcher();
-
-		return "POST".equals(request.getMethod())
-				&& (matcher.match(smsPattern, uri) || matcher.match(activationPattern, uri));
+		return ACTIVATION_POST.matches(request) || SMS_CHALLENGE_POST.matches(request);
 	}
 }

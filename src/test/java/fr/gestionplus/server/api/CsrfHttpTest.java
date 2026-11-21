@@ -19,9 +19,12 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.net.URI;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -75,6 +78,7 @@ import fr.gestionplus.server.auth.HttpSecurityConfig;
 import fr.gestionplus.server.auth.LoginDelay;
 import fr.gestionplus.server.auth.LoginService;
 import fr.gestionplus.server.auth.LoginService.LoginAttempt;
+import fr.gestionplus.server.auth.RequestRateLimiter;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
 import fr.gestionplus.server.auth.UserRole;
@@ -114,6 +118,8 @@ class CsrfHttpTest {
 	private AccountMfaService mfa;
 	@MockitoBean
 	private LoginDelay loginDelay;
+	@MockitoBean
+	private RequestRateLimiter rateLimiter;
 
 	private final String userName = "alice";
 	private final String password = "test-password";
@@ -121,6 +127,60 @@ class CsrfHttpTest {
 	@BeforeEach
 	void allowOrdinaryAccountsToLogInWithoutMfa() {
 		when(mfa.verifyForLogin(any(UserAccount.class), nullable(String.class))).thenReturn(Verification.NOT_REQUIRED);
+		when(rateLimiter.acquire(anyString(), anyString(), eq(30), eq(Duration.ofMinutes(15))))
+				.thenReturn(new RequestRateLimiter.Decision(true, Duration.ZERO));
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "sms-challenge", "activation" })
+	void rejectsBothPublicActivationPostsWhenTheirSharedQuotaIsExhausted(String suffix) throws Exception {
+		MvcResult csrf = requestCsrf(null);
+		MockHttpSession session = (MockHttpSession) csrf.getRequest().getSession(false);
+		when(rateLimiter.acquire("invitation-activation", "127.0.0.1", 30, Duration.ofMinutes(15)))
+				.thenReturn(new RequestRateLimiter.Decision(false, Duration.ofMillis(800)));
+
+		mockMvc.perform(activationRequest("/api/invitations/", suffix).session(session)
+				.header("X-CSRF-TOKEN", getToken(csrf))).andExpect(status().isTooManyRequests())
+				.andExpect(header().string("Retry-After", "1"))
+				.andExpect(content().json("{\"code\":\"TOO_MANY_REQUESTS\"}"));
+
+		verify(rateLimiter).acquire("invitation-activation", "127.0.0.1", 30, Duration.ofMinutes(15));
+		verifyNoInteractions(activationService, loginService, mfa);
+		verifyAccessRefusal(null, AuditReason.RATE_LIMITED);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "sms-challenge", "activation" })
+	void countsEncodedPublicRoutesRecognizedByTheRealSecurityAndMvcMatchers(String suffix) throws Exception {
+		MvcResult csrf = requestCsrf(null);
+		MockHttpSession session = (MockHttpSession) csrf.getRequest().getSession(false);
+
+		mockMvc.perform(activationRequest("/api/%69nvitations/", suffix).session(session)
+				.header("X-CSRF-TOKEN", getToken(csrf))).andExpect(status().isOk());
+
+		verify(rateLimiter).acquire("invitation-activation", "127.0.0.1", 30, Duration.ofMinutes(15));
+		if ("sms-challenge".equals(suffix)) {
+			verify(activationService).requestActivationChallenge(INVITATION_ID, INVITATION_TOKEN);
+		} else {
+			verify(activationService).completeActivation(INVITATION_ID, INVITATION_TOKEN, "012345",
+					"fictitious_activation", "Fictitious-Activation-Password-2026!");
+		}
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "sms-challenge", "activation" })
+	void keepsCsrfProtectionOnBothPublicActivationPosts(String suffix) throws Exception {
+		mockMvc.perform(activationRequest("/api/invitations/", suffix)).andExpect(status().isForbidden())
+				.andExpect(content().json("{\"code\":\"FORBIDDEN\"}"));
+
+		verifyNoInteractions(activationService, loginService, mfa);
+		verifyAccessRefusal(null, AuditReason.CSRF_REJECTED);
+	}
+
+	private MockHttpServletRequestBuilder activationRequest(String prefix, String suffix) {
+		return post(URI.create(prefix + INVITATION_ID + "/" + suffix)).contentType(MediaType.APPLICATION_JSON)
+				.content("{\"token\":\"" + INVITATION_TOKEN + "\",\"proof\":\"012345\","
+						+ "\"userName\":\"fictitious_activation\",\"password\":\"Fictitious-Activation-Password-2026!\"}");
 	}
 
 	@Test

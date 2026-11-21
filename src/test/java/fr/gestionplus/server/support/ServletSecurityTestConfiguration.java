@@ -1,6 +1,7 @@
 package fr.gestionplus.server.support;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.UUID;
 
 import org.springframework.beans.factory.ObjectProvider;
@@ -14,6 +15,7 @@ import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.core.session.SessionRegistryImpl;
 
 import fr.gestionplus.server.auth.LoginAttemptLimiter;
+import fr.gestionplus.server.auth.RequestRateLimiter;
 import fr.gestionplus.server.auth.SessionLifetime;
 
 @TestConfiguration(proxyBeanMethods = false)
@@ -45,6 +47,12 @@ public class ServletSecurityTestConfiguration {
 				return false;
 			}
 		};
+	}
+
+	@Bean
+	@ConditionalOnMissingBean(RequestRateLimiter.class)
+	RequestRateLimiter servletRequestRateLimiter() {
+		return (scope, address, limit, window) -> new RequestRateLimiter.Decision(true, Duration.ZERO);
 	}
 
 	@Bean

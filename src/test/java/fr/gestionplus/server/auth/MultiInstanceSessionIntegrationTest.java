@@ -293,16 +293,55 @@ class MultiInstanceSessionIntegrationTest {
 
 	@Test
 	@Order(10)
+	void sharesThePublicActivationQuotaBetweenRoutesAndJvmInstancesIncludingEncodedPaths() throws Exception {
+		UUID invitationID = UUID.randomUUID();
+
+		try (var client = client()) {
+			JsonNode token = csrf(client, firstUrl);
+
+			for (int index = 0; index < 30; index++) {
+				URI server = index % 2 == 0 ? firstUrl : secondUrl;
+				String prefix = index % 3 == 0 ? "/api/%69nvitations/" : "/api/invitations/";
+				String suffix = index % 2 == 0 ? "/sms-challenge" : "/activation";
+				var response = publicActivationPost(client, server, prefix + invitationID + suffix, token);
+				assertEquals(403, response.statusCode());
+				assertEquals("ACTIVATION_DENIED", JSON.readTree(response.body()).get("code").asString());
+			}
+
+			for (URI server : new URI[] { firstUrl, secondUrl }) {
+				for (String suffix : new String[] { "/sms-challenge", "/activation" }) {
+					var response = publicActivationPost(client, server, "/api/%69nvitations/" + invitationID + suffix,
+							token);
+					assertEquals(429, response.statusCode());
+					assertEquals("TOO_MANY_REQUESTS", JSON.readTree(response.body()).get("code").asString());
+					long retryAfter = Long.parseLong(response.headers().firstValue("Retry-After").orElseThrow());
+					assertTrue(retryAfter >= 1 && retryAfter <= 900);
+				}
+			}
+
+			assertEquals(401, get(client, secondUrl, "/api/auth/me").statusCode());
+		}
+	}
+
+	@Test
+	@Order(11)
 	void refusesRequestsWhenRedisIsUnavailableInsteadOfUsingLocalSessions() throws Exception {
 		var account = account();
 
 		try (var client = client()) {
 			assertEquals(200, login(client, firstUrl, firstUrl, account.name(), PASSWORD).statusCode());
+			JsonNode token = csrf(client, firstUrl);
 			DockerClientFactory.instance().client().pauseContainerCmd(REDIS.getContainerId()).exec();
 
 			try {
 				assertEquals(503, get(client, firstUrl, "/api/auth/me").statusCode());
 				assertEquals(503, get(client, secondUrl, "/api/auth/me").statusCode());
+				try (var anonymous = client()) {
+					assertEquals(503, publicActivationPost(anonymous, firstUrl,
+							"/api/invitations/" + UUID.randomUUID() + "/sms-challenge", token).statusCode());
+					assertEquals(503, publicActivationPost(anonymous, secondUrl,
+							"/api/invitations/" + UUID.randomUUID() + "/activation", token).statusCode());
+				}
 			} finally {
 				DockerClientFactory.instance().client().unpauseContainerCmd(REDIS.getContainerId()).exec();
 			}
@@ -450,6 +489,17 @@ class MultiInstanceSessionIntegrationTest {
 
 	private static String encode(String value) {
 		return URLEncoder.encode(value, StandardCharsets.UTF_8);
+	}
+
+	private static HttpResponse<String> publicActivationPost(HttpClient client, URI base, String path, JsonNode csrf)
+			throws Exception {
+		String body = JSON.createObjectNode().put("token", "a".repeat(43)).put("proof", "012345")
+				.put("userName", "fictitious_activation").put("password", "Fictitious-Activation-Password-2026!")
+				.toString();
+		return client.send(HttpRequest.newBuilder(base.resolve(path)).timeout(Duration.ofSeconds(12))
+				.header("Content-Type", "application/json")
+				.header(csrf.get("headerName").asString(), csrf.get("token").asString())
+				.POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
 	}
 
 	private static Account account() {
