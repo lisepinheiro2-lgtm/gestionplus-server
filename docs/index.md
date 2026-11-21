@@ -1,12 +1,29 @@
 ---
 title: "Documentation du serveur Spring Boot"
-summary: "Reprise f4c6931 : multi-instance Redis, 291 tests ciblés et limites de production."
+summary: "Serveur 165d2e0 : activation SMS sécurisée, V28, OVHcloud et 1143/1143 tests complets."
 read_when:
   - "commencer une séance sur le serveur ou retrouver un document"
   - "préparer l’intégration Swing Spring Boot PostgreSQL"
 ---
 
 # Documentation du serveur Spring Boot
+
+<a id="activation-sms-swing-2026-11-21"></a>
+
+## Reprise activation SMS/Swing — 21 novembre 2026
+
+**Serveur `165d2e0`, client `ec08c42`.** Défi revalidé sous verrou, téléphone/instant/jeton courants, garde contre transaction englobante, envoi après commit et échec initial conservé en cas de compensation défaillante. V28 ajoute confirmation et récupération durables ; adaptateur OVHcloud EU présent, sans envoi réel pendant les validations.
+
+- [Code, V28, reprise multi-instance et suites complètes](AVANCEMENT.md#activation-sms-swing-2026-11-21).
+- [Configuration externe OVHcloud et prérequis Testcontainers](DEVELOPPEMENT.md#activation-sms-swing-2026-11-21).
+- [Préparer la publication et l’exploitation sans secrets](PUBLICATION.md#activation-sms-swing-2026-11-21).
+
+Codex : **1 143/1 143 serveur**, dont 12 scénarios à deux JVM ; **413/413 client sur classpath et en module**. Les fichiers inventoriés correspondent aux preuves privées, sans réexécution pendant cette mission. Le filtre public de Lise est désormais raccordé : les anciennes notes de squelette restent historiques.
+
+La réception OVHcloud réelle, le premier enrôlement TOTP et le déploiement restent ouverts. Les tests isolés ne sont pas une recette complète Swing → OVHcloud → téléphone.
+
+**Historique antérieur à cette reprise activation SMS/Swing : les dates, preuves et anciennes limites ci-dessous gardent leur contexte ; la reprise ci-dessus décrit l’état courant.**
+
 
 <a id="multi-instance-2026-11-21"></a>
 

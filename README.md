@@ -1,5 +1,22 @@
 # Gestion+ · Serveur
 
+<a id="activation-sms-swing-2026-11-21"></a>
+
+## Activation SMS sécurisée et client Swing — 21 novembre 2026
+
+**Serveur `165d2e0`, client `ec08c42`.** La création du défi SMS revalide compte/invitation sous verrou PostgreSQL, reprend le téléphone verrouillé et relit l’heure ainsi que l’empreinte du jeton avant insertion. Transaction englobante explicitement refusée ; envoi après commit et échec initial préservé si la révocation compensante échoue.
+
+**V28** ajoute `send_confirmed_at` et `send_recovery_at`. Sans confirmation, le défi n’est pas utilisable. La reprise révoque les envois non confirmés à échéance, au démarrage puis périodiquement, par lots PostgreSQL avec `FOR UPDATE SKIP LOCKED`. Aucun renvoi automatique ; historique et quota conservés. V28 révoque aussi les anciens défis ouverts, sans supprimer leurs lignes.
+
+Adaptateur **OVHcloud SMS EU**, sans dépendance ajoutée, activé par `gestionplus.sms.provider=ovh`, avec paramètres externes et exclusivité vis-à-vis du fictif/Free. Délais et réponses bornés, redirections refusées et erreurs génériques ; Free reste destiné aux essais locaux. Le formulaire Swing est raccordé, avec demande explicite de SMS et retour à la connexion sans connexion automatique.
+
+**Validation antérieure de Codex : 1 143/1 143 serveur**, dont 12 scénarios à deux JVM, et **413/413 client dans chaque mode**. PostgreSQL/Redis jetables, expéditeur et appels fournisseur simulés ; processus/conteneurs arrêtés. Aucun compte OVHcloud réel, appel réel ou SMS facturé. **Confirmation d’envoi signifie acceptation fournisseur, pas réception sur téléphone.**
+
+Voir [code, résultats et limites](docs/AVANCEMENT.md#activation-sms-swing-2026-11-21), [configuration OVHcloud et profil test Testcontainers](docs/DEVELOPPEMENT.md#activation-sms-swing-2026-11-21) et [préparation de V28](docs/PUBLICATION.md#activation-sms-swing-2026-11-21). Réception réelle, premier enrôlement TOTP et déploiement restent ouverts ; aucune recette complète Swing → OVHcloud → téléphone revendiquée. Aucun test, build ou lancement effectué par cette mise à jour.
+
+**Historique antérieur à cette reprise activation SMS/Swing : les dates, preuves et anciennes limites ci-dessous gardent leur contexte ; la reprise ci-dessus décrit l’état courant.**
+
+
 <a id="multi-instance-2026-11-21"></a>
 
 ## Fonctionnement multi-instance — 21 novembre 2026

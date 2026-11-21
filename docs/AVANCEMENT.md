@@ -1,5 +1,5 @@
 ---
-summary: "Multi-instance f4c6931 : sécurité Redis partagée, 291 tests ciblés et limites de production."
+summary: "Activation SMS/Swing 165d2e0/ec08c42 : V28, OVHcloud et suites complètes attribuées à Codex."
 read_when:
   - "reprendre les 900/900 tests, la chaîne HTTP réelle, les sessions et le simulateur SMS du 19 novembre"
   - "reprendre le contrôleur de demande de code SMS et son contrat HTTP"
@@ -32,6 +32,57 @@ read_when:
 ---
 
 # Avancement et feuille de route
+
+<a id="activation-sms-swing-2026-11-21"></a>
+
+## Activation SMS sécurisée et raccordement Swing — 21 novembre 2026
+
+**Code relu : serveur `165d2e0`, client `ec08c42`** ; arbres propres au début de la mission. Les commits locaux sont vérifiés, sans supposer leur publication distante. Le socle comprend aussi le filtre public de Lise (`88363d7`, complété dans `64dc70c`) : ce filtre n’est plus absent ou à l’état de squelette.
+
+### Création et consommation du défi
+
+`AccountActivationService.requestActivationChallenge` exige la possession du jeton ; l’UUID seul ne suffit pas. `ActivationIdentityChallengeService.createChallenge(invitationID, expectedTokenDigest)` refuse explicitement une transaction englobante (`IllegalTransactionStateException`).
+
+La transaction PostgreSQL verrouille **le compte puis l’invitation**, revalide leur état et leur correspondance, reprend le téléphone du compte verrouillé, puis relit l’heure après acquisition des verrous. L’expiration, le cooldown/quota et l’empreinte attendue du jeton sont revérifiés avant l’insertion ; création et échéance du défi sont datées avec cet instant relu. Le SMS est envoyé **après commit** de cette transaction. Si l’envoi ou sa confirmation échoue, une révocation compensante est tentée ; si elle échoue également, l’exception initiale est conservée avec l’échec compensant en exception supprimée (`addSuppressed`).
+
+Règles conservées : code à six chiffres, validité maximale de cinq minutes, trois codes erronés au maximum, cooldown de 60 secondes selon les conditions du défi courant et trois tentatives d’envoi par invitation/compte, échecs inclus. Le défi confirmé est consommé une seule fois dans la transaction qui active le compte ; audit, CSRF, autorisations et refus par défaut restent présents.
+
+### Confirmation et reprise durable — V28
+
+`V28__track_activation_sms_confirmation.sql` ajoute **`send_confirmed_at`** et **`send_recovery_at`**. `isUsable` et la consommation SQL refusent un défi non confirmé. La confirmation signifie que le fournisseur a **accepté la demande d’envoi**, jamais que le téléphone a reçu le message.
+
+Le délai de récupération est fixé à **deux minutes après création**, distinct des cinq minutes de validité du code. `ActivationChallengeRecovery` révoque les envois non confirmés arrivés à `send_recovery_at`, au démarrage puis toutes les 30 secondes. `revokeUnconfirmedSends` traite au plus **100 lignes par passage**, en transaction PostgreSQL avec **`FOR UPDATE SKIP LOCKED`**, pour permettre plusieurs instances. Il n’émet aucun SMS et ne relance pas automatiquement un résultat ambigu.
+
+L’historique n’est pas supprimé : échecs et révocations restent comptés dans le quota. V28 révoque les anciens défis encore ouverts, conserve toutes les lignes et initialise leur échéance de récupération. Cette migration est nouvelle pour ce lot ; l’ancienne mention « aucune migration ajoutée » reste propre au lot multi-instance précédent.
+
+### Expéditeur OVHcloud et limitation publique
+
+`OvhSmsActivationMessageSender` et `OvhSmsConfiguration` ajoutent un adaptateur **OVHcloud SMS EU sans dépendance supplémentaire**, activé explicitement par `gestionplus.sms.provider=ovh`. L’activation simultanée avec le fictif ou Free est refusée. Connexion et échanges HTTP bornés à cinq secondes, corps de réponse limité à 16 384 octets, redirections refusées ; erreurs publiques génériques, aucune répétition automatique après un résultat ambigu. Les paramètres externes sont décrits dans le guide développeur ; **Free reste réservé aux essais locaux**.
+
+`PublicInvitationRateLimitFilter` est désormais raccordé dans `HttpSecurityConfig`. Il partage un quota Redis de **30 POST par adresse sur 15 minutes**, commun aux routes SMS et finalisation, avec **429 et `Retry-After`** ; il ne remplace ni jeton ni CSRF ni quota métier des trois envois. Les douze scénarios à deux JVM couvrent aussi ce quota entre routes/instances, les chemins encodés et la reprise d’un envoi non confirmé après arrêt des deux JVM.
+
+Les attentes des tests existants ont été adaptées aux requêtes malformées désormais rejetées en **HTTP 400**. Le profil serveur `application-test.yaml` utilise maintenant PostgreSQL jetable via Testcontainers, et non une base PostgreSQL locale ; Docker devient donc un prérequis des tests concernés.
+
+### Résumé des travaux restant ouverts
+
+Les anciennes réserves sur relecture du téléphone avant verrou, absence de contrôle de transaction englobante et perte de l’échec initial sont résolues par ce lot. La fenêtre « SMS accepté puis arrêt avant confirmation » est traitée de manière conservatrice par un défi inutilisable puis révoqué, sans renvoi automatique ; elle ne donne pas de garantie de réception. Restent notamment audit SMS rattaché à l’entreprise avant consultation filtrée, exploitation multi-instance, enrôlement initial TOTP, confirmations privilégiées, ADMIN_EMERGENCY et parcours métier. La présence de l’adaptateur OVHcloud ne clôture pas la recette du fournisseur réel.
+
+### Validation du 21 novembre 2026 — Codex
+
+| Périmètre réellement exécuté avant cette actualisation | Résultat | Portée |
+| --- | --- | --- |
+| Suite complète serveur | **1 143/1 143 réussis**, 99 suites recensées dans le rapport. | Dont **12 scénarios sur deux JVM**, Redis et PostgreSQL jetables ; pas un nouveau benchmark. |
+| Suite complète client sur classpath | **413/413 réussis**. | Dispositifs isolés de transport et de Swing ; résultat distinct du mode modulaire. |
+| Suite complète client en mode modulaire | **413/413 réussis**. | Même suite vérifiée en module ; ne pas additionner les deux modes pour inventer un total client. |
+| Contrôle visuel rapporté | Formulaire vérifié en **clair et sombre**. | Contrôle du formulaire, pas recette complète jusqu’à un téléphone. |
+
+Aucun échec, erreur ou test ignoré signalé. Les migrations ont été appliquées uniquement dans des PostgreSQL jetables ; processus et conteneurs de validation arrêtés. Aucun compte OVHcloud réel, appel réel OVHcloud/Free ou SMS facturé utilisé : les appels fournisseur sont simulés.
+
+Le rapport a été établi sur des arbres adaptés avant commit : HEAD de référence `64dc70c` serveur et `15bc0cb` client. Les changements sont désormais présents dans les commits locaux **`165d2e0` serveur** et **`ec08c42` client**. Pendant cette mission documentaire, les empreintes des **23 fichiers serveur et 11 fichiers client inventoriés** correspondent au rapport, sans écart. Cela ne prouve pas l’état d’une branche distante et ne transpose pas les résultats à d’éventuelles modifications ultérieures.
+
+Les tests HTTP serveur utilisent PostgreSQL réel jetable et un expéditeur simulé ; les tests Swing/transport utilisent leurs propres dispositifs isolés. **Aucune recette complète Swing → OVHcloud → téléphone n’est revendiquée.** Réception réelle, enrôlement initial TOTP des comptes concernés et déploiement restent à valider ou à construire. Les anciens résultats restent datés ; aucun test, build, serveur, migration, commit, push ou pull n’est lancé pendant cette actualisation.
+
+**Historique antérieur à la sécurisation SMS et au raccordement Swing : les limites ci-dessous sont datées ; les points résolus et la validation actuelle sont décrits ci-dessus.**
 
 <a id="multi-instance-2026-11-21"></a>
 

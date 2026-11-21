@@ -1,11 +1,49 @@
 ---
-summary: "Multi-instance f4c6931 : Redis, clés communes, TLS, proxy explicite et audit propre à chaque instance."
+summary: "Activation 165d2e0 : configuration OVHcloud externe, reprise V28 et profil test PostgreSQL jetable."
 read_when:
   - "explorer les couches Java JPA PostgreSQL et les migrations sans lancer le serveur"
   - "préparer ultérieurement un lancement ou des tests expressément autorisés"
 ---
 
 # Explorer et lancer le serveur localement
+
+<a id="activation-sms-swing-2026-11-21"></a>
+
+## Développer et vérifier l’activation SMS — 21 novembre 2026
+
+Référence relue `165d2e0`, client `ec08c42`. Commencer par `AccountActivationService` → `ActivationIdentityChallengeService` → `AccountInvitationStore.findByIDForUpdate`/`AccountStore.findByIdForUpdate` → `PostgresqlActivationIdentityChallengeStore`. La création exige l’appel hors transaction englobante, avec garde explicite ; l’envoi intervient après commit. Le téléphone, le jeton et l’expiration sont revalidés sous verrou avec un instant relu après attente.
+
+### Sélectionner l’expéditeur OVHcloud, sans secret dans les sources
+
+| Propriété externe | Usage |
+| --- | --- |
+| `gestionplus.sms.provider=ovh` | Active explicitement `OvhSmsConfiguration` et l’adaptateur SMS EU ; aucune dépendance ajoutée. |
+| `gestionplus.sms.ovh.application-key` | Clé d’application externe. |
+| `gestionplus.sms.ovh.application-secret` | Secret d’application externe. |
+| `gestionplus.sms.ovh.consumer-key` | Clé consommateur externe. |
+| `gestionplus.sms.ovh.service-name` | Nom du service SMS EU. |
+| `gestionplus.sms.ovh.sender` | Expéditeur configuré et autorisé pour le compte fournisseur. |
+
+Ces valeurs et les habilitations du compte sont à préparer hors dépôt ; aucune valeur réelle n’est fournie ici. L’assemblage refuse OVHcloud avec `gestionplus.sms.fictif=true` ou `gestionplus.sms.free-test.enabled=true`. **Free reste pour les essais locaux**. Cette exclusivité ne constitue pas une validation de production.
+
+L’adaptateur utilise les endpoints EU fixes de temps et de jobs, des requêtes signées, des délais de connexion/échange de cinq secondes, une limite de réponse de 16 384 octets et aucune redirection. Une réponse ambiguë ou un échec ne déclenche aucune répétition automatique ; les erreurs publiques restent génériques. Aucun compte OVHcloud réel ni appel réel fournisseur n’a été utilisé dans les validations rapportées.
+
+### V28 et récupération des envois
+
+V28 ajoute `send_confirmed_at` et `send_recovery_at`, révoque les anciens défis encore ouverts et conserve l’historique. Sa préparation au déploiement doit tenir compte de cette révocation : les anciens codes ne restent pas utilisables. **Aucune migration n’est exécutée par cette mise à jour documentaire.**
+
+`ActivationChallengeRecovery` est activé par défaut (`gestionplus.activation.challenge-recovery.enabled`), au démarrage et toutes les 30 secondes. Chaque passage traite au plus 100 envois non confirmés dont `send_recovery_at` est atteint, avec `FOR UPDATE SKIP LOCKED`. L’échéance est fixée à deux minutes après création. Défi non confirmé inutilisable, révocation sans réémission, tentatives conservées dans le quota. `confirmSend` signifie acceptation fournisseur, jamais réception sur téléphone. Si envoi et compensation échouent, l’échec initial reste levé avec l’échec compensant en exception supprimée.
+
+### Prérequis réels des tests
+
+`src/test/resources/application-test.yaml` utilise désormais **`jdbc:tc:postgresql:16-alpine:///gestionplus_test`** et `org.testcontainers.jdbc.ContainerDatabaseDriver`, avec identités fictives réservées au conteneur. Il **ne cible plus la base PostgreSQL locale** et ne réutilise plus ses variables d’identification. Pour les tests concernés : Docker accessible et image PostgreSQL disponible ou récupérable par Testcontainers. Les tests de sécurité partagée utilisent aussi Redis jetable et leur configuration isolée ; les anciens MockMvc restent distincts des douze scénarios HTTP à deux JVM.
+
+Ne pas créer une base locale de test pour ce seul profil. Des remplacements externes peuvent modifier la destination effective : vérifier propriétés/profils et la configuration de chaque classe avant toute exécution autorisée. La base de développement et les rôles/propriétés de production gardent leur fonctionnement distinct. Tests purement unitaires et tests de l’adaptateur HTTP simulé ne prouvent aucune connexion à OVHcloud.
+
+Les attentes des requêtes malformées sont désormais 400. Suites complètes antérieures de Codex : **1 143/1 143 serveur**, dont 12 scénarios à deux JVM, et **413/413 client sur classpath et en module**. Voir [attribution, références et limites](AVANCEMENT.md#activation-sms-swing-2026-11-21). Aucun test, build, serveur, migration ou appel fournisseur relancé pendant cette mission.
+
+**Historique antérieur à cette reprise activation SMS/Swing : les dates, preuves et anciennes limites ci-dessous gardent leur contexte ; la reprise ci-dessus décrit l’état courant.**
+
 
 <a id="multi-instance-2026-11-21"></a>
 
@@ -107,7 +145,11 @@ Depuis `e103f72`, `HmacActivationIdentityVerifier` recherche le défi courant, c
 
 Avant le raccordement serveur–client, disposer de l’expéditeur minimal fictif pour les essais locaux. Après raccordement, intégrer le fournisseur SMS réel, valider son assemblage avec le vérificateur HMAC et inventorier les autres composants provisoires. [État des composants SMS](AVANCEMENT.md#beans-definitifs-apres-raccordement)
 
-**Contrainte obligatoire pour l’appelant :** invoquer `createChallenge(invitationID)` **sans transaction Spring déjà active**, donc hors d’une méthode exécutée sous `@Transactional` et hors d’un `TransactionTemplate` actif. Le service conserve la propagation `REQUIRED` et ne contrôle pas automatiquement cette précondition ; un appel transactionnel pourrait envoyer avant le commit. Voir le [contrat d’appel détaillé](AVANCEMENT.md#contrat-appel-creation-defis-sms). Le compte est relu sous verrou et le délai/quota sont revérifiés avant le remplacement. L’invitation n’est pas relue à cet endroit et le téléphone utilisé reste celui lu avant verrou ; voir la [fenêtre résiduelle documentée](AVANCEMENT.md#telephone-avant-verrou-defis-sms).
+**Contrat courant (21 novembre) :** `createChallenge(invitationID, expectedTokenDigest)` refuse explicitement une transaction englobante. Compte/invitation, téléphone, jeton et instant sont revalidés sous verrou ; envoi après commit. Voir la reprise activation ci-dessus.
+
+**Contrat historique remplacé, conservé pour mémoire :**
+
+> **Contrainte obligatoire pour l’appelant :** invoquer `createChallenge(invitationID)` **sans transaction Spring déjà active**, donc hors d’une méthode exécutée sous `@Transactional` et hors d’un `TransactionTemplate` actif. Le service conserve la propagation `REQUIRED` et ne contrôle pas automatiquement cette précondition ; un appel transactionnel pourrait envoyer avant le commit. Voir le [contrat d’appel détaillé](AVANCEMENT.md#contrat-appel-creation-defis-sms). Le compte est relu sous verrou et le délai/quota sont revérifiés avant le remplacement. L’invitation n’est pas relue à cet endroit et le téléphone utilisé reste celui lu avant verrou ; voir la [fenêtre résiduelle documentée](AVANCEMENT.md#telephone-avant-verrou-defis-sms).
 
 ### Simulation SMS locale et tests HTTP — 19 novembre 2026
 
@@ -124,18 +166,18 @@ Depuis `4c630ee`, lire `CsrfHttpTest` pour les accès SMS et CSRF avec les vrais
 - **JDK 25**, également sélectionné dans l'éditeur ou le terminal de lancement.
 - **Maven Wrapper** fourni : il demande Maven **3.10.0** selon sa configuration. Son téléchargement et celui des dépendances nécessitent un accès aux dépôts de paquets. La disponibilité de cette distribution et la résolution complète n'ont pas été revérifiées ici.
 - **PostgreSQL local** : la version de travail annoncée est 18 ; aucune matrice de compatibilité avec d'autres versions n'est établie.
-- Une base de développement séparée des environnements de test, contenant uniquement des données fictives. Selon les classes, les tests utilisent une base dédiée ou un PostgreSQL Testcontainers jetable.
+- Une base de développement avec données fictives, séparée des environnements jetables. Le profil de test et les tests d’intégration concernés utilisent PostgreSQL Testcontainers ; Docker accessible est requis pour eux, avec Redis jetable pour la sécurité partagée.
 
-Le dépôt ne fournit actuellement ni conteneur prêt à lancer, ni compte initial, ni jeu de données serveur préchargé, ni parcours complet d'activation.
+Le dépôt ne fournit ni compte initial réel ni données serveur préchargées de production. Le parcours d’activation SMS/Swing et l’adaptateur OVHcloud sont présents ; la réception réelle et l’exploitation restent à valider.
 
 ## Préparer la base et l'environnement
 
-Faire créer, avec les outils PostgreSQL de son choix, une base de développement `gestionplus_dev` et, pour les tests d'intégration, une base dédiée `gestionplus_test`. Utiliser un compte local dédié disposant des droits nécessaires sur ces bases pour les migrations ; éviter un compte de production ou un superutilisateur.
+Préparer séparément la base de développement `gestionplus_dev` avec un compte dédié. Le profil `test` démarre désormais PostgreSQL jetable via Testcontainers : ne pas créer de base locale `gestionplus_test` pour ce profil. Les anciennes instructions de test sur une base locale sont remplacées au 21 novembre par ce fonctionnement jetable.
 
 | Paramètre | Configuration livrée |
 | --- | --- |
 | Développement | `jdbc:postgresql://localhost:5432/gestionplus_dev` |
-| Tests Spring portant le profil `test` | `jdbc:postgresql://localhost:5432/gestionplus_test` |
+| Tests Spring portant le profil `test` | `jdbc:tc:postgresql:16-alpine:///gestionplus_test` ; driver Testcontainers et identités fictives du conteneur. |
 | Identifiant de connexion | Variable d'environnement `DB_USER` |
 | Mot de passe | Variable d'environnement `DB_PASSWORD` |
 | Schéma | Flyway activé ; validation Hibernate avec `ddl-auto: validate`. |
@@ -144,7 +186,7 @@ Définir `DB_USER` et `DB_PASSWORD` dans l'environnement du processus lancé, pa
 
 Un fichier `.env` est exclu de Git, mais **aucun chargement automatique de ce fichier n'est configuré dans le projet**. Son existence ne suffit donc pas à fournir les variables.
 
-Vérifier l'URL effective et les profils de lancement : une variable externe telle que `SPRING_DATASOURCE_URL` peut remplacer l'adresse attendue. Le profil de test partage par défaut les variables d'identification du développement ; il ne garantit pas à lui seul l'isolation d'une base.
+Vérifier l’URL effective et les profils : `SPRING_DATASOURCE_URL` peut remplacer la destination attendue. Depuis ce lot, le profil `test` utilise le driver Testcontainers et des identités fictives propres au conteneur ; l’ancien partage des variables de développement n’est plus sa configuration livrée.
 
 **Le démarrage Spring et certains tests peuvent appliquer les migrations Flyway.** N'utiliser que des bases locales isolées dont le schéma peut évoluer. Une transaction de test annulée ne garantit pas l'annulation des migrations effectuées au chargement du contexte.
 
@@ -182,13 +224,13 @@ Le contrôle des mots de passe compromis comporte un appel sortant vers Pwned Pa
 
 ## Exécuter les tests ultérieurement
 
-Après vérification de la base dédiée et des variables effectives :
+Après vérification de Docker, de la configuration jetable de la classe et des variables effectives, lors d’une exécution autorisée :
 
 ```powershell
 .\mvnw.cmd test
 ```
 
-Équivalent Linux/macOS : `sh ./mvnw test`. Certains tests Spring utilisent le profil `test` et sa base dédiée ; d’autres, notamment les classes d’invitation, définissent une URL Testcontainers et démarrent leur propre PostgreSQL jetable. Lire la configuration de la classe avant tout lancement : le profil `test` seul ne garantit pas l’isolation. Les tests unitaires utilisent aussi des composants en mémoire ou simulés. Les programmes de benchmark ont leur propre environnement isolé et ne constituent pas la suite JUnit.
+Équivalent Linux/macOS : `sh ./mvnw test`. Certains tests Spring utilisent le profil `test` et son PostgreSQL Testcontainers jetable ; d’autres, notamment les classes d’invitation, définissent une URL Testcontainers et démarrent leur propre PostgreSQL jetable. Lire la configuration de la classe avant tout lancement : le profil `test` seul ne garantit pas l’isolation. Les tests unitaires utilisent aussi des composants en mémoire ou simulés. Les programmes de benchmark ont leur propre environnement isolé et ne constituent pas la suite JUnit.
 
 Consulter `target/surefire-reports/` si le lancement Maven produit des rapports. Relever les réussites, échecs et interruptions : un code de sortie nul ou une classe présente ne prouve pas que tous les scénarios ont été exécutés. L'état effectivement connu reste décrit dans [AVANCEMENT.md](AVANCEMENT.md).
 
@@ -196,7 +238,7 @@ Les [benchmarks manuels d’authentification](benchmarks/authentication/README.m
 
 ## Limites et suite des validations
 
-Le dernier résultat global rapporté par Lise est de **900/900 tests réussis dans Eclipse le 19 novembre 2026 sur `4c630ee`**. Aucune exécution de l’assistant. [Chaîne HTTP, sessions et limites](AVANCEMENT.md#securite-http-sessions-2026-11-19)
+Jalon historique rapporté par Lise : **900/900 tests réussis dans Eclipse le 19 novembre 2026 sur `4c630ee`**. Aucune exécution de l’assistant. [Chaîne HTTP, sessions et limites](AVANCEMENT.md#securite-http-sessions-2026-11-19)
 
 Au raccordement, tenir compte du contrat hors transaction et des lectures de l’invitation et du téléphone avant verrou. Les réserves portent aussi sur le rattachement des audits SMS à l’entreprise, les instants utilisés après attente des verrous et le double échec de l’envoi et de sa compensation. [Réserves du 18 novembre](AVANCEMENT.md#reserves-sms-2026-11-18)
 

@@ -1,11 +1,26 @@
 ---
-summary: "Publication manuelle des sources et reprise du travail entre deux ordinateurs."
+summary: "Publication activation SMS : V28 révoque les anciens défis ouverts ; secrets externes et limites réelles."
 read_when:
   - "préparer une revue avant commit ou publication GitHub"
   - "retrouver les limites du transfert Git et de la synchronisation des notes privées"
 ---
 
 # Publier les sources et travailler sur deux ordinateurs
+
+<a id="activation-sms-swing-2026-11-21"></a>
+
+## Publication du lot activation SMS/Swing — 21 novembre 2026
+
+Les commits locaux `165d2e0` serveur et `ec08c42` client sont relus, sans déduire leur publication distante. Les suites complètes antérieures de Codex (1 143/1 143 serveur et 413/413 client dans chaque mode) sont recoupées avec les 23/11 fichiers inventoriés dans les preuves ; aucune modification ultérieure n’en hérite automatiquement.
+
+**V28 ajoute confirmation/reprise des SMS et révoque les anciens défis encore ouverts**, en conservant leur historique. Préparer ce changement et sa conséquence sur les codes déjà envoyés avant tout déploiement autorisé. Aucune migration n’est lancée ici.
+
+OVHcloud exige une sélection explicite et des paramètres externes ; ne publier ni clés, jetons, liens d’invitation réels, numéros, captures sensibles ou journaux privés. Free reste pour les essais locaux ; ne pas activer plusieurs expéditeurs. Voir [configuration et reprise](DEVELOPPEMENT.md#activation-sms-swing-2026-11-21).
+
+Aucun compte fournisseur réel, SMS facturé ou déploiement n’a été utilisé pour la validation. Acceptation fournisseur et réception sur téléphone restent distinctes ; TLS/proxy/réseau, clés, audit par instance, sauvegarde/restauration et exploitation gardent leurs validations propres. Premier enrôlement TOTP toujours séparé. Aucun commit, push, pull ou déploiement effectué par cette actualisation.
+
+**Historique antérieur à cette reprise activation SMS/Swing : les dates, preuves et anciennes limites ci-dessous gardent leur contexte ; la reprise ci-dessus décrit l’état courant.**
+
 
 <a id="multi-instance-2026-11-21"></a>
 
