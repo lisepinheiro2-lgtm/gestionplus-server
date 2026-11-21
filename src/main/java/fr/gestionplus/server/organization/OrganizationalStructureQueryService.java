@@ -32,7 +32,8 @@ public class OrganizationalStructureQueryService {
 		List<OrganizationalStructure> structures = new ArrayList<>();
 
 		for (OrganizationalStructure structure : candidates) {
-			Set<UserRole> roles = authorizationService.rolesInStructureForSession(principal, structure.getStructureID());
+			Set<UserRole> roles = authorizationService.rolesInStructureForSession(principal,
+					structure.getStructureID());
 
 			if (!roles.isEmpty()) {
 				structures.add(structure);

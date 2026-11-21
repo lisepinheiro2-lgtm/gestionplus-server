@@ -91,11 +91,15 @@ class OrganizationalStructureHttpPostgresqlIntegrationTest extends AuditStorageI
 
 	@AfterEach
 	void clearSessions() {
+
 		for (Object principal : sessions.getAllPrincipals()) {
+
 			for (var session : sessions.getAllSessions(principal, true)) {
 				sessions.removeSessionInformation(session.getSessionId());
 			}
+
 		}
+
 		SecurityContextHolder.clearContext();
 	}
 
@@ -340,13 +344,15 @@ class OrganizationalStructureHttpPostgresqlIntegrationTest extends AuditStorageI
 	private Tenant tenant(String name) {
 		UserAccount owner = account("super_admin", Set.of(UserRole.SUPER_ADMIN));
 		Tenant tenant = new Tenant(UUID.randomUUID(), owner);
-		tenants.saveAndFlush(new TenantOrganizationEntity(new TenantOrganization(tenant.id(), name, owner.getUserID())));
+		tenants.saveAndFlush(
+				new TenantOrganizationEntity(new TenantOrganization(tenant.id(), name, owner.getUserID())));
 		joinTenant(owner, tenant);
 		return tenant;
 	}
 
 	private void joinTenant(UserAccount actor, Tenant tenant) {
-		jdbc.update("INSERT INTO tenant_memberships (user_id, tenant_id) VALUES (?, ?)", actor.getUserID(), tenant.id());
+		jdbc.update("INSERT INTO tenant_memberships (user_id, tenant_id) VALUES (?, ?)", actor.getUserID(),
+				tenant.id());
 	}
 
 	private OrganizationalStructure structure(Tenant tenant, String name) {
@@ -357,7 +363,8 @@ class OrganizationalStructureHttpPostgresqlIntegrationTest extends AuditStorageI
 
 	private void grant(UserAccount actor, OrganizationalStructure structure, Set<UserRole> roles) {
 		memberships.saveAndFlush(new StructureMembershipEntity(
-				new StructureMembership(actor.getUserID(), structure.getStructureID(), roles), structure.getTenantID()));
+				new StructureMembership(actor.getUserID(), structure.getStructureID(), roles),
+				structure.getTenantID()));
 	}
 
 	private List<UUID> ids(List<OrganizationalStructure> structures) {
@@ -367,4 +374,3 @@ class OrganizationalStructureHttpPostgresqlIntegrationTest extends AuditStorageI
 	private record Tenant(UUID id, UserAccount owner) {
 	}
 }
-

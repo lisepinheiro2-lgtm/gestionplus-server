@@ -7,10 +7,27 @@ server:
   servlet:
     session:
       cookie:
+        name: JSESSIONID
         http-only: true
         same-site: lax
 
 spring:
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      username: ${REDIS_USER:default}
+      password: ${REDIS_PASSWORD}
+      connect-timeout: 2s
+      timeout: 2s
+      ssl:
+        enabled: ${REDIS_SSL_ENABLED:false}
+  session:
+    timeout: 30m
+    data:
+      redis:
+        repository-type: indexed
+        namespace: gestionplus:${gestionplus.cluster.namespace}:sessions
   threads:
     virtual:
       enabled: true
@@ -35,3 +52,8 @@ spring:
 
   flyway:
     enabled: true
+
+gestionplus:
+  cluster:
+    namespace: ${GESTIONPLUS_CLUSTER_NAMESPACE}
+    rate-limit-key: ${GESTIONPLUS_RATE_LIMIT_KEY}

@@ -20,11 +20,13 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 
 import fr.gestionplus.server.account.AccountActivationConflictException;
 import fr.gestionplus.server.account.ActivationDeniedException;
+import fr.gestionplus.server.account.ActivationMessageDeliveryException;
 import fr.gestionplus.server.account.InvitationDeliveryPendingException;
 import fr.gestionplus.server.audit.AuditReason;
 import fr.gestionplus.server.audit.AuditService;
 import fr.gestionplus.server.audit.AuditedAccessDeniedException;
 import fr.gestionplus.server.auth.HttpSecurityAudit;
+import fr.gestionplus.server.auth.DistributedSecurityUnavailableException;
 import jakarta.servlet.http.HttpServletRequest;
 
 @RestControllerAdvice
@@ -76,7 +78,8 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	}
 
 	@ExceptionHandler({ DataAccessResourceFailureException.class, CannotCreateTransactionException.class,
-			InvitationDeliveryPendingException.class })
+			InvitationDeliveryPendingException.class, ActivationMessageDeliveryException.class,
+			DistributedSecurityUnavailableException.class })
 	ResponseEntity<Object> unavailable(Exception failure) {
 		LOGGER.warn("Dépendance HTTP indisponible ({})", failure.getClass().getSimpleName());
 		return response(HttpApiError.SERVICE_UNAVAILABLE);

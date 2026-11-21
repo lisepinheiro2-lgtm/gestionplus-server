@@ -38,16 +38,18 @@ final class CurrentAccountSessionFilter extends OncePerRequestFilter {
 			throws ServletException, IOException {
 
 		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-		Instant requestStarted = lifetime.now();
+		Instant requestStarted = null;
 		HttpSession session = request.getSession(false);
 
 		if (authentication != null && authentication.getPrincipal() instanceof UserAccount principal) {
+			requestStarted = lifetime.now();
 			boolean current = accountStore.findById(principal.getUserID())
 					.filter(account -> principal.getUserID().equals(account.getUserID()))
 					.filter(account -> account.getStatu() == UserAccountStatus.ACTIVE)
 					.filter(account -> account.getSessionVersion() == principal.getSessionVersion()).isPresent();
 
 			if (!current) {
+				lifetime.end(session);
 				logoutHandler.logout(request, response, authentication);
 				audit.refused(request, principal, AuditReason.STALE_SESSION);
 				HttpApiError.AUTHENTICATION_REQUIRED.write(response);
@@ -57,6 +59,7 @@ final class CurrentAccountSessionFilter extends OncePerRequestFilter {
 			SessionLifetime.Access access = lifetime.access(session, requestStarted);
 
 			if (access == null) {
+				lifetime.end(session);
 				logoutHandler.logout(request, response, authentication);
 				audit.refused(request, principal, AuditReason.SESSION_EXPIRED);
 				HttpApiError.AUTHENTICATION_REQUIRED.write(response);
@@ -64,6 +67,7 @@ final class CurrentAccountSessionFilter extends OncePerRequestFilter {
 			}
 
 			if (!access.mfaVerified() && mfa.requiresVerification(principal.getUserID())) {
+				lifetime.end(session);
 				logoutHandler.logout(request, response, authentication);
 				audit.refused(request, principal, AuditReason.MFA_REQUIRED);
 				HttpApiError.AUTHENTICATION_REQUIRED.write(response);

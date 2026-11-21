@@ -11,6 +11,11 @@ gestionplus:
     require-https: true
 
 spring:
+  data:
+    redis:
+      username: ${REDIS_USER}
+      ssl:
+        enabled: true
   datasource:
     url: ${DB_URL}
     username: ${DB_APP_USER}

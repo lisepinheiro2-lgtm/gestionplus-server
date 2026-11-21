@@ -37,15 +37,15 @@ import fr.gestionplus.server.audit.AuditTargetType;
 import fr.gestionplus.server.auth.AccountMfaService;
 import fr.gestionplus.server.auth.GestionAuthenticationProvider;
 import fr.gestionplus.server.auth.HttpSecurityConfig;
-import fr.gestionplus.server.auth.LoginAttemptLimiter;
 import fr.gestionplus.server.auth.LoginDelay;
 import fr.gestionplus.server.auth.LoginService;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
+import fr.gestionplus.server.support.ServletSecurityTestConfiguration;
 
 @WebMvcTest(CsrfController.class)
 @ActiveProfiles("prod")
-@Import({ HttpSecurityConfig.class, GestionAuthenticationProvider.class, LoginAttemptLimiter.class })
+@Import({ HttpSecurityConfig.class, GestionAuthenticationProvider.class, ServletSecurityTestConfiguration.class })
 class HttpProductionPolicyTest {
 
 	@Autowired

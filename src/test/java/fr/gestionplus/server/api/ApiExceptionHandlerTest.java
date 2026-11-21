@@ -41,10 +41,12 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import fr.gestionplus.server.account.AccountActivationConflictException;
+import fr.gestionplus.server.account.ActivationMessageDeliveryException;
 import fr.gestionplus.server.account.InvitationDeliveryPendingException;
 import fr.gestionplus.server.audit.AuditReason;
 import fr.gestionplus.server.audit.AuditService;
 import fr.gestionplus.server.audit.AuditedAccessDeniedException;
+import fr.gestionplus.server.auth.DistributedSecurityUnavailableException;
 import jakarta.servlet.RequestDispatcher;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Size;
@@ -67,7 +69,9 @@ class ApiExceptionHandlerTest {
 			"tenant,404,NOT_FOUND", "structure,404,NOT_FOUND", "missing,404,NOT_FOUND",
 			"input,400,INVALID_REQUEST", "conflict,409,CONFLICT", "activation-conflict,409,CONFLICT",
 			"unrelated-constraint,500,INTERNAL_ERROR", "unavailable,503,SERVICE_UNAVAILABLE",
-			"invitation-pending,503,SERVICE_UNAVAILABLE", "unexpected,500,INTERNAL_ERROR" })
+			"invitation-pending,503,SERVICE_UNAVAILABLE", "sms-delivery,503,SERVICE_UNAVAILABLE",
+			"shared-security,503,SERVICE_UNAVAILABLE",
+			"unexpected,500,INTERNAL_ERROR" })
 	void returnsOnlyAPublicCodeForEachError(String kind, int expectedStatus, String code) throws Exception {
 		mvc.perform(get("/test/errors/" + kind).principal(
 				UsernamePasswordAuthenticationToken.authenticated("test-user", null, List.of())))
@@ -120,6 +124,8 @@ class ApiExceptionHandlerTest {
 
 		try {
 			mvc.perform(get("/test/errors/unavailable")).andExpect(status().isServiceUnavailable());
+			mvc.perform(get("/test/errors/sms-delivery")).andExpect(status().isServiceUnavailable());
+			mvc.perform(get("/test/errors/shared-security")).andExpect(status().isServiceUnavailable());
 			mvc.perform(get("/test/errors/unexpected")).andExpect(status().isInternalServerError());
 		} finally {
 			logger.detachAppender(appender);
@@ -161,6 +167,8 @@ class ApiExceptionHandlerTest {
 					PRIVATE_DETAIL);
 			case "unavailable" -> throw new DataAccessResourceFailureException(PRIVATE_DETAIL);
 			case "invitation-pending" -> throw new InvitationDeliveryPendingException();
+			case "sms-delivery" -> throw new ActivationMessageDeliveryException();
+			case "shared-security" -> throw new DistributedSecurityUnavailableException();
 			default -> throw new IllegalStateException(PRIVATE_DETAIL);
 			}
 

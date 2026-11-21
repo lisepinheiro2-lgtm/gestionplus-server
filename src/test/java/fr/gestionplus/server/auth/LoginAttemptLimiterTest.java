@@ -7,300 +7,230 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import java.time.Clock;
-import java.time.Instant;
-import java.util.Set;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
 
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 
-import fr.gestionplus.server.audit.AuditAction;
-import fr.gestionplus.server.audit.AuditMetadata;
 import fr.gestionplus.server.audit.AuditReason;
-import fr.gestionplus.server.audit.AuditResult;
-import fr.gestionplus.server.audit.AuditService;
-import fr.gestionplus.server.audit.AuditTarget;
-import fr.gestionplus.server.audit.AuditTargetType;
-import fr.gestionplus.server.auth.GestionAuthenticationProvider.RejectedLogin;
+import fr.gestionplus.server.persistence.RedisLoginAttemptLimiter;
+import fr.gestionplus.server.persistence.RedisSecuritySupport;
+import fr.gestionplus.server.support.SecurityTestRedis;
+import tools.jackson.databind.json.JsonMapper;
 
 class LoginAttemptLimiterTest {
 
-	private final Clock clock = mock(Clock.class);
-	private final Instant start = Instant.parse("2026-01-01T12:00:00Z");
-	private final LoginAttemptLimiter limiter = new LoginAttemptLimiter(clock);
+	private static final JsonMapper JSON = JsonMapper.builder().build();
+	private static final LettuceConnectionFactory FIRST = SecurityTestRedis.connectionFactory();
+	private static final LettuceConnectionFactory SECOND = SecurityTestRedis.connectionFactory();
+	private StringRedisTemplate template;
+	private RedisSecuritySupport support;
+	private LoginAttemptLimiter first;
+	private LoginAttemptLimiter second;
 
 	@BeforeEach
 	void setUp() {
-		at(0);
+		String namespace = "login-test-" + UUID.randomUUID().toString().replace("-", "");
+		template = SecurityTestRedis.template(FIRST);
+		support = new RedisSecuritySupport(template, namespace, SecurityTestRedis.rateKey());
+		first = new RedisLoginAttemptLimiter(support);
+		second = new RedisLoginAttemptLimiter(new RedisSecuritySupport(
+				SecurityTestRedis.template(SECOND), namespace, SecurityTestRedis.rateKey()));
+	}
+
+	@AfterAll
+	static void closeConnections() {
+		FIRST.destroy();
+		SECOND.destroy();
 	}
 
 	@Test
-	void delaysFreshIdentifiersFromAnAddressWithManyFailures() {
+	void reservesOnlyOneAttemptAcrossInstances() {
 
-		for (int failure = 0; failure < 10; failure++) {
-			var attempt = limiter.begin("account" + failure, "192.0.2.1");
-			assertNotNull(attempt);
-			assertFalse(limiter.finish(attempt, true, false));
+		try (var workers = Executors.newFixedThreadPool(8)) {
+			var attempts = new ArrayList<CompletableFuture<LoginAttemptLimiter.Attempt>>();
+
+			for (int index = 0; index < 16; index++) {
+				LoginAttemptLimiter limiter = index % 2 == 0 ? first : second;
+				attempts.add(CompletableFuture.supplyAsync(() -> limiter.begin("target", "192.0.2.1"), workers));
+			}
+
+			assertEquals(1, attempts.stream().map(CompletableFuture::join).filter(java.util.Objects::nonNull).count());
 		}
 
-		when(clock.instant()).thenReturn(start.plusMillis(100));
-		assertNull(limiter.begin("fresh", "192.0.2.1"));
-		assertNotNull(limiter.begin("elsewhere", "192.0.2.2"));
-
-		when(clock.instant()).thenReturn(start.plusMillis(500));
-		assertNotNull(limiter.begin("fresh", "192.0.2.1"));
-		assertNotNull(limiter.begin("account0", "192.0.2.2"));
 	}
 
 	@Test
-	void rejectsConcurrentAttemptsAndGraduallyIncreasesTheRetryDelay() {
-		var first = limiter.begin("target", "192.0.2.1");
-		assertNotNull(first);
-		assertNull(limiter.begin("target", "192.0.2.2"));
-		assertFalse(limiter.finish(first, true, true));
-		when(clock.instant()).thenReturn(start.plusMillis(199));
-		assertNull(limiter.begin("target", "192.0.2.2"));
-
-		when(clock.instant()).thenReturn(start.plusMillis(200));
-		var second = limiter.begin("target", "192.0.2.2");
-		assertNotNull(second);
-		assertFalse(limiter.finish(second, true, true));
-		when(clock.instant()).thenReturn(start.plusMillis(599));
-		assertNull(limiter.begin("target", "192.0.2.2"));
-		when(clock.instant()).thenReturn(start.plusMillis(600));
-		assertNotNull(limiter.begin("target", "192.0.2.2"));
+	void sharesTheRestrictionAfterTenFailures() {
+		seedAccount("target", 9, 10000, true);
+		var attempt = second.begin("target", "192.0.2.1");
+		assertNotNull(attempt);
+		assertTrue(second.finish(attempt, true, true));
+		assertNull(first.begin("target", "192.0.2.2"));
 	}
 
 	@Test
-	void combinesAccountAndAddressWeightsInTheLoginDelay() {
-
-		for (int failure = 0; failure < 10; failure++) {
-			var attempt = limiter.begin("account" + failure, "192.0.2.1");
-			assertNotNull(attempt);
-			assertFalse(limiter.finish(attempt, true, true));
-		}
-
-		when(clock.instant()).thenReturn(start.plusMillis(500));
-		assertNull(limiter.begin("account0", "192.0.2.1"));
-		assertNotNull(limiter.begin("unaffected", "192.0.2.1"));
-		assertNotNull(limiter.begin("account0", "192.0.2.2"));
+	void preservesFailuresWhenAConnectionSucceeds() {
+		seedAccount("target", 9, 10000, true);
+		var successful = first.begin("target", "192.0.2.1");
+		assertNotNull(successful);
+		assertFalse(first.finish(successful, false, false));
+		var failed = second.begin("target", "192.0.2.2");
+		assertNotNull(failed);
+		assertTrue(second.finish(failed, true, true));
 	}
 
 	@Test
 	void discardsFailuresOutsideTheSlidingWindow() {
-
-		for (int failure = 0; failure < 9; failure++) {
-			at(failure * 3L);
-			var attempt = limiter.begin("target", "192.0.2.1");
-			assertNotNull(attempt);
-			assertFalse(limiter.finish(attempt, true, true));
-		}
-
-		at(900);
-		var attempt = limiter.begin("target", "192.0.2.1");
+		seedAccount("target", 10, 901000, true);
+		var attempt = second.begin("target", "192.0.2.1");
 		assertNotNull(attempt);
-		assertFalse(limiter.finish(attempt, true, true));
+		assertFalse(second.finish(attempt, true, true));
 	}
 
 	@Test
-	void doesNotDenyANewLoginWhenUnknownNamesFillTheTrackingCapacity() {
-
-		for (int failure = 0; failure < 8192; failure++) {
-			at(3L * failure);
-			var attempt = limiter.begin("unknown-" + failure, "192.0.2.1");
-			assertNotNull(attempt);
-			assertFalse(limiter.finish(attempt, true, false));
-		}
-
-		assertNotNull(limiter.begin("new-account", "192.0.2.2"));
+	void delaysAnAccountRegardlessOfTheInstanceOrAddress() {
+		seedAccount("target", 10, 0, true);
+		assertNull(second.begin("target", "192.0.2.2"));
 	}
 
 	@Test
-	void auditsTheRestrictionSeparatelyFromTheGenericLoginFailure() {
-		UUID userID = UUID.randomUUID();
+	void combinesFailuresFromOneAddressAcrossAccounts() {
+		long now = support.now().toEpochMilli();
+		String address = support.addressKey("login-address", "192.0.2.1");
+		Map<String, Object> history = Map.of("failures", java.util.Collections.nCopies(9, now - 10000));
+		template.opsForHash().put(support.prefix("login") + "addresses", address, JSON.writeValueAsString(history));
+		template.opsForZSet().add(support.prefix("login") + "address-expirations", address, now + 900000);
+		var attempt = first.begin("first-account", "192.0.2.1");
+		assertNotNull(attempt);
+		assertFalse(first.finish(attempt, true, false));
+		assertNull(second.begin("another-account", "192.0.2.1"));
+		assertNotNull(second.begin("another-account", "192.0.2.2"));
+	}
+
+	@Test
+	void recoversAfterAnInstanceLosesItsReservation() {
+		var old = first.begin("target", "192.0.2.1");
+		assertNotNull(old);
+		String key = support.prefix("login") + "accounts";
+		var history = (tools.jackson.databind.node.ObjectNode) JSON.readTree(
+				template.<String, String>opsForHash().get(key, old.accountKey()));
+		history.put("leaseUntil", support.now().toEpochMilli() - 1);
+		template.opsForHash().put(key, old.accountKey(), JSON.writeValueAsString(history));
+		var replacement = second.begin("target", "192.0.2.2");
+		assertNotNull(replacement);
+		assertThrows(DistributedSecurityUnavailableException.class, () -> first.finish(old, true, true));
+		assertNull(first.begin("target", "192.0.2.3"));
+		assertFalse(second.finish(replacement, false, false));
+	}
+
+	@Test
+	void pausesWithoutCheckingCredentialsWhenTheQuotaRejectsTheAttempt() {
+		var reservation = first.begin("target", "192.0.2.1");
+		assertNotNull(reservation);
 		LoginService login = mock(LoginService.class);
-		when(login.evaluate("target", "incorrect"))
-				.thenReturn(new LoginService.LoginAttempt(null, userID, AuditReason.INVALID_CREDENTIALS));
-		GestionAuthenticationProvider provider = new GestionAuthenticationProvider(
-				login, mock(AccountMfaService.class), limiter, mock(LoginDelay.class));
-		var credentials = UsernamePasswordAuthenticationToken.unauthenticated("target", "incorrect");
-		credentials.setDetails(new GestionAuthenticationProvider.LoginDetails("192.0.2.1", null));
-
-		for (int index = 0; index < 9; index++) {
-			at(index * 3L);
-			assertFalse(
-					assertThrows(RejectedLogin.class, () -> provider.authenticate(credentials)).restrictionStarted());
-		}
-
-		at(27);
-		RejectedLogin threshold = assertThrows(RejectedLogin.class, () -> provider.authenticate(credentials));
-		RejectedLogin limited = assertThrows(RejectedLogin.class, () -> provider.authenticate(credentials));
-		assertTrue(threshold.restrictionStarted());
-		assertEquals(threshold.getMessage(), limited.getMessage());
-
-		AuditService audit = mock(AuditService.class);
-		MockHttpServletRequest request = new MockHttpServletRequest();
-		request.setRemoteAddr("192.0.2.1");
-		new HttpSecurityAudit(audit).loginFailed(request, threshold);
-
-		Set<AuditTarget> targets = Set.of(new AuditTarget(AuditTargetType.ACCOUNT, userID));
-		verify(audit).recordForActor(AuditAction.AUTH_LOGIN, AuditResult.FAILURE, null, "192.0.2.1", targets,
-				AuditMetadata.because(AuditReason.INVALID_CREDENTIALS));
-		verify(audit).recordForActor(AuditAction.AUTH_LOGIN_RESTRICTION, AuditResult.DENIED, null, "192.0.2.1", targets,
-				AuditMetadata.because(AuditReason.RATE_LIMITED));
-	}
-
-	@Test
-	void letsUntrackedAttemptsThroughWhileTheAddressRegistryHasRoom() {
-
-		var first = limiter.begin("unknown-0", "192.0.2.1");
-		assertNotNull(first);
-		assertFalse(limiter.finish(first, true, false));
-
-		var second = limiter.begin("unknown-1", "192.0.2.2");
-		assertNotNull(second);
-		assertFalse(limiter.finish(second, true, false));
-	}
-
-	@Test
-	void throttlesUntrackedAttemptsGloballyWhenTheAddressRegistryIsSaturated() {
-		saturateAddresses();
-
-		var first = limiter.begin("untracked-0", "203.0.113.1");
-		assertNotNull(first);
-		assertFalse(limiter.finish(first, true, false));
-
-		assertNull(limiter.begin("untracked-1", "203.0.113.2"));
-		assertNull(limiter.begin("untracked-2", "203.0.113.3"));
-
-		at(5);
-		var second = limiter.begin("untracked-3", "203.0.113.4");
-		assertNotNull(second);
-		assertFalse(limiter.finish(second, true, false));
-		assertNull(limiter.begin("untracked-4", "203.0.113.5"));
-
-		at(10);
-		var third = limiter.begin("untracked-5", "203.0.113.6");
-		assertNotNull(third);
-		assertFalse(limiter.finish(third, true, false));
-	}
-
-	@Test
-	void exemptsKnownAccountsWithRecordedFailuresFromTheGlobalThrottle() {
-		var known = limiter.begin("victim", "192.0.2.1");
-		assertNotNull(known);
-		assertFalse(limiter.finish(known, true, true));
-
-		saturateAddresses();
-
-		var passage = limiter.begin("untracked-0", "203.0.113.1");
-		assertNotNull(passage);
-		assertFalse(limiter.finish(passage, true, false));
-
-		at(1);
-		assertNotNull(limiter.begin("victim", "203.0.113.2"));
-		assertNull(limiter.begin("unknown-9000", "203.0.113.3"));
-	}
-
-	private void saturateAddresses() {
-
-		for (int failure = 0; failure < 8192; failure++) {
-			var attempt = limiter.begin("unknown-" + failure, "192.0.2." + failure);
-			assertNotNull(attempt);
-			assertFalse(limiter.finish(attempt, true, false));
-		}
-
-	}
-
-	@Test
-	void recordsFailuresForTrackedAddressesWhileTheRegistryIsSaturated() {
-		var seed = limiter.begin("seed", "192.0.2.0");
-		assertNotNull(seed);
-		assertFalse(limiter.finish(seed, true, false));
-
-		saturateAddresses();
-
-		for (int failure = 1; failure < 10; failure++) {
-			at(failure);
-			var attempt = limiter.begin("unknown-" + failure, "192.0.2.0");
-			assertNotNull(attempt);
-			assertFalse(limiter.finish(attempt, true, false));
-		}
-
-		assertNull(limiter.begin("fresh", "192.0.2.0"));
-
-		at(10);
-		assertNotNull(limiter.begin("fresh", "192.0.2.0"));
-	}
-
-	@Test
-	void doesNotLetExpiredAddressFailuresInflateTheDelay() {
-
-		for (int failure = 0; failure < 10; failure++) {
-			var attempt = limiter.begin("account" + failure, "192.0.2.9");
-			assertNotNull(attempt);
-			assertFalse(limiter.finish(attempt, true, false));
-		}
-
-		at(901);
-		var fresh = limiter.begin("target", "192.0.2.8");
-		assertNotNull(fresh);
-		assertFalse(limiter.finish(fresh, true, false));
-
-		when(clock.instant()).thenReturn(start.plusMillis(901_400));
-		assertNotNull(limiter.begin("target", "192.0.2.9"));
-	}
-
-	@Test
-	void pausesBeforeRejectingWhenTheLimiterRefusesTheAttempt() {
 		LoginDelay delay = mock(LoginDelay.class);
-		LoginService login = mock(LoginService.class);
 		GestionAuthenticationProvider provider = new GestionAuthenticationProvider(
-				login, mock(AccountMfaService.class), limiter, delay);
+				login, mock(AccountMfaService.class), second, delay);
 		var credentials = UsernamePasswordAuthenticationToken.unauthenticated("target", "incorrect");
-		credentials.setDetails(new GestionAuthenticationProvider.LoginDetails("192.0.2.1", null));
-
-		var first = limiter.begin("target", "192.0.2.1");
-		assertNotNull(first);
-		assertFalse(limiter.finish(first, true, true));
-
-		when(clock.instant()).thenReturn(start.plusMillis(100));
-
-		assertThrows(RejectedLogin.class, () -> provider.authenticate(credentials));
-		verify(delay, times(1)).pause();
-		verify(login, never()).evaluate(anyString(), anyString());
+		credentials.setDetails(new GestionAuthenticationProvider.LoginDetails("192.0.2.2", null));
+		var rejected = assertThrows(GestionAuthenticationProvider.RejectedLogin.class,
+				() -> provider.authenticate(credentials));
+		assertEquals(AuditReason.RATE_LIMITED, rejected.reason());
+		verify(delay).pause();
+		verify(login, never()).evaluate(any(), any());
 	}
 
 	@Test
-	void doesNotPauseWhenTheLimiterAcceptsTheAttempt() {
-		LoginDelay delay = mock(LoginDelay.class);
-		AccountMfaService mfa = mock(AccountMfaService.class);
-		when(mfa.verifyForLogin(any(), any())).thenReturn(AccountMfaService.Verification.NOT_REQUIRED);
-		UserAccount account = new UserAccount(UUID.randomUUID(), "target", UserAccountStatus.ACTIVE, Set.of(),
-				UUID.randomUUID(), "Doe", "Jane", "jane@example.com", "+12025550100");
+	void doesNotCountAnUnavailableCredentialStoreAsABadPassword() {
 		LoginService login = mock(LoginService.class);
-		when(login.evaluate("target", "correct"))
-				.thenReturn(new LoginService.LoginAttempt(account, account.getUserID(), null));
+		when(login.evaluate("target", "candidate")).thenThrow(new IllegalStateException());
 		GestionAuthenticationProvider provider = new GestionAuthenticationProvider(
-				login, mfa, limiter, delay);
-		var credentials = UsernamePasswordAuthenticationToken.unauthenticated("target", "correct");
+				login, mock(AccountMfaService.class), first, mock(LoginDelay.class));
+		var credentials = UsernamePasswordAuthenticationToken.unauthenticated("target", "candidate");
 		credentials.setDetails(new GestionAuthenticationProvider.LoginDetails("192.0.2.1", null));
-
-		assertNotNull(provider.authenticate(credentials));
-		verify(delay, never()).pause();
+		var rejected = assertThrows(GestionAuthenticationProvider.RejectedLogin.class,
+				() -> provider.authenticate(credentials));
+		assertEquals(AuditReason.OPERATION_FAILED, rejected.reason());
+		assertNotNull(second.begin("target", "192.0.2.1"));
 	}
 
-	private void at(long seconds) {
-		when(clock.instant()).thenReturn(start.plusSeconds(seconds));
+	@Test
+	void neverStoresTheRawUserNameOrAddress() {
+		var attempt = first.begin("private-test-name", "192.0.2.1");
+		assertNotNull(attempt);
+		assertFalse(first.finish(attempt, true, true));
+		String accounts = template.opsForHash().entries(support.prefix("login") + "accounts").toString();
+		String addresses = template.opsForHash().entries(support.prefix("login") + "addresses").toString();
+		assertFalse(accounts.contains("private-test-name"));
+		assertFalse(addresses.contains("192.0.2.1"));
+	}
+
+	@Test
+	void boundsUnknownHistoriesWithoutBlockingAllNewAccounts() {
+		fillRegistry(false, false);
+		assertNotNull(first.begin("new-account", "192.0.2.2"));
+		assertEquals(8192, template.opsForHash().size(support.prefix("login") + "accounts"));
+	}
+
+	@Test
+	void preservesKnownHistoriesWhenTheAccountRegistryIsFull() {
+		fillRegistry(false, true);
+		assertNull(second.begin("new-account", "192.0.2.2"));
+		assertEquals(8192, template.opsForHash().size(support.prefix("login") + "accounts"));
+	}
+
+	@Test
+	void sharesTheGlobalThrottleWhenTheAddressRegistryIsFull() {
+		fillRegistry(true, false);
+		var admitted = first.begin("first-untracked", "203.0.113.1");
+		assertNotNull(admitted);
+		assertFalse(first.finish(admitted, true, false));
+		assertNull(second.begin("second-untracked", "203.0.113.2"));
+		seedAccount("known-account", 1, 10000, true);
+		assertNotNull(second.begin("known-account", "203.0.113.3"));
+		template.opsForValue().set(support.prefix("login") + "untracked",
+				Long.toString(support.now().toEpochMilli() - 5001));
+		assertNotNull(second.begin("later-untracked", "203.0.113.4"));
+		assertEquals(8192, template.opsForHash().size(support.prefix("login") + "addresses"));
+	}
+
+	private void fillRegistry(boolean addresses, boolean known) {
+		String prefix = support.prefix("login");
+		String body = "local t=redis.call('TIME'); local now=t[1]*1000+math.floor(t[2]/1000); "
+				+ "for i=1,8192 do local id='fictitious-'..i; "
+				+ "redis.call('HSET',KEYS[1],id,cjson.encode({failures={now-10000},known=ARGV[1]=='1'})); "
+				+ "redis.call('ZADD',KEYS[2],now+900000,id); "
+				+ "if ARGV[1]=='0' then redis.call('ZADD',KEYS[3],now+900000,id); end; end; return 8192";
+		template.execute(new org.springframework.data.redis.core.script.DefaultRedisScript<>(body, Long.class),
+				List.of(prefix + (addresses ? "addresses" : "accounts"),
+						prefix + (addresses ? "address-expirations" : "account-expirations"),
+						prefix + "unknown-accounts"),
+				known || addresses ? "1" : "0");
+	}
+
+	private void seedAccount(String name, int failures, long ageMilliseconds, boolean known) {
+		long now = support.now().toEpochMilli();
+		String id = support.digest("login-account", name);
+		Map<String, Object> history = new LinkedHashMap<>();
+		history.put("failures", java.util.Collections.nCopies(failures, now - ageMilliseconds));
+		history.put("known", known);
+		template.opsForHash().put(support.prefix("login") + "accounts", id, JSON.writeValueAsString(history));
+		template.opsForZSet().add(support.prefix("login") + "account-expirations", id, now + 900000);
 	}
 }

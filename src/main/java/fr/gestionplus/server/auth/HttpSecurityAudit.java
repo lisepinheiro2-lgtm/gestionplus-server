@@ -36,6 +36,10 @@ public final class HttpSecurityAudit {
 		UUID targetId = null;
 		AuditReason reason = AuditReason.INVALID_CREDENTIALS;
 
+		if (failure instanceof DistributedSecurityUnavailableException) {
+			reason = AuditReason.OPERATION_FAILED;
+		}
+
 		if (failure instanceof GestionAuthenticationProvider.RejectedLogin rejected) {
 			targetId = rejected.targetId();
 			reason = rejected.reason();

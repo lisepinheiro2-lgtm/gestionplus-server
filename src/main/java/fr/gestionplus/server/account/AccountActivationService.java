@@ -73,7 +73,7 @@ public class AccountActivationService {
 	public void requestActivationChallenge(UUID invitationID, String token) {
 
 		if (invitationID == null || !isValidToken(token)) {
-			throw AccountInvitationScope.activationDenied();
+			throw new IllegalArgumentException("Requête d'activation malformée.");
 		}
 
 		requireValidInvitation(invitationID, token);
@@ -103,7 +103,7 @@ public class AccountActivationService {
 				|| !isValidToken(token)
 				|| proof == null
 				|| proof.isBlank()) {
-			throw AccountInvitationScope.activationDenied();
+			throw new IllegalArgumentException("Requête d'activation malformée.");
 		}
 
 	}

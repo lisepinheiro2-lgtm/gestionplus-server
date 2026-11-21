@@ -1,0 +1,7 @@
+server:
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      internal-proxies: ${GESTIONPLUS_TRUSTED_PROXIES}
+      remote-ip-header: x-forwarded-for
+      protocol-header: x-forwarded-proto

@@ -33,6 +33,9 @@ import fr.gestionplus.server.auth.LoginDelay;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.web.server.context.WebServerApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.support.GenericApplicationContext;
+import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -40,6 +43,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.containers.GenericContainer;
 import tools.jackson.databind.json.JsonMapper;
 
 public final class LocalLoginPathBenchmark {
@@ -67,6 +71,7 @@ public final class LocalLoginPathBenchmark {
 		String runId = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
 		String databaseName = "gestionplus_benchmark_" + runId;
 		String containerName = "gestionplus-login-benchmark-" + runId;
+		String redisPassword = randomKey();
 		List<Sample> samples = new ArrayList<>();
 		Map<String, Object> environment = new LinkedHashMap<>();
 		environment.put("startedAtUtc", Instant.now().toString());
@@ -93,13 +98,25 @@ public final class LocalLoginPathBenchmark {
 					command.withName(containerName);
 					command.getHostConfig().withPortBindings(new PortBinding(
 							Ports.Binding.bindIpAndPort("127.0.0.1", 0), new ExposedPort(5432)));
+				}); GenericContainer<?> redis = new GenericContainer<>("redis:8.4-alpine")
+				.withExposedPorts(6379).withReuse(false).withImagePullPolicy(image -> false)
+				.withLabel("gestionplus.benchmark", runId)
+				.withCommand("redis-server", "--requirepass", redisPassword, "--notify-keyspace-events", "Egx",
+						"--maxmemory", "128mb", "--maxmemory-policy", "noeviction")
+				.withCreateContainerCmdModifier(command -> {
+					command.withName(containerName + "-redis");
+					command.getHostConfig().withPortBindings(new PortBinding(
+							Ports.Binding.bindIpAndPort("127.0.0.1", 0), new ExposedPort(6379)));
 				})) {
 
 			System.out.println("Starting a new disposable PostgreSQL container.");
 			database.start();
+			redis.start();
 			environment.put("containerId", database.getContainerId());
+			environment.put("redisContainerId", redis.getContainerId());
+			environment.put("sharedSecurity", "Redis sessions, activity and login limiter; isolated Redis 8.4");
 
-			Map<String, Object> isolation = isolatedProperties(database, directory);
+			Map<String, Object> isolation = isolatedProperties(database, redis, redisPassword, runId, directory);
 			StandardEnvironment springEnvironment = new StandardEnvironment();
 			springEnvironment.setActiveProfiles("benchmark");
 			springEnvironment.getPropertySources().addFirst(
@@ -108,6 +125,13 @@ public final class LocalLoginPathBenchmark {
 			SpringApplication application = new SpringApplication(GestionplusServerApplication.class);
 			application.setEnvironment(springEnvironment);
 			application.addInitializers(context -> {
+				((GenericApplicationContext) context).registerBean("benchmarkRedisConnectionFactory",
+						LettuceConnectionFactory.class, () -> {
+							RedisStandaloneConfiguration configuration = new RedisStandaloneConfiguration(
+									redis.getHost(), redis.getMappedPort(6379));
+							configuration.setPassword(redisPassword);
+							return new LettuceConnectionFactory(configuration);
+						});
 				context.getEnvironment().setActiveProfiles("benchmark");
 				context.getEnvironment().getPropertySources().addFirst(
 						new MapPropertySource("benchmarkIsolationFinal", isolation));
@@ -208,15 +232,16 @@ public final class LocalLoginPathBenchmark {
 				System.out.println(JSON.writeValueAsString(summary));
 			}
 
-			System.out.println("HTTP server stopped; removing the disposable PostgreSQL container.");
+			System.out.println("HTTP server stopped; removing the disposable PostgreSQL and Redis containers.");
 		} finally {
 			writeSamples(directory, samples);
 		}
 
-		Files.writeString(directory.resolve("completed.txt"), "Completed; owned server and container closed.\n");
+		Files.writeString(directory.resolve("completed.txt"), "Completed; owned server and containers closed.\n");
 	}
 
-	private static Map<String, Object> isolatedProperties(PostgreSQLContainer database, Path directory) {
+	private static Map<String, Object> isolatedProperties(PostgreSQLContainer database, GenericContainer<?> redis,
+			String redisPassword, String runId, Path directory) {
 		Map<String, Object> properties = new LinkedHashMap<>();
 		properties.put("spring.config.location", "optional:classpath:/");
 		properties.put("spring.config.additional-location", "");
@@ -233,6 +258,16 @@ public final class LocalLoginPathBenchmark {
 		properties.put("server.servlet.session.cookie.secure", false);
 		properties.put("gestionplus.http.require-https", false);
 		properties.put("spring.threads.virtual.enabled", true);
+		properties.put("spring.data.redis.host", redis.getHost());
+		properties.put("spring.data.redis.port", redis.getMappedPort(6379));
+		properties.put("spring.data.redis.username", "default");
+		properties.put("spring.data.redis.password", redisPassword);
+		properties.put("spring.data.redis.ssl.enabled", false);
+		properties.put("gestionplus.cluster.namespace", "benchmark-" + runId);
+		properties.put("gestionplus.cluster.rate-limit-key", randomKey());
+		properties.put("gestionplus.activation.challenge-key", randomKey());
+		properties.put("gestionplus.sms.fictif", true);
+		properties.put("gestionplus.sms.free-test.enabled", false);
 		properties.put("spring.datasource.type", "com.zaxxer.hikari.HikariDataSource");
 		properties.put("spring.datasource.url", database.getJdbcUrl());
 		properties.put("spring.datasource.username", database.getUsername());

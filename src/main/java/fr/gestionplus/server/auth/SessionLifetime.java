@@ -19,9 +19,15 @@ public final class SessionLifetime {
 	private static final Duration WARNING = Duration.ofMinutes(2);
 
 	private final Clock clock;
+	private final SessionActivityStore shared;
 
 	public SessionLifetime(Clock clock) {
+		this(clock, null);
+	}
+
+	public SessionLifetime(Clock clock, SessionActivityStore shared) {
 		this.clock = clock;
+		this.shared = shared;
 	}
 
 	public void start(HttpSession session, boolean mfaVerified) {
@@ -29,7 +35,14 @@ public final class SessionLifetime {
 
 		synchronized (WebUtils.getSessionMutex(session)) {
 			session.setMaxInactiveInterval(Math.toIntExact(IDLE.toSeconds()));
-			session.setAttribute(STATE, new State(now, now, mfaVerified));
+
+			if (shared == null) {
+				session.setAttribute(STATE, new State(now, now, mfaVerified));
+			} else {
+				shared.start(session.getId(), mfaVerified);
+				session.setAttribute(STATE, Boolean.TRUE);
+			}
+
 		}
 
 	}
@@ -48,7 +61,9 @@ public final class SessionLifetime {
 
 			synchronized (WebUtils.getSessionMutex(session)) {
 
-				if (session.getAttribute(STATE) instanceof State state && now.isBefore(deadline(state))) {
+				State state = state(session);
+
+				if (state != null && now.isBefore(deadline(state))) {
 					Instant expiresAt = deadline(state);
 					return new Access(state.mfaVerified(), new Expiration(expiresAt, expiresAt.minus(WARNING)));
 				}
@@ -66,6 +81,15 @@ public final class SessionLifetime {
 
 		try {
 
+			if (shared != null) {
+
+				if (Boolean.TRUE.equals(session.getAttribute(STATE))) {
+					shared.touch(session.getId(), requestStarted);
+				}
+
+				return;
+			}
+
 			synchronized (WebUtils.getSessionMutex(session)) {
 
 				if (session.getAttribute(STATE) instanceof State state && requestStarted.isBefore(deadline(state))
@@ -79,6 +103,25 @@ public final class SessionLifetime {
 			return;
 		}
 
+	}
+
+	public void end(HttpSession session) {
+
+		if (session != null && shared != null) {
+			shared.end(session.getId());
+		}
+
+	}
+
+	private State state(HttpSession session) {
+		Object value = session.getAttribute(STATE);
+
+		if (shared == null) {
+			return value instanceof State state ? state : null;
+		}
+
+		SessionActivityStore.State state = Boolean.TRUE.equals(value) ? shared.find(session.getId()) : null;
+		return state == null ? null : new State(state.startedAt(), state.lastActivity(), state.mfaVerified());
 	}
 
 	private Instant deadline(State state) {

@@ -27,7 +27,8 @@ class OrganizationalStructureQueryServiceTest {
 
 	private final OrganizationalStructureStore store = mock(OrganizationalStructureStore.class);
 	private final AuthorizationService authorization = mock(AuthorizationService.class);
-	private final OrganizationalStructureQueryService service = new OrganizationalStructureQueryService(store, authorization);
+	private final OrganizationalStructureQueryService service = new OrganizationalStructureQueryService(store,
+			authorization);
 	private UserAccount principal;
 
 	@BeforeEach
@@ -46,17 +47,21 @@ class OrganizationalStructureQueryServiceTest {
 		OrganizationalStructure forbidden = structure("Forbidden", tenantID, 4);
 		when(store.findCandidatesByUser(principal.getUserID()))
 				.thenReturn(List.of(beta, secondAlpha, forbidden, firstAlpha));
+
 		for (OrganizationalStructure allowed : List.of(beta, firstAlpha, secondAlpha)) {
 			when(authorization.rolesInStructureForSession(principal, allowed.getStructureID()))
 					.thenReturn(Set.of(UserRole.EMPLOYEE));
 		}
+
 		when(authorization.rolesInStructureForSession(principal, forbidden.getStructureID())).thenReturn(Set.of());
 
 		assertEquals(List.of(firstAlpha, secondAlpha, beta), service.listAccessibleStructures(principal));
 		verify(store).findCandidatesByUser(principal.getUserID());
+
 		for (OrganizationalStructure candidate : List.of(beta, firstAlpha, secondAlpha, forbidden)) {
 			verify(store, never()).findById(candidate.getStructureID());
 		}
+
 	}
 
 	@Test
@@ -94,4 +99,3 @@ class OrganizationalStructureQueryServiceTest {
 		return new OrganizationalStructure(new UUID(0, value), name, tenantID);
 	}
 }
-

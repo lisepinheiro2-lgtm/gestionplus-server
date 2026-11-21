@@ -111,7 +111,7 @@ try {
     $classPath = @((Join-Path $buildRoot 'target/test-classes'), (Join-Path $buildRoot 'target/classes'), $dependencies) -join [IO.Path]::PathSeparator
 
     if ($Mode -eq 'Login') {
-        Write-Host 'Mesure HTTP : démarrage du serveur local et de PostgreSQL jetable, migrations et comptes fictifs dans cette base uniquement.'
+        Write-Host 'Mesure HTTP : démarrage du serveur local, de PostgreSQL et de Redis jetables ; migrations et comptes fictifs dans cette base uniquement. Images postgres:16-alpine et redis:8.4-alpine requises en cache.'
         & $javaExecutable '-Xms128m' '-Xmx768m' '-cp' $classPath LocalLoginPathBenchmark $resultsRoot
         if ($LASTEXITCODE -ne 0) {
             throw 'Le benchmark HTTP a échoué. Les éventuelles mesures partielles ne constituent pas un résultat complet.'

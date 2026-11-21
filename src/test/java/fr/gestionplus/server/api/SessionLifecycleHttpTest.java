@@ -29,11 +29,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.context.annotation.Primary;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -58,18 +55,16 @@ import fr.gestionplus.server.auth.AccountMfaService;
 import fr.gestionplus.server.auth.AccountMfaService.Verification;
 import fr.gestionplus.server.auth.GestionAuthenticationProvider;
 import fr.gestionplus.server.auth.HttpSecurityConfig;
-import fr.gestionplus.server.auth.LoginAttemptLimiter;
 import fr.gestionplus.server.auth.LoginDelay;
 import fr.gestionplus.server.auth.LoginService;
 import fr.gestionplus.server.auth.LoginService.LoginAttempt;
-import fr.gestionplus.server.auth.SessionLifetime;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
 import fr.gestionplus.server.auth.UserRole;
+import fr.gestionplus.server.support.ServletSecurityTestConfiguration;
 
 @WebMvcTest({ CsrfController.class, AuthSessionController.class })
-@Import({ HttpSecurityConfig.class, GestionAuthenticationProvider.class, LoginAttemptLimiter.class,
-		SessionLifecycleHttpTest.SessionClockConfiguration.class })
+@Import({ HttpSecurityConfig.class, GestionAuthenticationProvider.class, ServletSecurityTestConfiguration.class })
 class SessionLifecycleHttpTest {
 
 	private static final Instant NOW = Instant.parse("2026-11-19T10:00:00Z");
@@ -101,11 +96,15 @@ class SessionLifecycleHttpTest {
 
 	@AfterEach
 	void clearRegisteredSessionsAndSecurityContext() {
+
 		for (Object principal : sessionRegistry.getAllPrincipals()) {
+
 			for (SessionInformation information : sessionRegistry.getAllSessions(principal, true)) {
 				sessionRegistry.removeSessionInformation(information.getSessionId());
 			}
+
 		}
+
 		SecurityContextHolder.clearContext();
 	}
 
@@ -263,13 +262,4 @@ class SessionLifecycleHttpTest {
 		return JsonPath.read(result.getResponse().getContentAsString(), "$.token");
 	}
 
-	@TestConfiguration(proxyBeanMethods = false)
-	static class SessionClockConfiguration {
-
-		@Bean
-		@Primary
-		SessionLifetime controlledSessionLifetime(Clock clock) {
-			return new SessionLifetime(clock);
-		}
-	}
 }

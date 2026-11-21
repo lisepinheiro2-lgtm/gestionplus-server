@@ -1,7 +1,5 @@
 package fr.gestionplus.server.auth;
 
-import java.time.Clock;
-
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
@@ -15,7 +13,6 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.session.SessionRegistry;
-import org.springframework.security.core.session.SessionRegistryImpl;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
@@ -26,8 +23,8 @@ import org.springframework.web.filter.FormContentFilter;
 
 import fr.gestionplus.server.account.AccountStore;
 import fr.gestionplus.server.api.AccountActivationRoutes;
-import fr.gestionplus.server.api.OrganizationalStructureRoutes;
 import fr.gestionplus.server.api.HttpApiError;
+import fr.gestionplus.server.api.OrganizationalStructureRoutes;
 import fr.gestionplus.server.audit.AuditReason;
 import fr.gestionplus.server.audit.AuditService;
 import fr.gestionplus.server.audit.AuditedAccessDeniedException;
@@ -79,10 +76,22 @@ public class HttpSecurityConfig {
 
 				}).failureHandler((request, response, exception) -> {
 					audit.loginFailed(request, exception);
-					HttpApiError.AUTHENTICATION_REQUIRED.write(response);
+
+					if (exception instanceof DistributedSecurityUnavailableException) {
+						HttpApiError.SERVICE_UNAVAILABLE.write(response);
+					} else {
+						HttpApiError.AUTHENTICATION_REQUIRED.write(response);
+					}
+
 				}));
 
 		http.exceptionHandling(errors -> errors.authenticationEntryPoint((request, response, exception) -> {
+
+			if (exception instanceof DistributedSecurityUnavailableException) {
+				HttpApiError.SERVICE_UNAVAILABLE.write(response);
+				return;
+			}
+
 			audit.refused(request, currentPrincipal(), AuditReason.AUTHENTICATION_REQUIRED);
 			HttpApiError.AUTHENTICATION_REQUIRED.write(response);
 		}).accessDeniedHandler((request, response, exception) -> {
@@ -98,10 +107,12 @@ public class HttpSecurityConfig {
 			HttpApiError.fromAccessDenied(exception).write(response);
 		}));
 
-		http.logout(logout -> logout.logoutSuccessHandler((request, response, authentication) -> {
-			audit.logout(request, authentication);
-			response.setStatus(204);
-		}));
+		http.logout(logout -> logout
+				.addLogoutHandler((request, response, authentication) -> lifetime.end(request.getSession(false)))
+				.logoutSuccessHandler((request, response, authentication) -> {
+					audit.logout(request, authentication);
+					response.setStatus(204);
+				}));
 
 		http.requestCache(cache -> cache.disable());
 		http.authorizeHttpRequests(auth -> auth.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
@@ -163,18 +174,8 @@ public class HttpSecurityConfig {
 	}
 
 	@Bean
-	public SessionLifetime sessionLifetime() {
-		return new SessionLifetime(Clock.systemUTC());
-	}
-
-	@Bean
 	public HttpSessionEventPublisher httpSessionEventPublisher() {
 		return new HttpSessionEventPublisher();
 	}
 
-	@Bean
-	public SessionRegistry sessionRegistery() {
-		SessionRegistry registry = new SessionRegistryImpl();
-		return registry;
-	}
 }
