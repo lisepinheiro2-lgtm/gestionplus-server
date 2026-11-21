@@ -77,7 +77,7 @@ class AccountActivationServiceTest {
 
 		var order = inOrder(invitations, challengeService);
 		order.verify(invitations).findByID(INVITATION_ID);
-		order.verify(challengeService).createChallenge(INVITATION_ID);
+		order.verify(challengeService).createChallenge(INVITATION_ID, InvitationTokenIssuer.digest(token));
 		verifyNoMoreInteractions(invitations, challengeService);
 		verifyNoInteractions(deliveries);
 		assertNoActivationWork();
@@ -85,7 +85,7 @@ class AccountActivationServiceTest {
 
 	@Test
 	void rejectsANullInvitationBeforeReadingOrCreatingAnything() {
-		assertThrows(AccessDeniedException.class, () -> service.requestActivationChallenge(null, TOKEN));
+		assertThrows(IllegalArgumentException.class, () -> service.requestActivationChallenge(null, TOKEN));
 
 		verifyNoInteractions(invitations, deliveries, challengeService);
 		assertNoActivationWork();
@@ -95,7 +95,7 @@ class AccountActivationServiceTest {
 	@NullAndEmptySource
 	@MethodSource("malformedTokens")
 	void rejectsMalformedTokensBeforeReadingOrCreatingAnything(String token) {
-		assertThrows(AccessDeniedException.class, () -> service.requestActivationChallenge(INVITATION_ID, token));
+		assertThrows(IllegalArgumentException.class, () -> service.requestActivationChallenge(INVITATION_ID, token));
 
 		verifyNoInteractions(invitations, deliveries, challengeService);
 		assertNoActivationWork();
@@ -158,12 +158,12 @@ class AccountActivationServiceTest {
 	@ParameterizedTest
 	@MethodSource("challengeFailures")
 	void propagatesChallengeCreationFailuresWithoutStartingActivation(RuntimeException failure) {
-		doThrow(failure).when(challengeService).createChallenge(INVITATION_ID);
+		doThrow(failure).when(challengeService).createChallenge(INVITATION_ID, InvitationTokenIssuer.digest(TOKEN));
 
 		assertSame(failure, assertThrows(failure.getClass(),
 				() -> service.requestActivationChallenge(INVITATION_ID, TOKEN)));
 
-		verify(challengeService).createChallenge(INVITATION_ID);
+		verify(challengeService).createChallenge(INVITATION_ID, InvitationTokenIssuer.digest(TOKEN));
 		verifyNoMoreInteractions(challengeService);
 		assertNoActivationWork();
 	}
@@ -172,7 +172,7 @@ class AccountActivationServiceTest {
 	@NullAndEmptySource
 	@MethodSource("malformedTokens")
 	void keepsRejectingMalformedActivationTokensBeforeCheckingThePassword(String token) {
-		assertThrows(AccessDeniedException.class, () -> service.completeActivation(INVITATION_ID, token,
+		assertThrows(IllegalArgumentException.class, () -> service.completeActivation(INVITATION_ID, token,
 				"verified-proof", "activated-user", "valid-test-password"));
 
 		verifyNoInteractions(invitations, deliveries, challengeService);

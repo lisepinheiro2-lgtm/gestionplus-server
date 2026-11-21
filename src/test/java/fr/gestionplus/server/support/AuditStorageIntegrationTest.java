@@ -22,6 +22,8 @@ public abstract class AuditStorageIntegrationTest {
 	@DynamicPropertySource
 	static void auditStorage(DynamicPropertyRegistry properties) {
 		SecurityTestRedis.properties(properties);
+		properties.add("gestionplus.activation.challenge-recovery.enabled", () -> "false");
+		properties.add("spring.session.data.redis.cleanup-cron", () -> "-");
 		Path directory = createDirectory();
 		String key = createKey();
 		String deliveryKey = createKey();

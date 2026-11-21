@@ -244,7 +244,9 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 				original.createdAt(),
 				original.expiresAt(),
 				null,
-				null);
+				null,
+				original.sendConfirmedAt(),
+				original.sendRecoveryAt());
 
 		assertThrows(DataIntegrityViolationException.class,
 				() -> challengeStore.replaceCurrent(
@@ -422,6 +424,8 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 				NOW,
 				NOW.plusSeconds(300),
 				null,
-				null);
+				null,
+				NOW,
+				NOW.plusSeconds(120));
 	}
 }

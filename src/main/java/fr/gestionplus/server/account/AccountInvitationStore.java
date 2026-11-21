@@ -11,6 +11,8 @@ public interface AccountInvitationStore {
 
 	Optional<Invitation> findByID(UUID invitationID);
 
+	Optional<Invitation> findByIDForUpdate(UUID invitationID);
+
 	List<UUID> findExpired(Instant now);
 
 	void save(Invitation invitation);

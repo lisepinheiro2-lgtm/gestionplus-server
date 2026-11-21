@@ -44,8 +44,10 @@ public class PostgresqlActivationIdentityChallengeStore implements ActivationIde
 		Objects.requireNonNull(newChallenge, "newChallenge");
 		Objects.requireNonNull(revokedAt, "revokedAt");
 
-		if (!newChallenge.isUsable(revokedAt)
+		if (!newChallenge.isCurrent(revokedAt)
 				|| newChallenge.failedAttempts() != 0
+				|| newChallenge.sendRecoveryAt() == null
+				|| !newChallenge.sendRecoveryAt().isAfter(newChallenge.createdAt())
 				|| newChallenge.phoneNumber() == null
 				|| newChallenge.phoneNumber().isBlank()
 				|| newChallenge.codeDigest().isBlank()) {
@@ -74,8 +76,8 @@ public class PostgresqlActivationIdentityChallengeStore implements ActivationIde
 		jdbcTemplate.update("""
 				INSERT INTO account_activation_identity_challenges
 				    (challenge_id, user_id, invitation_id,
-				     phone_number, code_digest, created_at, expires_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?)
+				     phone_number, code_digest, created_at, expires_at, send_confirmed_at, send_recovery_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 				""",
 				newChallenge.challengeID(),
 				newChallenge.userID(),
@@ -83,7 +85,9 @@ public class PostgresqlActivationIdentityChallengeStore implements ActivationIde
 				newChallenge.phoneNumber(),
 				newChallenge.codeDigest(),
 				atUtc(newChallenge.createdAt()),
-				atUtc(newChallenge.expiresAt()));
+				atUtc(newChallenge.expiresAt()),
+				atUtc(newChallenge.sendConfirmedAt()),
+				atUtc(newChallenge.sendRecoveryAt()));
 	}
 
 	@Override
@@ -130,6 +134,7 @@ public class PostgresqlActivationIdentityChallengeStore implements ActivationIde
 				  AND consumed_at IS NULL
 				  AND revoked_at IS NULL
 				  AND code_digest IS NOT NULL
+				  AND send_confirmed_at IS NOT NULL
 				  AND failed_attempts < ?
 				  AND expires_at > ?
 				""",
@@ -180,7 +185,40 @@ public class PostgresqlActivationIdentityChallengeStore implements ActivationIde
 				readInstant(row, "created_at"),
 				readInstant(row, "expires_at"),
 				readInstant(row, "consumed_at"),
-				readInstant(row, "revoked_at"));
+				readInstant(row, "revoked_at"),
+				readInstant(row, "send_confirmed_at"),
+				readInstant(row, "send_recovery_at"));
+	}
+
+	@Override
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public boolean confirmSend(UUID challengeID, Instant confirmedAt) {
+		Objects.requireNonNull(challengeID, "L'identifiant du défi est obligatoire.");
+		Objects.requireNonNull(confirmedAt, "La date de confirmation est obligatoire.");
+		return jdbcTemplate.update("""
+				UPDATE account_activation_identity_challenges
+				SET send_confirmed_at = ?
+				WHERE challenge_id = ? AND consumed_at IS NULL AND revoked_at IS NULL
+				  AND send_confirmed_at IS NULL AND created_at <= ?
+				  AND send_recovery_at > ? AND expires_at > ?
+				""", atUtc(confirmedAt), challengeID, atUtc(confirmedAt), atUtc(confirmedAt), atUtc(confirmedAt)) == 1;
+	}
+
+	@Override
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public int revokeUnconfirmedSends(Instant now) {
+		Objects.requireNonNull(now, "La date de récupération est obligatoire.");
+		return jdbcTemplate.update("""
+				WITH due AS (
+				    SELECT challenge_id FROM account_activation_identity_challenges
+				    WHERE send_confirmed_at IS NULL AND consumed_at IS NULL AND revoked_at IS NULL
+				      AND send_recovery_at <= ?
+				    ORDER BY send_recovery_at, challenge_id
+				    LIMIT 100 FOR UPDATE SKIP LOCKED
+				)
+				UPDATE account_activation_identity_challenges challenge
+				SET revoked_at = ? FROM due WHERE challenge.challenge_id = due.challenge_id
+				""", atUtc(now), atUtc(now));
 	}
 
 	private Instant readInstant(ResultSet row, String column) throws SQLException {

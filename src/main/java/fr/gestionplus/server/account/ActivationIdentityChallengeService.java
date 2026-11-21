@@ -3,12 +3,17 @@ package fr.gestionplus.server.account;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import fr.gestionplus.server.account.AccountInvitationStore.Invitation;
@@ -22,6 +27,7 @@ public class ActivationIdentityChallengeService {
 	private static final Duration CODE_VALIDITY = Duration.ofMinutes(5);
 	private static final Duration RESEND_COOLDOWN = Duration.ofSeconds(60);
 	private static final int MAX_SMS_PER_INVITATION = 3;
+	private static final Duration SEND_RECOVERY_DELAY = Duration.ofMinutes(2);
 	private final ActivationIdentityChallengeStore challengeStore;
 	private final AccountInvitationStore invitationStore;
 	private final AccountStore accountStore;
@@ -53,7 +59,7 @@ public class ActivationIdentityChallengeService {
 		if (challenge.isPresent()) {
 			ActivationIdentityChallenge current = challenge.get();
 
-			if (current.isUsable(now) && current.createdAt().plus(RESEND_COOLDOWN).isAfter(now)) {
+			if (current.isCurrent(now) && current.createdAt().plus(RESEND_COOLDOWN).isAfter(now)) {
 				throw new AccountActivationConflictException();
 			}
 
@@ -65,7 +71,11 @@ public class ActivationIdentityChallengeService {
 
 	}
 
-	public void createChallenge(UUID invitationID) {
+	public void createChallenge(UUID invitationID, String expectedTokenDigest) {
+
+		if (TransactionSynchronizationManager.isActualTransactionActive()) {
+			throw new IllegalTransactionStateException("La création du défi doit être appelée hors transaction.");
+		}
 
 		Instant now = clock.instant();
 
@@ -73,9 +83,10 @@ public class ActivationIdentityChallengeService {
 				.filter(i -> i.completedAt() == null)
 				.filter(i -> i.expiresAt() != null).filter(i -> now.isBefore(i.expiresAt()))
 				.orElseThrow(AccountActivationConflictException::new);
+		requireMatchingToken(invitation, expectedTokenDigest);
 
 		UUID userID = invitation.userID();
-		UserAccount account = accountStore.findById(userID)
+		accountStore.findById(userID)
 				.filter(a -> a.getStatu() == UserAccountStatus.PENDING_ACTIVATION)
 				.orElseThrow(AccountActivationConflictException::new);
 
@@ -85,26 +96,51 @@ public class ActivationIdentityChallengeService {
 		String code = codeGenerator.generate();
 		String codeDigest = codeDigester.digest(challengeID, code);
 
-		ActivationIdentityChallenge newChallenge = new ActivationIdentityChallenge(challengeID, userID,
-				account.getPhoneNumber(), invitationID, codeDigest, 0, now, now.plus(CODE_VALIDITY), null,
-				null);
-
-		activationTransaction.executeWithoutResult(status -> {
-			accountStore.findByIdForUpdate(invitation.userID())
+		ActivationIdentityChallenge newChallenge = Objects.requireNonNull(activationTransaction.execute(status -> {
+			UserAccount lockedAccount = accountStore.findByIdForUpdate(userID)
 					.filter(a -> a.getStatu() == UserAccountStatus.PENDING_ACTIVATION)
 					.orElseThrow(AccountActivationConflictException::new);
-			refuseIfResendBlocked(invitationID, invitation.userID(), now);
-			challengeStore.replaceCurrent(newChallenge, now);
-		});
+			Invitation lockedInvitation = invitationStore.findByIDForUpdate(invitationID)
+					.filter(i -> userID.equals(i.userID()) && i.completedAt() == null && i.expiresAt() != null)
+					.orElseThrow(AccountActivationConflictException::new);
+			Instant lockedNow = clock.instant();
+			requireMatchingToken(lockedInvitation, expectedTokenDigest);
+			if (!lockedNow.isBefore(lockedInvitation.expiresAt())) {
+				throw new AccountActivationConflictException();
+			}
+			refuseIfResendBlocked(invitationID, userID, lockedNow);
+			ActivationIdentityChallenge challenge = new ActivationIdentityChallenge(challengeID, userID,
+					lockedAccount.getPhoneNumber(), invitationID, codeDigest, 0, lockedNow,
+					lockedNow.plus(CODE_VALIDITY), null, null, null, lockedNow.plus(SEND_RECOVERY_DELAY));
+			challengeStore.replaceCurrent(challenge, lockedNow);
+			return challenge;
+		}));
 
 		try {
 
-			messageSender.send(account.getPhoneNumber(), code);
+			messageSender.send(newChallenge.phoneNumber(), code);
+			if (!challengeStore.confirmSend(challengeID, clock.instant())) {
+				throw new ActivationMessageDeliveryException();
+			}
 
 		} catch (RuntimeException e) {
-			challengeStore.revokeCurrent(challengeID, now);
+			try {
+				challengeStore.revokeCurrent(challengeID, clock.instant());
+			} catch (RuntimeException compensationFailure) {
+				if (compensationFailure != e) {
+					e.addSuppressed(compensationFailure);
+				}
+			}
 			throw e;
 		}
 
+	}
+
+	private void requireMatchingToken(Invitation invitation, String expectedTokenDigest) {
+		if (invitation.tokenDigest() == null || expectedTokenDigest == null
+				|| !MessageDigest.isEqual(invitation.tokenDigest().getBytes(StandardCharsets.US_ASCII),
+						expectedTokenDigest.getBytes(StandardCharsets.US_ASCII))) {
+			throw AccountInvitationScope.activationDenied();
+		}
 	}
 }

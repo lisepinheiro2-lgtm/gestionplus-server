@@ -12,6 +12,7 @@ import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import fr.gestionplus.server.account.AccountInvitationStore;
 
@@ -34,6 +35,13 @@ public class PostgresqlAccountInvitationStore implements AccountInvitationStore 
 	public Optional<Invitation> findByID(UUID invitationID) {
 		return jdbcTemplate.query("SELECT * FROM account_invitations WHERE invitation_id = ?", this::read, invitationID)
 				.stream().findFirst();
+	}
+
+	@Override
+	@Transactional(propagation = Propagation.MANDATORY)
+	public Optional<Invitation> findByIDForUpdate(UUID invitationID) {
+		return jdbcTemplate.query("SELECT * FROM account_invitations WHERE invitation_id = ? FOR UPDATE",
+				this::read, invitationID).stream().findFirst();
 	}
 
 	@Override

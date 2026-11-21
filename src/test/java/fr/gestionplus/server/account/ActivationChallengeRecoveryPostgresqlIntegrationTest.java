@@ -1,0 +1,113 @@
+package fr.gestionplus.server.account;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
+
+import java.time.Instant;
+import java.util.UUID;
+import java.util.concurrent.Executors;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import fr.gestionplus.server.account.AccountInvitationStore.Invitation;
+import fr.gestionplus.server.account.ActivationIdentityChallengeStore.ActivationIdentityChallenge;
+
+@TestPropertySource(properties = "gestionplus.activation.challenge-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+class ActivationChallengeRecoveryPostgresqlIntegrationTest extends AbstractAccountInvitationPostgresqlIntegrationTest {
+
+	private static final Instant NOW = Instant.parse("2026-11-21T12:00:00Z");
+	@Autowired
+	private ActivationIdentityChallengeService service;
+	@MockitoSpyBean
+	private ActivationIdentityChallengeStore recoveryStore;
+
+	@BeforeEach
+	void controlTime() {
+		when(clock.instant()).thenReturn(NOW);
+	}
+
+	@Test
+	void anUnconfirmedCodeCannotBeConsumedEvenIfItsDigestMatches() {
+		ActivationIdentityChallenge challenge = pendingChallenge();
+		assertFalse(challenge.isUsable(NOW));
+		boolean consumed = Boolean.TRUE.equals(new TransactionTemplate(transactionManager)
+				.execute(status -> challengeStore.consumeIfCurrent(challenge.challengeID(), NOW)));
+		assertFalse(consumed);
+		assertTrue(challengeStore.confirmSend(challenge.challengeID(), NOW.plusSeconds(1)));
+		assertFalse(challengeStore.confirmSend(challenge.challengeID(), NOW.plusSeconds(2)));
+		assertTrue(challengeStore.findCurrentByInvitationAndUser(challenge.invitationID(), challenge.userID())
+				.orElseThrow().isUsable(NOW.plusSeconds(1)));
+	}
+
+	@Test
+	void recoveryKeepsHistoryAndCannotTouchAConfirmedSend() {
+		ActivationIdentityChallenge pending = pendingChallenge();
+		ActivationIdentityChallenge confirmed = pendingChallenge();
+		assertTrue(challengeStore.confirmSend(confirmed.challengeID(), NOW));
+		assertEquals(0, challengeStore.revokeUnconfirmedSends(NOW.plusSeconds(119)));
+		assertEquals(1, challengeStore.revokeUnconfirmedSends(NOW.plusSeconds(120)));
+		assertEquals(0, challengeStore.revokeUnconfirmedSends(NOW.plusSeconds(121)));
+		assertTrue(challengeStore.findCurrentByInvitationAndUser(pending.invitationID(), pending.userID()).isEmpty());
+		assertEquals(1, challengeStore.countByInvitationAndUser(pending.invitationID(), pending.userID()));
+		assertTrue(challengeStore.findCurrentByInvitationAndUser(confirmed.invitationID(), confirmed.userID()).isPresent());
+		assertFalse(challengeStore.confirmSend(pending.challengeID(), NOW.plusSeconds(121)));
+	}
+
+	@Test
+	void twoRecoveryWorkersRevokeEachDueChallengeOnlyOnce() throws Exception {
+		pendingChallenge();
+		try (var workers = Executors.newFixedThreadPool(2)) {
+			var first = workers.submit(() -> challengeStore.revokeUnconfirmedSends(NOW.plusSeconds(120)));
+			var second = workers.submit(() -> challengeStore.revokeUnconfirmedSends(NOW.plusSeconds(120)));
+			assertEquals(1, first.get() + second.get());
+		}
+	}
+
+	@Test
+	void aFailedSendAndFailedImmediateRevocationRemainRecoverableFromTheDatabase() {
+		UUID userID = preparePendingAccount();
+		UUID invitationID = UUID.randomUUID();
+		String digest = InvitationTokenIssuer.digest("a".repeat(43));
+		invitationStore.save(new Invitation(invitationID, userID, structureID, digest, NOW.plusSeconds(3600), null));
+		IllegalStateException sendingFailure = new IllegalStateException("Envoi indisponible.");
+		IllegalStateException revocationFailure = new IllegalStateException("Révocation indisponible.");
+		doThrow(sendingFailure).when(messageSender).send(anyString(), anyString());
+		doThrow(revocationFailure).when(recoveryStore).revokeCurrent(any(), any());
+
+		assertSame(sendingFailure, assertThrows(IllegalStateException.class,
+				() -> service.createChallenge(invitationID, digest)));
+		assertSame(revocationFailure, sendingFailure.getSuppressed()[0].getCause());
+		assertFalse(challengeStore.findCurrentByInvitationAndUser(invitationID, userID).orElseThrow().isUsable(NOW));
+		assertEquals(1, challengeStore.revokeUnconfirmedSends(NOW.plusSeconds(120)));
+		assertTrue(challengeStore.findCurrentByInvitationAndUser(invitationID, userID).isEmpty());
+		assertEquals(1, challengeStore.countByInvitationAndUser(invitationID, userID));
+	}
+
+	@Test
+	void confirmationIsRefusedAtTheRecoveryDeadline() {
+		ActivationIdentityChallenge challenge = pendingChallenge();
+		assertFalse(challengeStore.confirmSend(challenge.challengeID(), NOW.plusSeconds(120)));
+		assertEquals(1, challengeStore.revokeUnconfirmedSends(NOW.plusSeconds(120)));
+	}
+
+	private ActivationIdentityChallenge pendingChallenge() {
+		UUID userID = preparePendingAccount();
+		ActivationIdentityChallenge challenge = new ActivationIdentityChallenge(UUID.randomUUID(), userID,
+				account(userID).getPhoneNumber(), UUID.randomUUID(), "a".repeat(64), 0, NOW, NOW.plusSeconds(300),
+				null, null, null, NOW.plusSeconds(120));
+		challengeStore.replaceCurrent(challenge, NOW);
+		return challenge;
+	}
+}

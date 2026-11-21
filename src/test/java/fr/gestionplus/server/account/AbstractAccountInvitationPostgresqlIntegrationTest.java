@@ -203,7 +203,9 @@ abstract class AbstractAccountInvitationPostgresqlIntegrationTest extends AuditS
 				now,
 				expiresAt,
 				null,
-				null);
+				null,
+				now,
+				now.plusSeconds(120));
 
 		challengeStore.replaceCurrent(challenge, now);
 

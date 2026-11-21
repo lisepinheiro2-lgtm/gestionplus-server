@@ -56,7 +56,7 @@ class ActivationIdentityChallengeServicePostgresqlIntegrationTest
 			return null;
 		}).when(messageSender).send(eq(phone), anyString());
 
-		challengeService.createChallenge(invitationID);
+		createChallenge(invitationID);
 
 		ArgumentCaptor<String> code = ArgumentCaptor.forClass(String.class);
 		verify(messageSender).send(eq(phone), code.capture());
@@ -76,16 +76,16 @@ class ActivationIdentityChallengeServicePostgresqlIntegrationTest
 	void refusesAResendAtFiftyNineSecondsAndAllowsItAtSixty() {
 		UUID userID = preparePendingAccount();
 		UUID invitationID = prepareInvitation(userID);
-		challengeService.createChallenge(invitationID);
+		createChallenge(invitationID);
 		UUID previousID = challengeStore.findCurrentByInvitationAndUser(invitationID, userID)
 				.orElseThrow().challengeID();
 
 		when(clock.instant()).thenReturn(NOW.plusSeconds(59));
-		assertThrows(AccountActivationConflictException.class, () -> challengeService.createChallenge(invitationID));
+		assertThrows(AccountActivationConflictException.class, () -> createChallenge(invitationID));
 		assertEquals(1, challengeStore.countByInvitationAndUser(invitationID, userID));
 
 		when(clock.instant()).thenReturn(NOW.plusSeconds(60));
-		challengeService.createChallenge(invitationID);
+		createChallenge(invitationID);
 
 		ActivationIdentityChallenge replacement = challengeStore.findCurrentByInvitationAndUser(invitationID, userID)
 				.orElseThrow();
@@ -102,11 +102,11 @@ class ActivationIdentityChallengeServicePostgresqlIntegrationTest
 
 		for (int attempt = 0; attempt < 3; attempt++) {
 			when(clock.instant()).thenReturn(NOW.plusSeconds(60L * attempt));
-			challengeService.createChallenge(invitationID);
+			createChallenge(invitationID);
 		}
 
 		when(clock.instant()).thenReturn(NOW.plusSeconds(180));
-		assertThrows(AccountActivationConflictException.class, () -> challengeService.createChallenge(invitationID));
+		assertThrows(AccountActivationConflictException.class, () -> createChallenge(invitationID));
 		assertEquals(3, challengeStore.countByInvitationAndUser(invitationID, userID));
 		verify(messageSender, times(3)).send(anyString(), anyString());
 	}
@@ -120,12 +120,12 @@ class ActivationIdentityChallengeServicePostgresqlIntegrationTest
 
 		for (int attempt = 1; attempt <= 3; attempt++) {
 			assertSame(failure, assertThrows(IllegalStateException.class,
-					() -> challengeService.createChallenge(invitationID)));
+					() -> createChallenge(invitationID)));
 			assertTrue(challengeStore.findCurrentByInvitationAndUser(invitationID, userID).isEmpty());
 			assertEquals(attempt, challengeStore.countByInvitationAndUser(invitationID, userID));
 		}
 
-		assertThrows(AccountActivationConflictException.class, () -> challengeService.createChallenge(invitationID));
+		assertThrows(AccountActivationConflictException.class, () -> createChallenge(invitationID));
 		Integer revoked = jdbcTemplate.queryForObject("""
 				SELECT COUNT(*) FROM account_activation_identity_challenges
 				WHERE invitation_id = ? AND user_id = ? AND revoked_at IS NOT NULL
@@ -140,5 +140,10 @@ class ActivationIdentityChallengeServicePostgresqlIntegrationTest
 		invitationStore.save(new Invitation(invitationID, userID, structureID, "test-" + invitationID,
 				NOW.plusSeconds(3600), null));
 		return invitationID;
+	}
+
+	private void createChallenge(UUID invitationID) {
+		challengeService.createChallenge(invitationID,
+				invitationStore.findByID(invitationID).orElseThrow().tokenDigest());
 	}
 }

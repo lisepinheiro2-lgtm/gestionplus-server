@@ -76,9 +76,9 @@ public class AccountActivationService {
 			throw new IllegalArgumentException("Requête d'activation malformée.");
 		}
 
-		requireValidInvitation(invitationID, token);
+		Invitation invitation = requireValidInvitation(invitationID, token);
 
-		challengeService.createChallenge(invitationID);
+		challengeService.createChallenge(invitationID, invitation.tokenDigest());
 	}
 
 	@AuditedOperation(value = AuditAction.INVITATION_TOKEN_USE, invitation = 0)

@@ -111,8 +111,18 @@ class HmacActivationIdentityVerifierTest {
 	private void givenChallenge(Instant expiresAt, int failedAttempts, Instant consumedAt, Instant revokedAt) {
 		ActivationIdentityChallenge challenge = new ActivationIdentityChallenge(CHALLENGE_ID, USER_ID, PHONE_NUMBER,
 				INVITATION_ID, codeDigester.digest(CHALLENGE_ID, CODE), failedAttempts, NOW.minusSeconds(60), expiresAt,
-				consumedAt, revokedAt);
+				consumedAt, revokedAt, NOW.minusSeconds(60), NOW.plusSeconds(60));
 		when(challengeStore.findCurrentByInvitationAndUser(INVITATION_ID, USER_ID)).thenReturn(Optional.of(challenge));
+	}
+
+	@Test
+	void refusesACorrectCodeUntilTheSendIsConfirmed() {
+		ActivationIdentityChallenge challenge = new ActivationIdentityChallenge(CHALLENGE_ID, USER_ID, PHONE_NUMBER,
+				INVITATION_ID, codeDigester.digest(CHALLENGE_ID, CODE), 0, NOW, NOW.plusSeconds(300), null,
+				null, null, NOW.plusSeconds(120));
+		when(challengeStore.findCurrentByInvitationAndUser(INVITATION_ID, USER_ID)).thenReturn(Optional.of(challenge));
+		assertTrue(verifier.verify(INVITATION_ID, USER_ID, PHONE_NUMBER, CODE).isEmpty());
+		verify(challengeStore, org.mockito.Mockito.never()).recordFailedAttempt(any(), any());
 	}
 
 	private void assertRejectedWithoutChangingChallenge(String phoneNumber) {
