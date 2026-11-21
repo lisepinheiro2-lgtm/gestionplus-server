@@ -17,28 +17,25 @@ import fr.gestionplus.server.auth.UserRole;
 @Service
 public class OrganizationalStructureQueryService {
 
-	private final StructureMembershipStore membershipStore;
 	private final OrganizationalStructureStore structureStore;
 	private final AuthorizationService authorizationService;
 
-	public OrganizationalStructureQueryService(StructureMembershipStore membershipStore,
-			OrganizationalStructureStore structureStore, AuthorizationService authorizationService) {
-		this.membershipStore = Objects.requireNonNull(membershipStore);
+	public OrganizationalStructureQueryService(OrganizationalStructureStore structureStore,
+			AuthorizationService authorizationService) {
 		this.structureStore = Objects.requireNonNull(structureStore);
 		this.authorizationService = Objects.requireNonNull(authorizationService);
 	}
 
 	public List<OrganizationalStructure> listAccessibleStructures(UserAccount principal) {
 
-		List<UUID> structuresID = membershipStore.findStructureIDsByUser(principal.getUserID());
+		List<OrganizationalStructure> candidates = structureStore.findCandidatesByUser(principal.getUserID());
 		List<OrganizationalStructure> structures = new ArrayList<>();
 
-		for (UUID structureID : structuresID) {
-			Optional<OrganizationalStructure> structureOptional = structureStore.findById(structureID);
-			Set<UserRole> roles = authorizationService.rolesInStructureForSession(principal, structureID);
+		for (OrganizationalStructure structure : candidates) {
+			Set<UserRole> roles = authorizationService.rolesInStructureForSession(principal, structure.getStructureID());
 
-			if (structureOptional.isPresent() && !roles.isEmpty()) {
-				structures.add(structureOptional.get());
+			if (!roles.isEmpty()) {
+				structures.add(structure);
 			}
 
 		}

@@ -11,4 +11,6 @@ public interface OrganizationalStructureStore {
 	Optional<OrganizationalStructure> findByIdForUpdate(UUID structureID);
 
 	List<UUID> findIDsByTenant(UUID tenantID);
+
+	List<OrganizationalStructure> findCandidatesByUser(UUID userID);
 }
