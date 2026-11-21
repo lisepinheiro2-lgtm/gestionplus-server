@@ -1,8 +1,21 @@
 # Gestion+ · Serveur
 
+<a id="reprise-2026-11-21"></a>
+
+## Structures autorisées et revue — 21 novembre 2026
+
+État local relu **`72aa7f4`**, après `1ce0561` et `63046e8`. GET authentifiés **`/api/structures`** et **`/api/structures/{structureID}`**, réponse limitée à `structureID` et `structureName`. Recherche groupée des candidats, SUPER_ADMIN désigné de l’entreprise pris en compte et autorisations conservées côté serveur. Structures étrangères/inaccessibles : **404 générique** ; autres routes non autorisées refusées par défaut. Aucune nouvelle migration.
+
+Services d’accès aux structures, transfert ADMIN, succession volontaire, désactivation/révocation de sessions et responsabilité MANAGER présents ; parcours HTTP/Swing complets à raccorder. Création/fermeture complète des structures : chantier distinct. Le client suit désormais les sessions et sélectionne les structures autorisées ; ses cartes métier connectées restent désactivées.
+
+HIBP valide les compteurs même sans correspondance d’empreinte, avec traitement en `Long`. Voir [portée exacte, décisions et 13 tâches ouvertes](docs/AVANCEMENT.md#reprise-2026-11-21). Lise rapporte **924/924 serveur sur `63046e8`** avant correction ; Codex **19/19 HIBP** après, client HTTP simulé. « Tout est vert » confirmé ensuite par Lise n’apporte aucun nouveau total. Aucun test, build, serveur ni migration pendant cette actualisation.
+
+
 <a id="connexion-swing-2026-11-20"></a>
 
 ## Premier raccordement Swing — 20 novembre 2026
+
+**Historique du 20 novembre ; lire la reprise du 21 novembre ci-dessus pour l’état courant.**
 
 Le client `03387cc` communique réellement avec la connexion/session du serveur `b2ca9e3`. Lise confirme une recette locale avec SUPER_ADMIN fictif et TOTP : connexion, accueil avec identité, déconnexion/reconnexion et maintien de la démonstration autonome.
 

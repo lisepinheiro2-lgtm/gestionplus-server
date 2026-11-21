@@ -1,5 +1,5 @@
 ---
-summary: "Connexion Swing réelle locale avec TOTP et 284/284 client rapportés ; 900/900 serveur sur 4c630ee restent datés du 19 novembre."
+summary: "Reprise au 21 novembre : code relu, validations attribuées, corrections et limites conservées."
 read_when:
   - "reprendre les 900/900 tests, la chaîne HTTP réelle, les sessions et le simulateur SMS du 19 novembre"
   - "reprendre le contrôleur de demande de code SMS et son contrat HTTP"
@@ -33,9 +33,104 @@ read_when:
 
 # Avancement et feuille de route
 
+<a id="reprise-2026-11-21"></a>
+
+## Structures autorisées et revue — 21 novembre 2026
+
+**Code relu : serveur `72aa7f4`**, après `1ce0561` et `63046e8` ; client `53d110d`, après `45f02c6` et `9b5a895`. Trois dépôts sans changement local au début de la mission. Références locales ; aucun push ou état distant déduit.
+
+### Consultation des structures : présente dans le code
+
+- **GET `/api/structures`** et **GET `/api/structures/{structureID}`** authentifiés dans `HttpSecurityConfig`. Réponse limitée à `structureID` et `structureName` (`StructureSummary`).
+- `OrganizationalStructureController` utilise `OrganizationalStructureQueryService`. Recherche groupée des candidats par `findCandidatesByUser` (store, adaptateur JPA, repository), puis contrôles d’autorisation serveur par `rolesInStructureForSession`. La recherche groupée ne supprime pas les contrôles par structure.
+- Candidats issus des rattachements et du **SUPER_ADMIN désigné de l’entreprise**, via `tenant.superAdminUserID`. Identité et droits courants restent décidés côté serveur ; le choix Swing ne confère aucune permission.
+- Structures étrangères/inaccessibles : refus générique **404 `NOT_FOUND`**, via `OUTSIDE_TENANT`/`OUTSIDE_STRUCTURE` et `HttpApiError`. Le refus par défaut (`anyRequest().denyAll()`) demeure pour les autres routes non autorisées.
+- **Aucune nouvelle migration** pour ce chantier ; schéma existant réutilisé.
+
+### Services métier existants et parcours incomplets
+
+| Service présent | Responsabilité écrite |
+| --- | --- |
+| `StructureAccessService` | Ajout, révocation et changement des rôles d’accès. |
+| `StructureAdminTransferService` | Transfert ADMIN et traitement du titulaire sortant. |
+| `SuperAdminSuccessionService` | Succession volontaire du SUPER_ADMIN. |
+| `AccountAccessLifecycle` | Désactivation conditionnelle et révocation des sessions. |
+| `EmployeeResponsibilityService` | Désignation du responsable MANAGER. |
+
+Leurs parcours HTTP/Swing complets restent à raccorder. **Création et fermeture complètes des structures : chantier distinct.** Services présents ne signifie pas parcours utilisateur achevés.
+
+### Deux corrections limitées de revue
+
+`ApplicationHeader` affiche l’identité en **texte brut** (`html.disable`) : les balises HTML d’un identifiant ne sont plus interprétées. `ApplicationHeaderIdentityTest` ajouté dans `53d110d`.
+
+`PwnedPasswordsChecker`, corrigé dans `72aa7f4`, valide le compteur indépendamment de la correspondance de l’empreinte, pour chaque ligne parcourue. Compteurs malformés refusés ; valeurs valides dépassant `Integer` prises en charge par `Long`, dans ses bornes. `PwnedPasswordsCheckerTest` complété. **Nuance vérifiée :** une correspondance avec compteur positif provoque encore un retour anticipé ; le code ne garantit donc pas l’inspection des lignes suivantes. La formule « toutes les lignes » doit être comprise avec cette limite.
+
+Aucune autre fonctionnalité de sécurité implémentée par ce petit lot.
+
+### Validations attribuées — 21 novembre 2026
+
+Ces résultats proviennent de la mission transmise par Lise ; ils ne sont pas réexécutés pendant cette actualisation documentaire.
+
+| État | Auteur et résultat | Portée et limites |
+| --- | --- | --- |
+| Avant les deux corrections | Lise : **924/924 serveur** sur `63046e8` et **381/381 client** sur `9b5a895`. | Suites complètes rapportées ; totaux non transposés aux commits suivants. |
+| Avant corrections, tests ciblés serveur | Codex : **24 tests sur PostgreSQL jetable**. | Distincts d’une suite complète. |
+| Avant corrections, tests ciblés client | Codex : **130 tests client**. | Portées distinctes : composants, fenêtres Swing et serveurs HTTP fictifs. Ces derniers ne constituent pas une recette Swing contre Spring Boot. |
+| Après correction HIBP `72aa7f4` | Codex : **19/19** dans `PwnedPasswordsCheckerTest`, client HTTP simulé. | Aucun serveur, PostgreSQL ni migration lancé pour ces dernières vérifications. |
+| Après correction identité `53d110d` | Codex : **7/7** dans `ApplicationHeaderIdentityTest`, sur classpath **et** en mode modulaire. | Même jeu vérifié dans les deux modes ; aucun nouveau total global calculé. |
+| Confirmation ultérieure | Lise : **« tout est vert »**. | Aucun nouveau total communiqué ; ne pas inventer les nouveaux totaux des suites complètes. |
+
+Les 900/900 serveur du 19 novembre et les 284/284 client du 20 novembre restent des résultats historiques avec leurs dates et versions. Aucun test, build, serveur, migration, commit ou push n’est lancé pendant cette mission documentaire.
+
+### Décisions validées, réalisations encore attendues
+
+- **Refus d’invitation :** HTTP **403** générique avec un code métier d’activation commun aux invitations invalides, expirées ou déjà utilisées. Le nom du code n’est pas inventé ici. L’arbitrage est acquis ; son implémentation reste ouverte.
+- **Premier enrôlement TOTP :** après activation vérifiée, dans un parcours restreint sans accès métier, avec une preuve distincte, temporaire et à usage unique. Valider le nouvel authentificateur avant confirmation, puis connexion normale. Ce parcours reste à implémenter ; il ne crée pas un second écran TOTP de connexion.
+- **MFA :** obligatoire pour SUPER_ADMIN, ADMIN, SECURITY_OFFICER, R_H, MANAGER et SECRETARY, facultatif pour les autres selon les rôles documentés et leur cumul. Le formulaire de connexion conserve son unique POST contenant identifiant, mot de passe et TOTP.
+- **Confirmation renforcée :** revérifier le mot de passe et un TOTP frais. Preuve à usage unique, valable au maximum **cinq minutes**, liée au compte, à sa version de sécurité, à l’action et au récapitulatif confirmé. Contrôle et consommation atomiques à l’exécution ; **deux preuves** pour une succession SUPER_ADMIN. Ces cinq minutes sont un choix de conception Gestion+, pas une durée imposée par OWASP ou le NIST.
+
+`HmacActivationIdentityVerifier` existe déjà. `MfaEnrollmentVerifier` et `PrivilegedConfirmationVerifier` sont des contrats présents dont les implémentations opérationnelles restent attendues. FIDO2/WebAuthn demeure une évolution à étudier pour les comptes privilégiés.
+
+### Décisions du gist maintenues
+
+| Sujet | Règle conservée |
+| --- | --- |
+| Permissions | `RolePermissionPolicy` accorde toute nouvelle valeur de `Permission` à ADMIN/SUPER_ADMIN. Toute nouvelle permission sensible, à commencer par la consultation de l’audit, exige une relecture explicite de la politique. |
+| Périmètre | SUPER_ADMIN agit dans son entreprise selon `tenantOrganization.superAdminUserID` ; ADMIN dans ses structures autorisées. `AuthorizationService.rolesInStructure` refuse le SUPER_ADMIN d’une autre entreprise. |
+| Téléphone | E.164 contrôle la forme ; validation du numéro prévue avec le fournisseur. V27 demeure le filet SQL du défi. |
+| Transaction | `requestActivationChallenge` et `createChallenge` doivent être appelées hors transaction englobante. |
+| Fictif | `gestionplus.sms.fictif=true` : `havingValue = "true"` explicite ; activation uniquement dans la configuration locale de lancement, jamais committée. Essais sur base de développement dédiée ou jetable. Le choix C plus récent prime sur le « mode B » du gist. |
+| Chemin HTTP | `AccountActivationRoutes.SMS_CHALLENGE_PATH`, classe finale à constructeur privé, est partagé par contrôleur et sécurité. |
+
+### Les 13 tâches ouvertes conservées du gist
+
+Comparaison le 21 novembre avec l’[ancien gist de suivi](https://gist.github.com/lisepinheiro2-lgtm/f626b9ecc2bfefaa17b696803565d054). Un arbitrage acquis ne clôture pas son implémentation. L’ancien libellé « mode B » du fictif est historique : le choix C du 19 novembre reste la référence.
+
+1. [ ] **Route de finalisation d’activation :** exposer `completeActivation` déjà présent en Java.
+2. [ ] **Refus d’invitation :** implémenter le 403 générique et le code métier d’activation désormais arbitrés.
+3. [ ] **SMS réel :** revalider sous verrou invitation, téléphone et instant courant, puis intégrer le fournisseur réel.
+4. [ ] **Comptes privilégiés :** provisionnement SUPER_ADMIN, premier enrôlement MFA et confirmations privilégiées opérationnelles.
+5. [ ] **Audit SMS :** rattacher refus et échecs à l’entreprise avant toute consultation filtrée ; réserve `tenant_id = null` maintenue.
+6. [ ] **Routes publiques :** limiter accueil d’invitation et POST SMS, y compris les UUID aléatoires avant le quota métier.
+7. [ ] **Compensation SMS :** traiter le double échec envoi/révocation ; le défi peut rester courant jusqu’à échéance et reste compté dans le quota.
+8. [ ] **Exploitation :** valider TLS depuis Swing, droits PostgreSQL effectifs, sauvegarde/restauration et disponibilité de l’audit.
+9. [ ] **ADMIN_EMERGENCY :** chantier distinct sur postes autorisés, stockage chiffré, révocation et réconciliation.
+10. [ ] **Simulateur SMS en production :** garde automatique à réaliser ; risque d’envois silencieux et de codes dans les journaux d’un usage réel.
+11. [ ] **Fiche salarié :** téléphone/e-mail et distinction entre coordonnées salarié et compte d’invitation/activation ; API autorisée à raccorder.
+12. [ ] **Fiche client :** clarifier coordonnées client, contact d’urgence et gestionnaire des interventions, puis raccorder modèle et API.
+13. [ ] **Fiches connectées :** valider saisie, enregistrement/relecture, erreurs et autorisations de lecture/modification.
+
+### Annexe multiserveur et autres suites préservées
+
+**Premier déploiement : monolithe sur une seule instance.** Multiserveur reporté : sessions et limiteurs sont locaux à chaque instance ; une bascule peut perdre la reconnaissance de la session ou le blocage des tentatives. Avant une seconde instance, prévoir un stockage partagé et revalider files d’envoi, reprises, quotas et garanties temporelles. Aucune solution base/Redis n’est choisie ou livrée par cette actualisation.
+
+Préférences par compte (`CPT04`), planning et interventions connectés, documents sensibles et ADMIN_EMERGENCY restent suivis. Les réserves déjà annexées sur transactions, concurrence, temps, audit, conservation, hors ligne et déploiement sont maintenues avec leurs limites, sans les recompter comme nouvelles anomalies.
+
 <a id="connexion-swing-2026-11-20"></a>
 
 ## Première recette Swing–serveur avec TOTP — 20 novembre 2026
+
+**Historique du 20 novembre ; lire la reprise du 21 novembre ci-dessus pour l’état courant.**
 
 **Références :** client `03387cc`, serveur `b2ca9e3`. Lise rapporte **284/284 tests client réussis dans Eclipse** et confirme manuellement TOTP, accueil `HomePanel`, identité, déconnexion, formulaire, reconnexion et maintien de la démo CSV.
 

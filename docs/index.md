@@ -1,6 +1,6 @@
 ---
 title: "Documentation du serveur Spring Boot"
-summary: "Point d’entrée du serveur et liens vers la cible commune Gestion+."
+summary: "Reprise au 21 novembre : structures autorisées, HIBP, preuves et tâches ouvertes."
 read_when:
   - "commencer une séance sur le serveur ou retrouver un document"
   - "préparer l’intégration Swing Spring Boot PostgreSQL"
@@ -8,9 +8,23 @@ read_when:
 
 # Documentation du serveur Spring Boot
 
+<a id="reprise-2026-11-21"></a>
+
+## Reprise du 21 novembre 2026
+
+Serveur relu `72aa7f4` : liste/détail des structures autorisées (`1ce0561`, `63046e8`) et correction des compteurs HIBP. Services de gouvernance existants distingués des parcours HTTP/Swing à raccorder.
+
+- [Routes, code vérifié, validations et 13 tâches ouvertes du gist](AVANCEMENT.md#reprise-2026-11-21).
+- [Repères d’investigation et limites des vérifications](DEVELOPPEMENT.md#reprise-2026-11-21).
+
+**924/924 serveur sur `63046e8`** rapportés par Lise avant correction ; **19/19 HIBP** rapportés pour Codex ensuite, client HTTP simulé. « Tout est vert » confirmé ultérieurement par Lise ne fournit aucun nouveau total. Aucun test ni lancement pendant cette mise à jour ; les anciens résultats restent datés.
+
+
 <a id="reprise-swing-2026-11-20"></a>
 
 ## Reprise du raccordement — 20 novembre 2026
+
+**Historique du 20 novembre ; lire la reprise du 21 novembre ci-dessus pour l’état courant.**
 
 TOTP, identité, accueil et déconnexion/reconnexion Swing sont validés manuellement par Lise sur un environnement isolé. Les **284/284** concernent le client `03387cc` ; les **900/900** restent la validation serveur de `4c630ee` du 19 novembre.
 

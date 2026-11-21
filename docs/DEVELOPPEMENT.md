@@ -7,9 +7,24 @@ read_when:
 
 # Explorer et lancer le serveur localement
 
+<a id="reprise-2026-11-21"></a>
+
+## Repères structures et vérificateurs — 21 novembre 2026
+
+Sur `72aa7f4`, suivre `OrganizationalStructureRoutes` → `OrganizationalStructureController` → `OrganizationalStructureQueryService` → `OrganizationalStructureStore.findCandidatesByUser` → `JpaOrganizationalStructureStore` / `OrganizationalStructureJpaRepository`. Les deux GET sont authentifiés dans `HttpSecurityConfig` ; autorisations dans `AuthorizationService.rolesInStructureForSession`. `HttpApiError.fromAccessDenied` masque les structures étrangères/inaccessibles par 404. Aucune nouvelle migration.
+
+Pour la gouvernance : `StructureAccessService`, `StructureAdminTransferService`, `SuperAdminSuccessionService`, `AccountAccessLifecycle` et `EmployeeResponsibilityService` existent ; parcours HTTP/Swing complets à raccorder. Pour l’activation : `HmacActivationIdentityVerifier` existe ; `MfaEnrollmentVerifier` et `PrivilegedConfirmationVerifier` attendent leurs implémentations opérationnelles. Premier enrôlement distinct du POST unique de connexion contenant le TOTP.
+
+Lire `PwnedPasswordsChecker` et son test : validation des compteurs des lignes parcourues indépendamment de l’empreinte, traitement en `Long` dans ses bornes ; une correspondance positive termine encore la boucle.
+
+`OrganizationalStructureHttpPostgresqlIntegrationTest` et `OrganizationalStructureQueryServiceTest` sont les repères des tests structures. Les **24 tests ciblés sur PostgreSQL jetable** précèdent les corrections. Les **19/19 HIBP** après revue utilisent un client HTTP simulé ; aucun serveur, PostgreSQL ni migration pour ces dernières vérifications. Voir [preuves attribuées, décisions et suites](AVANCEMENT.md#reprise-2026-11-21). Aucune commande de ce guide exécutée pendant cette mission.
+
+
 <a id="essai-client-isole-2026-11-20"></a>
 
 ## Essai du client sur environnement isolé — 20 novembre 2026
+
+**Historique du 20 novembre ; lire la reprise du 21 novembre ci-dessus pour l’état courant.**
 
 Le client `03387cc` est raccordé à la connexion/session ; seule sa démo CSV reste autonome. Voir le [bilan et ses limites](AVANCEMENT.md#connexion-swing-2026-11-20).
 
