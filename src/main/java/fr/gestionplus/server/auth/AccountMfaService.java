@@ -233,6 +233,10 @@ public class AccountMfaService {
 
 	}
 
+	public boolean requiresInitialEnrollment(UUID userID) {
+		return authorization.requiresMfa(userID) && !hasConfiguredFactor(userID);
+	}
+
 	private void revokeSessions(UserAccount current) {
 		accounts.advanceSessionVersion(current.getUserID());
 		record(AuditAction.AUTH_SESSION_REVOKE, current);

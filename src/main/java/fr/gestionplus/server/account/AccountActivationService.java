@@ -223,7 +223,7 @@ public class AccountActivationService {
 				: AuditAction.ACCOUNT_ACTIVATE,
 				AuditResult.SUCCESS, invitation);
 
-		if (authorizationService.requiresMfa(account.getUserID())) {
+		if (accountMfaService.requiresInitialEnrollment(account.getUserID())) {
 			return Optional
 					.of(accountMfaService.issueEnrollmentProof(account.getUserID(), account.getSessionVersion()));
 		}
