@@ -10,6 +10,7 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import fr.gestionplus.server.auth.UserAccount;
+import fr.gestionplus.server.auth.EnrollmentPrincipal;
 
 @Component
 public class SpringAuditContextProvider implements AuditContextProvider {
@@ -24,6 +25,9 @@ public class SpringAuditContextProvider implements AuditContextProvider {
 		}
 
 		Object principal = authentication.getPrincipal();
+		if (principal instanceof EnrollmentPrincipal enrollment) {
+			return enrollment.userID();
+		}
 
 		if (!(principal instanceof UserAccount)) {
 			return null;

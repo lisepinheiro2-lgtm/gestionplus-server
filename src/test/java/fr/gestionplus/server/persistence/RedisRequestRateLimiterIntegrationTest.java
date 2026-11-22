@@ -49,6 +49,14 @@ class RedisRequestRateLimiterIntegrationTest {
 	}
 
 	@Test
+	void keepsAccountQuotasSharedAndSeparateFromIpAddressParsing() {
+		UUID userID = UUID.randomUUID();
+		assertTrue(first.acquireForAccount("mfa-enrollment", userID, 1, Duration.ofMinutes(10)).allowed());
+		assertFalse(second.acquireForAccount("mfa-enrollment", userID, 1, Duration.ofMinutes(10)).allowed());
+		assertTrue(second.acquireForAccount("mfa-enrollment", UUID.randomUUID(), 1, Duration.ofMinutes(10)).allowed());
+	}
+
+	@Test
 	void neverAdmitsMoreThanThirtyConcurrentRequestsAcrossTwoClients() {
 
 		try (var workers = Executors.newFixedThreadPool(12)) {

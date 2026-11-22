@@ -1,8 +1,10 @@
 package fr.gestionplus.server.auth;
 
+import java.time.Clock;
 import java.util.Map;
 
 import org.springframework.beans.factory.SmartInitializingSingleton;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
@@ -21,6 +23,12 @@ import fr.gestionplus.server.persistence.RedisSecuritySupport;
 
 @Configuration(proxyBeanMethods = false)
 public class DistributedSessionConfiguration {
+
+	@Bean
+	@ConditionalOnMissingBean(Clock.class)
+	public Clock securityClock(RedisSecuritySupport redisSecuritySupport) {
+		return redisSecuritySupport.clock();
+	}
 
 	@Bean
 	public SmartInitializingSingleton sharedSecurityAvailability(RedisSecuritySupport redis, Environment environment) {
@@ -54,6 +62,11 @@ public class DistributedSessionConfiguration {
 					&& context.getAuthentication().getPrincipal() instanceof UserAccount account) {
 				return Map.of(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME,
 						account.getUserID().toString());
+			}
+			if (value instanceof SecurityContext context && context.getAuthentication() != null
+					&& context.getAuthentication().getPrincipal() instanceof EnrollmentPrincipal principal) {
+				return Map.of(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME,
+						principal.userID().toString());
 			}
 
 			return Map.of();

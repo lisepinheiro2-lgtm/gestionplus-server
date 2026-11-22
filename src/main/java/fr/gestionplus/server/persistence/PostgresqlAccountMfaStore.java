@@ -128,11 +128,18 @@ public class PostgresqlAccountMfaStore implements AccountMfaStore {
 	@Override
 	public Optional<EnrollmentProof> consumeEnrollmentProofHash(String proofHash, Instant now) {
 		return jdbc.query("""
-				DELETE FROM account_mfa_enrollment_proofs
-				WHERE proof_hash = ? AND expires_at > ?
-				RETURNING user_id, proof_hash, session_version, expires_at
+				WITH candidate AS (
+				    SELECT account.user_id FROM user_accounts account
+				    JOIN account_mfa_enrollment_proofs proof ON proof.user_id = account.user_id
+				    WHERE proof.proof_hash = ? AND proof.expires_at > ?
+				      AND account.status = 'ACTIVE' AND account.session_version = proof.session_version
+				    FOR UPDATE OF account
+				)
+				DELETE FROM account_mfa_enrollment_proofs proof USING candidate
+				WHERE proof.user_id = candidate.user_id AND proof.proof_hash = ? AND proof.expires_at > ?
+				RETURNING proof.user_id, proof.proof_hash, proof.session_version, proof.expires_at
 				""", (row, rowNumber) -> new EnrollmentProof(row.getObject(1, UUID.class), row.getString(2),
 				row.getLong(3), row.getObject(4, OffsetDateTime.class).toInstant()), proofHash,
-				now.atOffset(ZoneOffset.UTC)).stream().findFirst();
+				now.atOffset(ZoneOffset.UTC), proofHash, now.atOffset(ZoneOffset.UTC)).stream().findFirst();
 	}
 }

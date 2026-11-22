@@ -59,12 +59,15 @@ public final class DistributedSessionRegistry implements SessionRegistry {
 	private SessionInformation information(Session session) {
 		Object value = session.getAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
 
-		if (!(value instanceof SecurityContext context) || context.getAuthentication() == null
-				|| !(context.getAuthentication().getPrincipal() instanceof UserAccount account)) {
+		if (!(value instanceof SecurityContext context) || context.getAuthentication() == null) {
+			return null;
+		}
+		Object principal = context.getAuthentication().getPrincipal();
+		if (!(principal instanceof UserAccount) && !(principal instanceof EnrollmentPrincipal)) {
 			return null;
 		}
 
-		return new SessionInformation(account, session.getId(), Date.from(session.getLastAccessedTime())) {
+		return new SessionInformation(principal, session.getId(), Date.from(session.getLastAccessedTime())) {
 			@Override
 			public void expireNow() {
 				activity.end(getSessionId());

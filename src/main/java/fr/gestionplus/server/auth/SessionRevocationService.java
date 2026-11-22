@@ -26,7 +26,9 @@ public class SessionRevocationService {
 				for (SessionInformation session : registry.getAllSessions(account, false)) {
 
 					if (session.getPrincipal() instanceof UserAccount principal
-							&& principal.getSessionVersion() <= account.getSessionVersion()) {
+							&& principal.getSessionVersion() <= account.getSessionVersion()
+							|| session.getPrincipal() instanceof EnrollmentPrincipal enrollmentPrincipal
+							&& enrollmentPrincipal.sessionVersion() <= account.getSessionVersion()) {
 						session.expireNow();
 					}
 

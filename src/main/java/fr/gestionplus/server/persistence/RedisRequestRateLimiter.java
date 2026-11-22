@@ -3,6 +3,7 @@ package fr.gestionplus.server.persistence;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.Objects;
 
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
@@ -22,6 +23,16 @@ public final class RedisRequestRateLimiter implements RequestRateLimiter {
 
 	@Override
 	public Decision acquire(String scope, String address, int limit, Duration window) {
+		return acquireWithKey(scope, redis.addressKey(scope, address), limit, window);
+	}
+
+	@Override
+	public Decision acquireForAccount(String scope, UUID userID, int limit, Duration window) {
+		Objects.requireNonNull(userID, "L’identifiant du compte est obligatoire.");
+		return acquireWithKey(scope, redis.digest(scope, "account:" + userID), limit, window);
+	}
+
+	private Decision acquireWithKey(String scope, String subjectKey, int limit, Duration window) {
 
 		if (scope == null || !scope.matches("[a-z][a-z0-9-]{1,63}") || limit < 1 || limit > 10000
 				|| window == null || window.compareTo(Duration.ofSeconds(1)) < 0
@@ -31,7 +42,7 @@ public final class RedisRequestRateLimiter implements RequestRateLimiter {
 
 		String prefix = redis.prefix(scope);
 		List<?> result = redis.execute(ACQUIRE,
-				List.of(prefix + "addresses", prefix + redis.addressKey(scope, address)),
+				List.of(prefix + "addresses", prefix + subjectKey),
 				Integer.toString(limit), Long.toString(window.toMillis()), UUID.randomUUID().toString(), "8192");
 		long status = ((Number) result.get(0)).longValue();
 

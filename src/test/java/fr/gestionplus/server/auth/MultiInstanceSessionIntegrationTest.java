@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
 import java.net.URI;
+import java.net.InetAddress;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -15,9 +16,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.SecureRandom;
+import java.security.MessageDigest;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.Map;
+import java.util.HexFormat;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -316,7 +322,7 @@ class MultiInstanceSessionIntegrationTest {
 	}
 
 	@Test
-	@Order(11)
+	@Order(20)
 	void sharesThePublicActivationQuotaBetweenRoutesAndJvmInstancesIncludingEncodedPaths() throws Exception {
 		UUID invitationID = UUID.randomUUID();
 
@@ -348,7 +354,7 @@ class MultiInstanceSessionIntegrationTest {
 	}
 
 	@Test
-	@Order(12)
+	@Order(30)
 	void refusesRequestsWhenRedisIsUnavailableInsteadOfUsingLocalSessions() throws Exception {
 		var account = account();
 
@@ -508,6 +514,127 @@ class MultiInstanceSessionIntegrationTest {
 		return client.send(HttpRequest.newBuilder(base.resolve(path)).timeout(Duration.ofSeconds(12))
 				.header("Content-Type", "application/x-www-form-urlencoded")
 				.header(csrf.get("headerName").asString(), csrf.get("token").asString())
+				.POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
+	}
+
+	@Test
+	@Order(11)
+	void enrollsAcrossBothJvmsAndReturnsToNormalLoginAfterConfirmation() throws Exception {
+		Account account = account();
+		String proof = enrollmentProof(account);
+		try (var client = enrollmentClient(); var replay = enrollmentClient()) {
+			assertEquals(204, jsonPost(client, secondUrl, "/api/auth/mfa/enrollment/session",
+					JSON.createObjectNode().put("proof", proof).toString(), csrf(client, firstUrl)).statusCode());
+			assertEquals(403, jsonPost(replay, firstUrl, "/api/auth/mfa/enrollment/session",
+					JSON.createObjectNode().put("proof", proof).toString(), csrf(replay, secondUrl)).statusCode());
+			assertEquals(403, get(client, firstUrl, "/api/auth/me").statusCode());
+			assertEquals(403, get(client, secondUrl, "/api/structures").statusCode());
+			JsonNode enrollment = JSON.readTree(jsonPost(client, firstUrl, "/api/auth/mfa/enrollment", "{}",
+					csrf(client, secondUrl)).body());
+			assertTrue(enrollment.has("setupKey"));
+			JsonNode repeated = JSON.readTree(jsonPost(client, secondUrl, "/api/auth/mfa/enrollment", "{}",
+					csrf(client, firstUrl)).body());
+			assertEquals(enrollment.get("enrollmentID"), repeated.get("enrollmentID"));
+			assertEquals(enrollment.get("setupKey"), repeated.get("setupKey"));
+			UUID enrollmentID = UUID.fromString(enrollment.get("enrollmentID").asString());
+			byte[] secret = enrollmentSecret(account, enrollmentID);
+			try {
+				long step = Instant.now().getEpochSecond() / 30;
+				String code = TotpCodes.atStep(secret, step);
+				var response = jsonPost(client, secondUrl, "/api/auth/mfa/enrollment/complete",
+						JSON.createObjectNode().put("enrollmentID", enrollmentID.toString()).put("code", code).toString(),
+						csrf(client, firstUrl));
+				assertEquals(200, response.statusCode());
+				assertEquals(10, JSON.readTree(response.body()).get("codes").size());
+				assertEquals(401, get(client, firstUrl, "/api/auth/me").statusCode());
+				assertEquals(401, get(client, secondUrl, "/api/auth/me").statusCode());
+				String form = "username=" + encode(account.name()) + "&password=" + encode(PASSWORD) + "&totp=" + code;
+				assertEquals(401, post(client, firstUrl, "/login", form, csrf(client, secondUrl)).statusCode());
+				Thread.sleep(500);
+				long deadline = System.nanoTime() + Duration.ofSeconds(35).toNanos();
+				while (Instant.now().getEpochSecond() / 30 <= step && System.nanoTime() < deadline) {
+					Thread.sleep(50);
+				}
+				long nextStep = Instant.now().getEpochSecond() / 30;
+				assertTrue(nextStep > step);
+				String nextForm = "username=" + encode(account.name()) + "&password=" + encode(PASSWORD)
+						+ "&totp=" + TotpCodes.atStep(secret, nextStep);
+				assertEquals(200, post(client, secondUrl, "/login", nextForm, csrf(client, firstUrl)).statusCode());
+				assertEquals(200, get(client, firstUrl, "/api/auth/me").statusCode());
+			} finally {
+				java.util.Arrays.fill(secret, (byte) 0);
+			}
+		}
+	}
+
+	@Test
+	@Order(12)
+	void sharesTheTotpSubmissionLimitAcrossJvmsDespiteDatabaseRollbacksAndRepeatedBegin() throws Exception {
+		Account account = account();
+		String proof = enrollmentProof(account);
+		try (var client = enrollmentClient()) {
+			assertEquals(204, jsonPost(client, firstUrl, "/api/auth/mfa/enrollment/session",
+					JSON.createObjectNode().put("proof", proof).toString(), csrf(client, secondUrl)).statusCode());
+			JsonNode enrollment = JSON.readTree(jsonPost(client, secondUrl, "/api/auth/mfa/enrollment", "{}",
+					csrf(client, firstUrl)).body());
+			UUID enrollmentID = UUID.fromString(enrollment.get("enrollmentID").asString());
+			byte[] secret = enrollmentSecret(account, enrollmentID);
+			try {
+				java.util.Set<String> possibleCodes = new java.util.HashSet<>();
+				long currentStep = Instant.now().getEpochSecond() / 30;
+				for (long step = currentStep - 1; step <= currentStep + 20; step++) {
+					possibleCodes.add(TotpCodes.atStep(secret, step));
+				}
+				String wrong = "000000";
+				while (possibleCodes.contains(wrong)) {
+					wrong = String.format(java.util.Locale.ROOT, "%06d", Integer.parseInt(wrong) + 1);
+				}
+				String body = JSON.createObjectNode().put("enrollmentID", enrollmentID.toString()).put("code", wrong).toString();
+				for (int attempt = 0; attempt < 5; attempt++) {
+					assertEquals(403, jsonPost(client, attempt % 2 == 0 ? firstUrl : secondUrl,
+							"/api/auth/mfa/enrollment/complete", body, csrf(client, secondUrl)).statusCode());
+				}
+				assertEquals(200, jsonPost(client, secondUrl, "/api/auth/mfa/enrollment", "{}", csrf(client, firstUrl)).statusCode());
+				var blocked = jsonPost(client, secondUrl, "/api/auth/mfa/enrollment/complete", body, csrf(client, firstUrl));
+				assertEquals(429, blocked.statusCode());
+				assertTrue(Long.parseLong(blocked.headers().firstValue("Retry-After").orElseThrow()) >= 1);
+				assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM account_mfa_state WHERE user_id = ?",
+						Integer.class, account.id()));
+			} finally {
+				java.util.Arrays.fill(secret, (byte) 0);
+			}
+		}
+	}
+
+	private static String enrollmentProof(Account account) throws Exception {
+		UUID tenantID = UUID.randomUUID();
+		jdbc.update("INSERT INTO tenant_organizations (tenant_id, tenant_name, super_admin_user_id) VALUES (?, 'Fictitious enrollment', ?)",
+				tenantID, account.id());
+		jdbc.update("INSERT INTO tenant_memberships (user_id, tenant_id) VALUES (?, ?)", account.id(), tenantID);
+		byte[] bytes = new byte[16];
+		new SecureRandom().nextBytes(bytes);
+		String proof = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+		String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(proof.getBytes(StandardCharsets.US_ASCII)));
+		jdbc.update("INSERT INTO account_mfa_enrollment_proofs (user_id, proof_hash, session_version, expires_at) VALUES (?, ?, 0, ?)",
+				account.id(), hash, OffsetDateTime.ofInstant(Instant.now().plusSeconds(300), ZoneOffset.UTC));
+		return proof;
+	}
+
+	private static byte[] enrollmentSecret(Account account, UUID enrollmentID) {
+		byte[] encrypted = jdbc.queryForObject("SELECT encrypted_secret FROM account_mfa_enrollments WHERE user_id = ?",
+				byte[].class, account.id());
+		return new MfaSecretCipher(SETTINGS.getProperty("gestionplus.mfa.key")).decrypt(account.id(), enrollmentID, encrypted);
+	}
+
+	private static HttpClient enrollmentClient() throws Exception {
+		return HttpClient.newBuilder().cookieHandler(new CookieManager(null, CookiePolicy.ACCEPT_ORIGINAL_SERVER))
+				.proxy(HttpClient.Builder.NO_PROXY).followRedirects(HttpClient.Redirect.NEVER)
+				.localAddress(InetAddress.getByName("127.0.0.2")).connectTimeout(Duration.ofSeconds(5)).build();
+	}
+
+	private static HttpResponse<String> jsonPost(HttpClient client, URI base, String path, String body, JsonNode csrf) throws Exception {
+		return client.send(HttpRequest.newBuilder(base.resolve(path)).timeout(Duration.ofSeconds(15))
+				.header("Content-Type", "application/json").header(csrf.get("headerName").asString(), csrf.get("token").asString())
 				.POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
 	}
 

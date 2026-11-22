@@ -52,7 +52,17 @@ public class ServletSecurityTestConfiguration {
 	@Bean
 	@ConditionalOnMissingBean(RequestRateLimiter.class)
 	RequestRateLimiter servletRequestRateLimiter() {
-		return (scope, address, limit, window) -> new RequestRateLimiter.Decision(true, Duration.ZERO);
+		return new RequestRateLimiter() {
+			@Override
+			public Decision acquire(String scope, String address, int limit, Duration window) {
+				return new Decision(true, Duration.ZERO);
+			}
+
+			@Override
+			public Decision acquireForAccount(String scope, UUID userID, int limit, Duration window) {
+				return new Decision(true, Duration.ZERO);
+			}
+		};
 	}
 
 	@Bean

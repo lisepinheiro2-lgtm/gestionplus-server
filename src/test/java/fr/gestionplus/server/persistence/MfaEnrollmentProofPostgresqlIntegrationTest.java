@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -56,6 +57,11 @@ class MfaEnrollmentProofPostgresqlIntegrationTest {
 		transactions = new TransactionTemplate(new DataSourceTransactionManager(source));
 	}
 
+	@BeforeEach
+	void clearProofs() {
+		jdbc.update("DELETE FROM account_mfa_enrollment_proofs");
+	}
+
 	@Test
 	void upgradingV28PreservesExistingAccountsAndCreatesTheProofTable() {
 		assertEquals("ACTIVE", jdbc.queryForObject("SELECT status FROM user_accounts WHERE user_id = ?",
@@ -97,6 +103,7 @@ class MfaEnrollmentProofPostgresqlIntegrationTest {
 			store.saveEnrollmentProof(new EnrollmentProof(userID, HASH, 7, NOW.plusSeconds(300)));
 			assertFalse(store.consumeEnrollmentProof(userID, 7, HASH, attemptedAt));
 			assertEquals(1, count(userID));
+			jdbc.update("DELETE FROM account_mfa_enrollment_proofs WHERE user_id = ?", userID);
 		}
 	}
 
@@ -151,6 +158,27 @@ class MfaEnrollmentProofPostgresqlIntegrationTest {
 		}
 		assertThrows(DataIntegrityViolationException.class, () -> store.saveEnrollmentProof(
 				new EnrollmentProof(userID, HASH, -1, NOW.plusSeconds(300))));
+	}
+
+	@Test
+	void theSameProofCannotIdentifyTwoAccounts() {
+		UUID firstUserID = account();
+		UUID secondUserID = account();
+		store.saveEnrollmentProof(new EnrollmentProof(firstUserID, HASH, 0, NOW.plusSeconds(300)));
+		assertThrows(DataIntegrityViolationException.class, () -> store.saveEnrollmentProof(
+				new EnrollmentProof(secondUserID, HASH, 0, NOW.plusSeconds(300))));
+	}
+
+	@Test
+	void consumingByHashReturnsTheBoundAccountAndRefusesAStaleSecurityVersion() {
+		UUID userID = account();
+		store.saveEnrollmentProof(new EnrollmentProof(userID, HASH, 0, NOW.plusSeconds(300)));
+		assertEquals(userID, store.consumeEnrollmentProofHash(HASH, NOW).orElseThrow().userID());
+		assertTrue(store.consumeEnrollmentProofHash(HASH, NOW).isEmpty());
+		store.saveEnrollmentProof(new EnrollmentProof(userID, HASH, 0, NOW.plusSeconds(300)));
+		jdbc.update("UPDATE user_accounts SET session_version = 1 WHERE user_id = ?", userID);
+		assertTrue(store.consumeEnrollmentProofHash(HASH, NOW).isEmpty());
+		assertEquals(1, count(userID));
 	}
 
 	private static UUID account() {

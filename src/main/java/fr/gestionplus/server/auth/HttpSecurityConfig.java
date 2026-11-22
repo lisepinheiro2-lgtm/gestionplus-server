@@ -14,7 +14,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.access.intercept.AuthorizationFilter;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
 import org.springframework.security.web.context.DelegatingSecurityContextRepository;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
@@ -22,6 +22,8 @@ import org.springframework.security.web.context.RequestAttributeSecurityContextR
 import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfException;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
 import org.springframework.web.filter.FormContentFilter;
 
@@ -56,12 +58,14 @@ public class HttpSecurityConfig {
 	public SecurityFilterChain securityFilterChain(HttpSecurity http, SessionRegistry registry,
 			AccountStore accountStore, AuditService auditService, SessionLifetime lifetime, AccountMfaService mfa,
 			HttpRequestPolicyFilter requestPolicy, ObjectProvider<FormContentFilter> formContentFilters,
-			RequestRateLimiter rateLimiter, SecurityContextRepository securityContextRepository) throws Exception {
+			RequestRateLimiter rateLimiter, SecurityContextRepository securityContextRepository,
+			CsrfTokenRepository csrfTokenRepository) throws Exception {
 
 		HttpSecurityAudit audit = new HttpSecurityAudit(auditService);
 		SecurityContextLogoutHandler logoutHandler = new SecurityContextLogoutHandler();
 
 		http.securityContext(config -> config.securityContextRepository(securityContextRepository));
+		http.csrf(config -> config.csrfTokenRepository(csrfTokenRepository));
 		
 		http.formLogin(form -> form.permitAll()
 				.authenticationDetailsSource(request -> new GestionAuthenticationProvider.LoginDetails(
@@ -146,8 +150,8 @@ public class HttpSecurityConfig {
 		http.addFilterAfter(requestPolicy, SecurityContextHolderFilter.class);
 		formContentFilters.ifAvailable(filter -> http.addFilterAfter(filter, HttpRequestPolicyFilter.class));
 		http.addFilterAfter(new PublicInvitationRateLimitFilter(audit, rateLimiter), HttpRequestPolicyFilter.class);
-		http.addFilterBefore(new CurrentAccountSessionFilter(accountStore, audit, lifetime, mfa),
-				AuthorizationFilter.class);
+		http.addFilterBefore(new CurrentAccountSessionFilter(accountStore, audit, lifetime, mfa, rateLimiter),
+				UsernamePasswordAuthenticationFilter.class);
 		return http.build();
 	}
 
@@ -188,6 +192,11 @@ public class HttpSecurityConfig {
 	@Bean
 	public HttpSessionEventPublisher httpSessionEventPublisher() {
 		return new HttpSessionEventPublisher();
+	}
+
+	@Bean
+	public CsrfTokenRepository csrfTokenRepository() {
+		return new HttpSessionCsrfTokenRepository();
 	}
 
 	@Bean

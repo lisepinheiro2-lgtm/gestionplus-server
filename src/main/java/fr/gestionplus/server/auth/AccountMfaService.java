@@ -50,16 +50,16 @@ public class AccountMfaService {
 	private final SecureRandom random = new SecureRandom();
 	private final Clock clock;
 
-	public AccountMfaService(AccountStore accounts, AccountMfaStore store, AuthorizationService authorization,
+	public AccountMfaService(AccountStore accountStore, AccountMfaStore accountMfaStore, AuthorizationService authorisationService,
 			MfaSecretCipher cipher, ObjectProvider<MfaEnrollmentVerifier> identityVerifier, LoginService login,
-			SessionRevocationService sessions, AuditService audit, AuditContextProvider auditContext, Clock clock) {
-		this.accountStore = accounts;
-		this.accountMfaStore = store;
-		this.authorisationService = authorization;
+			SessionRevocationService sessionRevocation, AuditService audit, AuditContextProvider auditContext, Clock clock) {
+		this.accountStore = accountStore;
+		this.accountMfaStore = accountMfaStore;
+		this.authorisationService = authorisationService;
 		this.cipher = cipher;
 		this.identityVerifier = identityVerifier;
 		this.login = login;
-		this.sessionRevocation = sessions;
+		this.sessionRevocation = sessionRevocation;
 		this.audit = audit;
 		this.auditContext = auditContext;
 		this.clock = clock;
@@ -93,7 +93,7 @@ public class AccountMfaService {
 		byte[] secret = cipher.decrypt(current.getUserID(), null, factor.encryptedSecret());
 
 		try {
-			OptionalLong step = TotpCodes.matchingStep(secret, code, Instant.now(), factor.lastStep());
+			OptionalLong step = TotpCodes.matchingStep(secret, code, clock.instant(), factor.lastStep());
 			return step.isPresent() && accountMfaStore.advanceAcceptedStep(current.getUserID(), step.getAsLong())
 					? Verification.VERIFIED
 					: Verification.DENIED;
@@ -120,12 +120,52 @@ public class AccountMfaService {
 		return enrollment;
 	}
 
+	@AuditedOperation(AuditAction.MFA_ENROLLMENT)
+	@Transactional
+	public Enrollment beginEnrollment(EnrollmentPrincipal principal) {
+		UserAccount current = enrollmentAccount(principal);
+		if (!cipher.available() || !requiresInitialEnrollment(current.getUserID())) {
+			throw denied();
+		}
+		EnrollmentState pending = accountMfaStore.findEnrollment(current.getUserID())
+				.filter(value -> value.sessionVersion() == current.getSessionVersion()
+						&& clock.instant().isBefore(value.expiresAt())).orElse(null);
+		Enrollment enrollment;
+		if (pending == null) {
+			enrollment = prepareEnrollment(current.getUserID(), current.getSessionVersion(), principal.expiresAt());
+		} else {
+			Instant expiresAt = pending.expiresAt().isBefore(principal.expiresAt())
+					? pending.expiresAt() : principal.expiresAt();
+			byte[] secret = cipher.decrypt(current.getUserID(), pending.enrollmentID(), pending.encryptedSecret());
+			try {
+				accountMfaStore.saveEnrollment(new EnrollmentState(pending.enrollmentID(), current.getUserID(),
+						pending.encryptedSecret(), current.getSessionVersion(), expiresAt));
+				enrollment = new Enrollment(pending.enrollmentID(), TotpCodes.setupKey(secret), expiresAt);
+			} finally {
+				Arrays.fill(secret, (byte) 0);
+			}
+		}
+		record(AuditAction.MFA_ENROLLMENT, current);
+		return enrollment;
+	}
+
+	@AuditedOperation(AuditAction.MFA_ENROLLMENT)
+	@Transactional
+	public RecoveryCodes completeEnrollment(EnrollmentPrincipal principal, UUID enrollmentID, String code) {
+		return completeEnrollment(enrollmentAccount(principal), enrollmentID, code);
+	}
+
 	@AuditedOperation(value = AuditAction.MFA_ENROLLMENT, account = 0)
 	@Transactional
 	public RecoveryCodes completeEnrollment(UUID userID, UUID enrollmentID, String code) {
 		UserAccount current = activeAccount(userID);
+		return completeEnrollment(current, enrollmentID, code);
+	}
+
+	private RecoveryCodes completeEnrollment(UserAccount current, UUID enrollmentID, String code) {
+		UUID userID = current.getUserID();
 		EnrollmentState pending = accountMfaStore.findEnrollment(userID).orElseThrow(this::denied);
-		Instant now = Instant.now();
+		Instant now = clock.instant();
 
 		if (!pending.enrollmentID().equals(enrollmentID) || !now.isBefore(pending.expiresAt())
 				|| pending.sessionVersion() != current.getSessionVersion() || hasConfiguredFactor(userID)) {
@@ -199,12 +239,15 @@ public class AccountMfaService {
 	}
 
 	private Enrollment prepareEnrollment(UUID userID, long sessionVersion) {
+		return prepareEnrollment(userID, sessionVersion, clock.instant().plus(EnrollmentPrincipal.VALIDITY));
+	}
+
+	private Enrollment prepareEnrollment(UUID userID, long sessionVersion, Instant expiresAt) {
 		byte[] secret = new byte[MfaSecretCipher.SECRET_BYTES];
 		random.nextBytes(secret);
 
 		try {
 			UUID enrollmentID = UUID.randomUUID();
-			Instant expiresAt = Instant.now().plus(Duration.ofMinutes(10));
 			accountMfaStore.saveEnrollment(
 					new EnrollmentState(enrollmentID, userID, cipher.encrypt(userID, enrollmentID, secret),
 							sessionVersion, expiresAt));
@@ -223,7 +266,7 @@ public class AccountMfaService {
 		String hash = recoveryHash(proof);
 
 		accountMfaStore.saveEnrollmentProof(
-				new EnrollmentProof(userID, hash, sessionVersion, Instant.now().plus(Duration.ofMinutes(5))));
+				new EnrollmentProof(userID, hash, sessionVersion, clock.instant().plus(Duration.ofMinutes(5))));
 
 		return proof;
 	}
@@ -249,7 +292,11 @@ public class AccountMfaService {
 		sessionRevocation.revokeAllSessionsAfterCommit(current);
 	}
 
-	public Optional<EnrollmentProof> openContext(String proof) {
+	@Transactional
+	public Optional<EnrollmentPrincipal> openContext(String proof) {
+		if (proof == null || !proof.matches("[A-Za-z0-9_-]{22}")) {
+			return Optional.empty();
+		}
 
 		Instant now = clock.instant();
 		String proofHash = recoveryHash(proof);
@@ -260,14 +307,27 @@ public class AccountMfaService {
 		}
 
 		UUID userID = consumed.get().userID();
-		Optional<UserAccount> account = accountStore.findById(userID);
+		Optional<UserAccount> account = accountStore.findByIdForUpdate(userID);
 
 		if (account.isEmpty() || !account.get().getStatu().equals(UserAccountStatus.ACTIVE)
-				|| account.get().getSessionVersion() != consumed.get().sessionVersion()) {
+				|| account.get().getSessionVersion() != consumed.get().sessionVersion()
+				|| !clock.instant().isBefore(consumed.get().expiresAt()) || !requiresInitialEnrollment(userID)) {
 			return Optional.empty();
 		}
 
-		return consumed;
+		return Optional.of(new EnrollmentPrincipal(userID, consumed.get().sessionVersion(),
+				clock.instant().plus(EnrollmentPrincipal.VALIDITY)));
+	}
+
+	private UserAccount enrollmentAccount(EnrollmentPrincipal principal) {
+		if (principal == null) {
+			throw denied();
+		}
+		UserAccount current = activeAccount(principal.userID());
+		if (current.getSessionVersion() != principal.sessionVersion() || principal.isExpired(clock.instant())) {
+			throw denied();
+		}
+		return current;
 	}
 
 	private void record(AuditAction action, UserAccount current) {

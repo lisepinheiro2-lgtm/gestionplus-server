@@ -10,6 +10,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import fr.gestionplus.server.api.AccountActivationRoutes;
 import fr.gestionplus.server.api.HttpApiError;
+import fr.gestionplus.server.api.MfaEnrollmentRoutes;
 import fr.gestionplus.server.audit.AuditReason;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -25,6 +26,8 @@ final class PublicInvitationRateLimitFilter extends OncePerRequestFilter {
 			.matcher(HttpMethod.POST, AccountActivationRoutes.ACTIVATION_PATH);
 	private static final PathPatternRequestMatcher SMS_CHALLENGE_POST = PathPatternRequestMatcher.withDefaults()
 			.matcher(HttpMethod.POST, AccountActivationRoutes.SMS_CHALLENGE_PATH);
+	private static final PathPatternRequestMatcher ENROLLMENT_SESSION_POST = PathPatternRequestMatcher.withDefaults()
+			.matcher(HttpMethod.POST, MfaEnrollmentRoutes.ENROLLMENT_SESSION_PATH);
 	private final RequestRateLimiter rateLimiter;
 	private final HttpSecurityAudit audit;
 
@@ -57,6 +60,7 @@ final class PublicInvitationRateLimitFilter extends OncePerRequestFilter {
 	}
 
 	private boolean isPublicActivationPost(HttpServletRequest request) {
-		return ACTIVATION_POST.matches(request) || SMS_CHALLENGE_POST.matches(request);
+		return ACTIVATION_POST.matches(request) || SMS_CHALLENGE_POST.matches(request)
+				|| ENROLLMENT_SESSION_POST.matches(request);
 	}
 }

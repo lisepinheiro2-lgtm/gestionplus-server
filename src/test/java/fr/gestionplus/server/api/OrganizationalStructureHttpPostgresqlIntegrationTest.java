@@ -27,6 +27,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
@@ -322,7 +323,8 @@ class OrganizationalStructureHttpPostgresqlIntegrationTest extends AuditStorageI
 	private MockHttpSession session(UserAccount actor) {
 		MockHttpSession session = new MockHttpSession();
 		var security = SecurityContextHolder.createEmptyContext();
-		security.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(actor, null, List.of()));
+		security.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(actor, null,
+				List.of(new SimpleGrantedAuthority("ROLE_USER"))));
 		session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, security);
 		lifetime.start(session, true);
 		sessions.registerNewSession(session.getId(), actor);

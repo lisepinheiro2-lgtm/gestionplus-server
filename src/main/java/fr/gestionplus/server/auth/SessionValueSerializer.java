@@ -1,5 +1,6 @@
 package fr.gestionplus.server.auth;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -120,6 +121,7 @@ public final class SessionValueSerializer implements RedisSerializer<Object> {
 		case "boolean" -> flag(node, "value");
 		case "csrf" -> new DefaultCsrfToken(text(node, "header"), text(node, "parameter"), text(node, "value"));
 		case "context" -> decodeContext(node);
+		case "enrollment-context" -> decodeEnrollmentContext(node);
 		case "map" -> {
 			JsonNode values = node.get("value");
 
@@ -139,8 +141,20 @@ public final class SessionValueSerializer implements RedisSerializer<Object> {
 		var authentication = context.getAuthentication();
 
 		if (!(authentication instanceof UsernamePasswordAuthenticationToken) || !authentication.isAuthenticated()
-				|| authentication.getCredentials() != null
-				|| !(authentication.getPrincipal() instanceof UserAccount account)) {
+				|| authentication.getCredentials() != null) {
+			throw invalid();
+		}
+		if (authentication.getPrincipal() instanceof EnrollmentPrincipal principal) {
+			if (authentication.getDetails() != null || authentication.getAuthorities().size() != 1
+					|| !EnrollmentPrincipal.AUTHORITY.equals(authentication.getAuthorities().iterator().next().getAuthority())) {
+				throw invalid();
+			}
+			node.put("type", "enrollment-context").put("userID", principal.userID().toString())
+					.put("version", principal.sessionVersion()).put("expiresAt", principal.expiresAt().toString());
+			return;
+		}
+		if (!(authentication.getPrincipal() instanceof UserAccount account)
+				|| authentication.getAuthorities().stream().anyMatch(value -> EnrollmentPrincipal.AUTHORITY.equals(value.getAuthority()))) {
 			throw invalid();
 		}
 
@@ -175,6 +189,9 @@ public final class SessionValueSerializer implements RedisSerializer<Object> {
 				text(node, "lastName"), text(node, "firstName"), text(node, "email"), text(node, "phone"),
 				number(node, "version"));
 		var authorities = strings(node, "authorities").stream().map(SimpleGrantedAuthority::new).toList();
+		if (authorities.stream().anyMatch(value -> EnrollmentPrincipal.AUTHORITY.equals(value.getAuthority()))) {
+			throw invalid();
+		}
 		var authentication = UsernamePasswordAuthenticationToken.authenticated(account, null, authorities);
 
 		if (node.has("mfaVerified")) {
@@ -182,6 +199,16 @@ public final class SessionValueSerializer implements RedisSerializer<Object> {
 		}
 
 		return new SecurityContextImpl(authentication);
+	}
+
+	private SecurityContext decodeEnrollmentContext(JsonNode node) {
+		if (node.size() != 4) {
+			throw invalid();
+		}
+		EnrollmentPrincipal principal = new EnrollmentPrincipal(UUID.fromString(text(node, "userID")),
+				number(node, "version"), Instant.parse(text(node, "expiresAt")));
+		return new SecurityContextImpl(UsernamePasswordAuthenticationToken.authenticated(principal, null,
+				java.util.List.of(new SimpleGrantedAuthority(EnrollmentPrincipal.AUTHORITY))));
 	}
 
 	private java.util.List<String> strings(JsonNode node, String field) {

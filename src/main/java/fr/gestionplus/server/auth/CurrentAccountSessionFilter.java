@@ -1,11 +1,14 @@
 package fr.gestionplus.server.auth;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.time.Instant;
 
+import org.springframework.http.HttpMethod;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import fr.gestionplus.server.account.AccountStore;
@@ -20,18 +23,29 @@ import jakarta.servlet.http.HttpSession;
 
 final class CurrentAccountSessionFilter extends OncePerRequestFilter {
 
+	private static final PathPatternRequestMatcher CSRF_GET = PathPatternRequestMatcher.withDefaults()
+			.matcher(HttpMethod.GET, "/api/auth/csrf");
+	private static final PathPatternRequestMatcher ENROLLMENT_POST = PathPatternRequestMatcher.withDefaults()
+			.matcher(HttpMethod.POST, MfaEnrollmentRoutes.ENROLLMENT_PATH);
+	private static final PathPatternRequestMatcher COMPLETE_POST = PathPatternRequestMatcher.withDefaults()
+			.matcher(HttpMethod.POST, MfaEnrollmentRoutes.ENROLLMENT_COMPLETE_PATH);
+	private static final PathPatternRequestMatcher LOGOUT_POST = PathPatternRequestMatcher.withDefaults()
+			.matcher(HttpMethod.POST, "/logout");
+	private static final int MAX_ENROLLMENT_SUBMISSIONS = 5;
 	private final AccountStore accountStore;
 	private final HttpSecurityAudit audit;
 	private final SessionLifetime lifetime;
 	private final AccountMfaService mfa;
+	private final RequestRateLimiter rateLimiter;
 	private final SecurityContextLogoutHandler logoutHandler = new SecurityContextLogoutHandler();
 
 	CurrentAccountSessionFilter(AccountStore accountStore, HttpSecurityAudit audit, SessionLifetime lifetime,
-			AccountMfaService mfa) {
+			AccountMfaService mfa, RequestRateLimiter rateLimiter) {
 		this.accountStore = accountStore;
 		this.audit = audit;
 		this.lifetime = lifetime;
 		this.mfa = mfa;
+		this.rateLimiter = rateLimiter;
 	}
 
 	@Override
@@ -41,6 +55,39 @@ final class CurrentAccountSessionFilter extends OncePerRequestFilter {
 		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 		Instant requestStarted = null;
 		HttpSession session = request.getSession(false);
+		if (authentication != null && authentication.getPrincipal() instanceof EnrollmentPrincipal principal) {
+			boolean current = accountStore.findById(principal.userID())
+					.filter(account -> principal.userID().equals(account.getUserID())
+							&& account.getStatu() == UserAccountStatus.ACTIVE
+							&& account.getSessionVersion() == principal.sessionVersion()).isPresent();
+			Instant now = lifetime.now();
+			if (!current || principal.isExpired(now) || session == null) {
+				logoutHandler.logout(request, response, authentication);
+				audit.refused(request, principal, !current ? AuditReason.STALE_SESSION : AuditReason.SESSION_EXPIRED);
+				HttpApiError.AUTHENTICATION_REQUIRED.write(response);
+				return;
+			}
+			if (!CSRF_GET.matches(request) && !ENROLLMENT_POST.matches(request)
+					&& !COMPLETE_POST.matches(request) && !LOGOUT_POST.matches(request)) {
+				audit.refused(request, principal, AuditReason.ACCESS_NOT_AUTHORIZED);
+				HttpApiError.FORBIDDEN.write(response);
+				return;
+			}
+			if (COMPLETE_POST.matches(request)) {
+				RequestRateLimiter.Decision decision = rateLimiter.acquireForAccount("mfa-enrollment", principal.userID(),
+						MAX_ENROLLMENT_SUBMISSIONS, EnrollmentPrincipal.VALIDITY);
+				if (!decision.allowed()) {
+					audit.refused(request, principal, AuditReason.RATE_LIMITED);
+					Duration delay = decision.retryAfter();
+					long seconds = Math.max(1, delay.getSeconds() + (delay.getNano() == 0 ? 0 : 1));
+					response.setHeader("Retry-After", Long.toString(seconds));
+					HttpApiError.TOO_MANY_REQUESTS.write(response);
+					return;
+				}
+			}
+			chain.doFilter(request, response);
+			return;
+		}
 
 		if (authentication != null && authentication.getPrincipal() instanceof UserAccount principal) {
 			requestStarted = lifetime.now();
@@ -67,8 +114,7 @@ final class CurrentAccountSessionFilter extends OncePerRequestFilter {
 				return;
 			}
 
-			if (!access.mfaVerified() && mfa.requiresVerification(principal.getUserID())
-					&& !isMfaEnrollmentRoute(request)) {
+			if (!access.mfaVerified() && mfa.requiresVerification(principal.getUserID())) {
 				lifetime.end(session);
 				logoutHandler.logout(request, response, authentication);
 				audit.refused(request, principal, AuditReason.MFA_REQUIRED);
@@ -91,12 +137,4 @@ final class CurrentAccountSessionFilter extends OncePerRequestFilter {
 
 	}
 
-	private boolean isMfaEnrollmentRoute(HttpServletRequest request) {
-
-		String method = request.getMethod();
-		String path = request.getRequestURI().substring(request.getContextPath().length());
-
-		return "POST".equals(method) && (path.equals(MfaEnrollmentRoutes.ENROLLMENT_PATH)
-				|| path.equals(MfaEnrollmentRoutes.ENROLLMENT_COMPLETE_PATH));
-	}
 }

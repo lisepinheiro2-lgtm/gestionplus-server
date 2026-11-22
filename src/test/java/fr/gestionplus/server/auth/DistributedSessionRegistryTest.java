@@ -33,6 +33,28 @@ class DistributedSessionRegistryTest {
 	private final DistributedSessionRegistry registry = new DistributedSessionRegistry(sessions, activity);
 
 	@Test
+	void indexesAndRevokesAnEnrollmentContextWithoutConvertingItsPrincipalToAUserAccount() {
+		UUID userID = UUID.randomUUID();
+		EnrollmentPrincipal principal = new EnrollmentPrincipal(userID, 2, Instant.now().plusSeconds(600));
+		MapSession restricted = new MapSession();
+		restricted.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,
+				new SecurityContextImpl(UsernamePasswordAuthenticationToken.authenticated(principal, null,
+						List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority(EnrollmentPrincipal.AUTHORITY)))));
+		var index = new DistributedSessionConfiguration().sessionIndexResolver().resolveIndexesFor(restricted);
+		assertEquals(userID.toString(), index.get(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME));
+		when(sessions.findByPrincipalName(userID.toString())).thenReturn(Map.of(restricted.getId(), restricted));
+		assertEquals(principal, registry.getAllSessions(account(userID, 3), false).getFirst().getPrincipal());
+		TransactionSynchronizationManager.initSynchronization();
+		try {
+			new SessionRevocationService(registry).revokeAllSessionsAfterCommit(account(userID, 3));
+			TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
+			verify(sessions).deleteById(restricted.getId());
+		} finally {
+			TransactionSynchronizationManager.clearSynchronization();
+		}
+	}
+
+	@Test
 	void findsSessionsByUserIdAndPreservesEachSecurityVersion() {
 		UUID id = UUID.randomUUID();
 		UserAccount original = account(id, 1);
