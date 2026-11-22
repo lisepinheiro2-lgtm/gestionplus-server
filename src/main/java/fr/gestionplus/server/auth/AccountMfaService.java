@@ -29,6 +29,7 @@ import fr.gestionplus.server.audit.AuditService;
 import fr.gestionplus.server.audit.AuditTarget;
 import fr.gestionplus.server.audit.AuditTargetType;
 import fr.gestionplus.server.audit.AuditedOperation;
+import fr.gestionplus.server.auth.AccountMfaStore.EnrollmentProof;
 import fr.gestionplus.server.auth.AccountMfaStore.EnrollmentState;
 import fr.gestionplus.server.auth.AccountMfaStore.Factor;
 
@@ -206,6 +207,19 @@ public class AccountMfaService {
 			Arrays.fill(secret, (byte) 0);
 		}
 
+	}
+
+	public String issueEnrollmentProof(UUID userID, long sessionVersion) {
+
+		byte[] bytes = new byte[16];
+		random.nextBytes(bytes);
+		String proof = (Base64.getUrlEncoder().withoutPadding().encodeToString(bytes));
+		String hash = recoveryHash(proof);
+
+		store.saveEnrollmentProof(
+				new EnrollmentProof(userID, hash, sessionVersion, Instant.now().plus(Duration.ofMinutes(5))));
+
+		return proof;
 	}
 
 	private static String recoveryHash(String code) {

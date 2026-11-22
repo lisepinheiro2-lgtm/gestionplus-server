@@ -25,10 +25,18 @@ public interface AccountMfaStore {
 
 	void requireNewFactor(UUID userID);
 
+	void saveEnrollmentProof(EnrollmentProof proof);
+
+	boolean consumeEnrollmentProof(UUID userID, long sessionVersion, String proofHash, Instant now);
+
 	record Factor(byte[] encryptedSecret, long lastStep) {
 	}
 
 	record EnrollmentState(UUID enrollmentID, UUID userID, byte[] encryptedSecret, long sessionVersion,
 			Instant expiresAt) {
+	}
+
+	record EnrollmentProof(UUID userID, String proofHash, long sessionVersion, Instant expiresAt) {
+
 	}
 }

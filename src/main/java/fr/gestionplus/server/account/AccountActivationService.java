@@ -24,6 +24,8 @@ import fr.gestionplus.server.audit.AuditService;
 import fr.gestionplus.server.audit.AuditTarget;
 import fr.gestionplus.server.audit.AuditTargetType;
 import fr.gestionplus.server.audit.AuditedOperation;
+import fr.gestionplus.server.auth.AccountMfaService;
+import fr.gestionplus.server.auth.AuthorizationService;
 import fr.gestionplus.server.auth.CredentialService;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
@@ -43,6 +45,8 @@ public class AccountActivationService {
 	private final ObjectProvider<ActivationIdentityVerifier> identityVerifiers;
 	private final Clock clock;
 	private final TransactionTemplate activationTransaction;
+	private final AuthorizationService authorizationService;
+	private final AccountMfaService accountMfaService;
 
 	AccountActivationService(AccountStore accountStore,
 			AccountInvitationStore invitationStore,
@@ -53,7 +57,8 @@ public class AccountActivationService {
 			CredentialService credentialService, ActivationIdentityChallengeService challengeService,
 			ObjectProvider<ActivationIdentityVerifier> identityVerifiers,
 			PlatformTransactionManager transactionManager,
-			ObjectProvider<Clock> clocks) {
+			ObjectProvider<Clock> clocks, AuthorizationService authorizationService,
+			AccountMfaService accountMfaService) {
 
 		this.accountStore = accountStore;
 		this.invitationStore = invitationStore;
@@ -64,6 +69,8 @@ public class AccountActivationService {
 		this.credentialService = credentialService;
 		this.challengeService = challengeService;
 		this.identityVerifiers = identityVerifiers;
+		this.authorizationService = Objects.requireNonNull(authorizationService);
+		this.accountMfaService = Objects.requireNonNull(accountMfaService);
 		this.clock = clocks.getIfAvailable(Clock::systemUTC);
 		this.activationTransaction = new TransactionTemplate(transactionManager);
 
@@ -82,7 +89,7 @@ public class AccountActivationService {
 	}
 
 	@AuditedOperation(value = AuditAction.INVITATION_TOKEN_USE, invitation = 0)
-	public void completeActivation(UUID invitationID, String token,
+	public Optional<String> completeActivation(UUID invitationID, String token,
 			String proof, String userName, String rawPassword) {
 
 		validateRequest(invitationID, token, proof);
@@ -93,8 +100,9 @@ public class AccountActivationService {
 
 		UUID challengeID = verifyIdentity(invitation, proof);
 
-		activationTransaction.executeWithoutResult(status -> activateInTransaction(invitationID, token, challengeID,
+		return activationTransaction.execute(status -> activateInTransaction(invitationID, token, challengeID,
 				userName, rawPassword));
+
 	}
 
 	private void validateRequest(UUID invitationID, String token, String proof) {
@@ -153,7 +161,7 @@ public class AccountActivationService {
 		return verifiedChallenge.get();
 	}
 
-	private void activateInTransaction(UUID invitationID, String token,
+	private Optional<String> activateInTransaction(UUID invitationID, String token,
 			UUID challengeID, String userName, String rawPassword) {
 
 		Invitation candidate = invitationStore.findByID(invitationID)
@@ -214,6 +222,13 @@ public class AccountActivationService {
 				? AuditAction.ACCOUNT_REACTIVATE
 				: AuditAction.ACCOUNT_ACTIVATE,
 				AuditResult.SUCCESS, invitation);
+
+		if (authorizationService.requiresMfa(account.getUserID())) {
+			return Optional
+					.of(accountMfaService.issueEnrollmentProof(account.getUserID(), account.getSessionVersion()));
+		}
+
+		return Optional.empty();
 	}
 
 	private boolean tokenMatches(Invitation invitation, String token) {

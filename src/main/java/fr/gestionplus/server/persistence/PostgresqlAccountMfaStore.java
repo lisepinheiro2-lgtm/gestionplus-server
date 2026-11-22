@@ -1,5 +1,6 @@
 package fr.gestionplus.server.persistence;
 
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -102,5 +103,25 @@ public class PostgresqlAccountMfaStore implements AccountMfaStore {
 		jdbc.update("""
 				UPDATE account_mfa_state SET encrypted_secret = NULL, last_accepted_step = -1 WHERE user_id = ?
 				""", userID);
+	}
+
+	@Override
+	public void saveEnrollmentProof(EnrollmentProof proof) {
+		jdbc.update("""
+				INSERT INTO account_mfa_enrollment_proofs (user_id, proof_hash, session_version, expires_at)
+				VALUES (?, ?, ?, ?)
+				ON CONFLICT (user_id) DO UPDATE SET proof_hash = EXCLUDED.proof_hash,
+				    session_version = EXCLUDED.session_version, expires_at = EXCLUDED.expires_at
+				""", proof.userID(), proof.proofHash(), proof.sessionVersion(),
+				proof.expiresAt().atOffset(ZoneOffset.UTC));
+	}
+
+	@Override
+	@Transactional
+	public boolean consumeEnrollmentProof(UUID userID, long sessionVersion, String proofHash, Instant now) {
+		return jdbc.update("""
+				DELETE FROM account_mfa_enrollment_proofs
+				WHERE user_id = ? AND proof_hash = ? AND session_version = ? AND expires_at > ?
+				""", userID, proofHash, sessionVersion, now.atOffset(ZoneOffset.UTC)) == 1;
 	}
 }
