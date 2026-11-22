@@ -1,11 +1,26 @@
 ---
-summary: "Publication activation SMS : V28 révoque les anciens défis ouverts ; secrets externes et limites réelles."
+summary: "MFA restreint : index unique V30, preuves externes et limites de déploiement conservées."
 read_when:
   - "préparer une revue avant commit ou publication GitHub"
   - "retrouver les limites du transfert Git et de la synchronisation des notes privées"
 ---
 
 # Publier les sources et travailler sur deux ordinateurs
+
+<a id="mfa-restreint-2026-11-22"></a>
+
+## Publication du parcours MFA restreint — 22 novembre 2026
+
+Le commit local **`51407e3`** est relu ; sa publication distante n’est pas déduite de l’état local. Le rapport de Codex référence `e5f3434` avant modifications ; ses 25 empreintes correspondent au code courant. **1 191/1 191 serveur**, dont 14 scénarios à deux JVM, sans nouvelle validation du client ou d’un déploiement réel.
+
+**V29** conserve les preuves MFA, **V30** ajoute un index unique sur `proof_hash`. Ces fichiers sont présents et ont été validés dans des PostgreSQL jetables ; aucune migration existante n’est modifiée et aucune migration n’est exécutée pendant cette actualisation. Leur application en exploitation reste une opération distincte à préparer et autoriser.
+
+Conserver hors publication preuves brutes, secrets TOTP, clés de configuration, codes de secours, cookies, journaux et données de validation. Le contexte Redis restreint ne contient que l’identité, la version de sécurité et l’échéance ; la réponse begin contenant une clé TOTP n’est pas un contenu à journaliser.
+
+Dix minutes absolues et cinq soumissions de confirmation par compte/dix minutes sont contrôlées côté serveur avec Redis partagé ; le compteur ne dépend pas du rollback PostgreSQL. Cela ne valide ni Redis Cluster/haute disponibilité, ni proxy/réseau/TLS réels. Le formulaire Swing reste à raccorder. Aucun SMS réel ni appel à Free/OVHcloud, aucun déploiement validé ; aucun commit, push ou pull effectué ici. Voir [contrat et exploitation](DEVELOPPEMENT.md#mfa-restreint-2026-11-22).
+
+**Historique antérieur à la reprise MFA du 22 novembre : les résultats, décisions et anciennes limites ci-dessous gardent leur date et leur périmètre.**
+
 
 <a id="activation-sms-swing-2026-11-21"></a>
 

@@ -1,5 +1,22 @@
 # Gestion+ · Serveur
 
+<a id="mfa-restreint-2026-11-22"></a>
+
+## Enrôlement MFA restreint côté serveur — 22 novembre 2026
+
+Sur **`51407e3`**, une preuve unique ouvre un contexte d’enrôlement de **dix minutes absolues**, distinct d’une session métier. Rotation de session/CSRF, contrôle compte/version/expiration, sérialisation JSON restreinte, indexation et révocation Redis sont présents. Les requêtes et begin répétés ne prolongent pas l’échéance.
+
+POST `/api/auth/mfa/enrollment/session` consomme la preuve et répond 204 ; POST `/api/auth/mfa/enrollment` prépare ou restitue l’enrôlement valide ; POST `/api/auth/mfa/enrollment/complete` confirme le facteur, retourne les codes de secours et ferme le contexte. Connexion normale avec mot de passe et **nouveau TOTP** ensuite : le code de confirmation est déjà consommé, aucune promotion automatique ni accès métier depuis ce contexte.
+
+Confirmation limitée à **cinq soumissions par compte/dix minutes**, partagées via Redis et indépendantes des rollbacks. Ouverture incluse dans le quota public commun de **30 requêtes par IP/quinze minutes**. Dépassement en 429 avec `Retry-After` ; CSRF conservé, refus 403 `FORBIDDEN` (`CSRF_REJECTED` est la raison d’audit). V29 stocke les preuves ; V30 ajoute l’index unique sur `proof_hash`.
+
+**Codex : suite complète serveur 1 191/1 191**, dont 14 scénarios à deux JVM, sans échec/erreur/test ignoré. Les 25 fichiers inventoriés correspondent au rapport établi avant commit sur le socle `e5f3434`. PostgreSQL/Redis jetables, processus/conteneurs arrêtés, aucun SMS réel ni appel fournisseur.
+
+**Formulaire Swing encore à raccorder**, sans nouveau code ni nouvelle validation client. Déploiement réel et réception SMS non validés. Voir [contrat, preuves et limites](docs/AVANCEMENT.md#mfa-restreint-2026-11-22) et [guide développeur](docs/DEVELOPPEMENT.md#mfa-restreint-2026-11-22). Aucun test, build, serveur ou migration exécuté par cette mise à jour.
+
+**Historique antérieur à la reprise MFA du 22 novembre : les résultats, décisions et anciennes limites ci-dessous gardent leur date et leur périmètre.**
+
+
 <a id="activation-sms-swing-2026-11-21"></a>
 
 ## Activation SMS sécurisée et client Swing — 21 novembre 2026

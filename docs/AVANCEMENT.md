@@ -1,5 +1,5 @@
 ---
-summary: "Activation SMS/Swing 165d2e0/ec08c42 : V28, OVHcloud et suites complètes attribuées à Codex."
+summary: "MFA restreint 51407e3 : 1191/1191 serveur, échéance absolue et quotas partagés."
 read_when:
   - "reprendre les 900/900 tests, la chaîne HTTP réelle, les sessions et le simulateur SMS du 19 novembre"
   - "reprendre le contrôleur de demande de code SMS et son contrat HTTP"
@@ -32,6 +32,64 @@ read_when:
 ---
 
 # Avancement et feuille de route
+
+<a id="mfa-restreint-2026-11-22"></a>
+
+## Enrôlement MFA restreint finalisé côté serveur — 22 novembre 2026
+
+**Référence locale relue : `51407e3`**, après le socle `e5f3434`. Les arbres serveur, client et documentation privée étaient propres au début de la mission. Le serveur dispose du parcours restreint ; **son formulaire Swing reste à raccorder**. Les anciennes mentions d’enrôlement entièrement absent sont désormais des constats datés.
+
+### Contexte et échéance absolue
+
+`EnrollmentPrincipal(userID, sessionVersion, expiresAt)` porte exclusivement l’identité du compte, sa version de sécurité et une échéance absolue fixée à **dix minutes après ouverture**. Requêtes, lectures CSRF et appels répétés à begin ne prolongent pas cette échéance. `CurrentAccountSessionFilter` contrôle compte ACTIVE, identité, version et expiration ; un contexte expiré ou obsolète est invalidé au contrôle de la requête.
+
+L’autorité **`ROLE_MFA_ENROLLMENT` est distincte de `ROLE_USER`**. Une session restreinte n’est pas une session métier, et ne donne accès ni à l’identité métier/session ordinaire ni aux structures ou autres routes métier. La session métier existante ne peut pas être remplacée par le contexte d’enrôlement.
+
+### Contrat HTTP vérifié
+
+| Route | Contrat présent |
+| --- | --- |
+| POST `/api/auth/mfa/enrollment/session` | Corps JSON contenant `proof`. Recherche par empreinte, consommation unique avec contrôles compte/version/expiration ; un UUID seul ne suffit pas. Ouvre le contexte et répond **204** ; rotation de l’identifiant de session et renouvellement du contexte CSRF. |
+| POST `/api/auth/mfa/enrollment` | Begin utilise `EnrollmentPrincipal`, **sans seconde consommation de la preuve**. Renvoie enrollmentID, clé de configuration TOTP et échéance. Un enrôlement encore valide est restitué sans régénérer le secret ni prolonger son échéance. |
+| POST `/api/auth/mfa/enrollment/complete` | Reçoit `enrollmentID` et `code`, confirme le facteur et retourne les codes de secours. Le contexte restreint est fermé ; aucune promotion automatique en session métier. |
+
+Dans le contexte restreint, seules restent utilisables **GET `/api/auth/csrf`**, les **deux POST begin/complete** et **POST `/logout`** pour annuler/quitter. Le POST d’ouverture n’est pas une opération à répéter depuis ce contexte. CSRF et refus par défaut restent actifs.
+
+Après confirmation, il faut une **connexion normale avec mot de passe et nouveau TOTP**. Le pas TOTP accepté pour confirmer le facteur est déjà consommé et ne peut pas être rejoué immédiatement pour se connecter.
+
+**Contrat CSRF : HTTP 403 avec code JSON `FORBIDDEN`. `CSRF_REJECTED` est notamment une raison d’audit, pas le code public de cette réponse.** Ne pas le confondre avec le refus d’activation, l’expiration de session ou le dépassement de quota.
+
+### Partage Redis, révocations et limites
+
+`SessionValueSerializer` ajoute le type JSON explicite **`enrollment-context`**, avec conservation exacte de `expiresAt`. Le contexte sérialisé ne contient ni mot de passe, preuve brute, secret TOTP ou autorité métier ; représentations incohérentes, champs supplémentaires de ce contexte et tentatives de mélange des autorités sont rejetés. La clé TOTP fournie par begin ne devient pas un attribut de ce contexte Redis.
+
+`DistributedSessionConfiguration` indexe les sessions restreintes par compte ; `DistributedSessionRegistry` et `SessionRevocationService` les prennent en compte dans les révocations. `SpringAuditContextProvider` et `HttpSecurityAudit` rattachent l’audit à leur identité. L’horloge de sécurité est commune, fondée sur Redis et remplaçable dans les tests.
+
+La confirmation est limitée à **cinq soumissions par compte sur dix minutes**, partagées entre instances : il s’agit des soumissions et non uniquement des échecs. Le compteur Redis survit aux rollbacks PostgreSQL et n’est pas réinitialisé par begin. **`RequestRateLimiter.acquireForAccount`** est ajouté, distinct de `acquire` et de sa normalisation des IP ; dépassement en **429 avec `Retry-After`**.
+
+Le POST d’ouverture rejoint le quota public Redis commun aux routes d’activation : **30 requêtes par quinze minutes et par IP**. Ce quota d’IP ne remplace ni la preuve unique ni le plafond de confirmation par compte. L’indisponibilité de la sécurité partagée conserve son refus en 503, sans repli local de production.
+
+### Persistance et périmètre des migrations
+
+**V29** (`V29__store_mfa_enrollment_proofs.sql`) conserve le stockage des preuves MFA : empreinte, compte, version et expiration. **V30** (`V30__index_mfa_enrollment_proof_hash.sql`) ajoute un **index unique sur `proof_hash`**, pour identifier un seul compte et accélérer la recherche par empreinte. `PostgresqlAccountMfaStore.consumeEnrollmentProofHash` combine consommation atomique, verrouillage du compte et contrôles de statut/version/expiration.
+
+Ces migrations sont présentes dans le code ; **aucune migration existante n’est modifiée ou exécutée pendant cette actualisation documentaire**. Les exécutions de validation ne concernaient que des bases jetables.
+
+### Validation exécutée par Codex — 22 novembre 2026
+
+**Suite serveur complète : 1 191/1 191 réussis, dont 14 scénarios sur deux JVM ; aucun échec, erreur ou test ignoré.** Parcours HTTP couvert : activation avec SMS simulé → preuve unique → contexte restreint → enrôlement TOTP → fermeture du contexte → connexion normale avec un nouveau TOTP. Vérifications supplémentaires : expiration absolue malgré lectures CSRF/begin répétés, CSRF, refus du métier, révocation, anti-rejeu et quota partagé indépendant des rollbacks PostgreSQL.
+
+Validation dans une copie isolée, PostgreSQL et Redis jetables ; processus et conteneurs de validation arrêtés. Aucun SMS réel ni appel à Free ou OVHcloud. Ces vérifications précèdent la présente actualisation documentaire : aucun test, build, serveur ou migration n’est relancé ici.
+
+Le rapport référence **`e5f3434` avant modifications** ; le code est désormais dans le commit local **`51407e3`**. Les empreintes actuelles des **25 fichiers inventoriés** correspondent au rapport, sans écart. Ne pas présenter le résultat comme celui du seul socle `e5f3434`, le transférer à des changements ultérieurs ou déduire une publication distante du commit local.
+
+Les **1 157/1 157** précédents, les 1 143/1 143 et les résultats ciblés antérieurs restent des jalons historiques avec leurs périmètres. Aucun changement de code client ni nouvelle validation du client pendant cette mission. **Formulaire Swing d’enrôlement encore à raccorder**, déploiement et réception réelle de SMS non validés ; le parcours HTTP isolé ne constitue pas une recette complète Swing → fournisseur → téléphone.
+
+### Suite et limites
+
+Reste le raccordement Swing du formulaire, de l’ouverture du contexte et de son cycle de fin. Les confirmations privilégiées, ADMIN_EMERGENCY, l’audit SMS filtré par entreprise, le métier connecté et l’exploitation conservent leurs périmètres propres. Redis Cluster/haute disponibilité, proxy/réseau réels et réception réelle de SMS ne sont pas validés par ce lot.
+
+**Historique antérieur à la reprise MFA du 22 novembre : les résultats et anciennes limites ci-dessous restent attachés à leur date et leur périmètre.**
 
 <a id="activation-sms-swing-2026-11-21"></a>
 

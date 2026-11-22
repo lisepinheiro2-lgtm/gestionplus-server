@@ -1,11 +1,52 @@
 ---
-summary: "Activation 165d2e0 : configuration OVHcloud externe, reprise V28 et profil test PostgreSQL jetable."
+summary: "MFA restreint 51407e3 : contrat HTTP, dix minutes absolues, quotas Redis et index V30."
 read_when:
   - "explorer les couches Java JPA PostgreSQL et les migrations sans lancer le serveur"
   - "préparer ultérieurement un lancement ou des tests expressément autorisés"
 ---
 
 # Explorer et lancer le serveur localement
+
+<a id="mfa-restreint-2026-11-22"></a>
+
+## Explorer l’enrôlement MFA restreint — 22 novembre 2026
+
+État relu **`51407e3`**. Le serveur finalise le contexte restreint et ses opérations HTTP ; **le formulaire Swing reste à raccorder**, sans nouveau code ni nouvelle validation client dans cette mission. Le parcours de connexion normal conserve mot de passe et TOTP dans son POST, sans promotion automatique depuis l’enrôlement.
+
+### Chaîne de lecture et échanges
+
+Suivre `MfaEnrollmentRoutes` → `MfaEnrollmentController` → `AccountMfaService.openContext` / `beginEnrollment(EnrollmentPrincipal)` / `completeEnrollment(EnrollmentPrincipal, …)`. Puis lire `PostgresqlAccountMfaStore.consumeEnrollmentProofHash`, `EnrollmentPrincipal` et `CurrentAccountSessionFilter`.
+
+1. Obtenir le CSRF anonyme, puis POST `/api/auth/mfa/enrollment/session` avec la preuve dans le JSON. Le serveur recherche son empreinte et la consomme une seule fois, après contrôles de compte ACTIVE, identité/version et expiration ; réponse **204**, rotation de session et invalidation du précédent contexte CSRF. Un UUID seul ne fournit aucune autorisation ; une session métier déjà ouverte ne peut pas être remplacée.
+2. Relire GET `/api/auth/csrf` dans la session restreinte, puis POST `/api/auth/mfa/enrollment`. La preuve n’est pas redemandée ni consommée à nouveau. Le résultat comporte `enrollmentID`, `setupKey` et `expiresAt`. Begin répété conserve l’enrôlement encore valide, son secret et son échéance.
+3. POST `/api/auth/mfa/enrollment/complete` avec `enrollmentID` et `code`, sous CSRF valide. Le facteur est confirmé, les codes de secours retournés et le contexte restreint fermé. Une connexion normale avec mot de passe et **nouveau TOTP** est ensuite nécessaire : le pas de confirmation est déjà consommé. POST `/logout` permet aussi d’annuler/quitter.
+
+Le secret de configuration retourné à l’étape begin, la preuve et les codes de secours ne doivent pas être consignés dans les journaux, exemples ou captures partagées. Ils ne sont pas des attributs du contexte restreint Redis.
+
+### Autorités, échéances et erreurs
+
+`EnrollmentPrincipal` contient uniquement `userID`, `sessionVersion`, `expiresAt`. Échéance absolue **dix minutes après ouverture**, indépendante de l’activité : requêtes, lectures CSRF et begin ne la repoussent pas. Un contexte expiré/obsolète est invalidé lors de son contrôle. `ROLE_MFA_ENROLLMENT` reste distinct de `ROLE_USER` ; aucune route métier n’est ouverte par cette autorité.
+
+Routes utilisables dans ce contexte : GET CSRF, POST begin, POST complete et POST logout. CSRF et refus par défaut demeurent. **Refus CSRF : 403 `FORBIDDEN` ; `CSRF_REJECTED` est une raison d’audit.** Quota dépassé : **429 avec `Retry-After`**. Contexte expiré/version obsolète : invalidation et 401. Redis indisponible : politique 503 sans repli local, selon le traitement de sécurité partagé existant.
+
+### Redis et stockage PostgreSQL
+
+`SessionValueSerializer` encode explicitement `enrollment-context` et préserve l’Instant d’expiration exact ; aucun mot de passe, preuve brute, secret TOTP ou autorité métier n’est stocké dans ce contexte. Les mélanges d’autorités et représentations incohérentes sont refusés. Sessions restreintes indexées par compte et incluses dans les révocations ; audit rattaché à leur identité.
+
+`DistributedSessionConfiguration.securityClock` fournit l’horloge fondée sur Redis quand aucune horloge de remplacement n’est fournie ; les tests peuvent la remplacer. Le bean d’horloge ne transforme pas l’échéance absolue en durée glissante.
+
+`RequestRateLimiter.acquireForAccount(scope, userID, limit, window)` dérive une clé de compte distincte du traitement IP de `acquire`. La confirmation utilise **cinq soumissions par compte en dix minutes**, partagées entre instances, conservées malgré les rollbacks PostgreSQL et non remises à zéro par begin. Le POST d’ouverture partage les **30 requêtes par IP sur quinze minutes** avec les routes publiques d’activation.
+
+**V29** stocke les empreintes de preuves ; **V30** ajoute l’index unique `uq_mfa_enrollment_proof_hash` sur `proof_hash`. Consommation atomique avec verrou du compte et contrôles statut/version/expiration. Aucune migration existante modifiée ni aucune migration exécutée ici ; la validation antérieure utilise uniquement des bases jetables.
+
+### Preuves et validations à distinguer
+
+Lire `MfaEnrollmentHttpTest`, `EnrollmentSessionFilterTest`, `SessionValueSerializerTest`, `MfaEnrollmentProofPostgresqlIntegrationTest`, `RedisRequestRateLimiterIntegrationTest` et `MultiInstanceSessionIntegrationTest`. Les anciens tests MockMvc et leurs sessions servlet simulées restent distincts des **14 scénarios sur deux JVM avec Redis réel**.
+
+Codex : **1 191/1 191 serveur**, sans échec/erreur/test ignoré, avec PostgreSQL/Redis jetables ; 25 empreintes recoupées avec le rapport. Les **1 157/1 157** restent historiques. Aucun appel Free/OVHcloud, SMS réel, nouveau test client ou déploiement. Voir [preuves, contrat et limites](AVANCEMENT.md#mfa-restreint-2026-11-22). Aucun test, build, serveur ou migration lancé pendant cette actualisation.
+
+**Historique antérieur à la reprise MFA du 22 novembre : les résultats, décisions et anciennes limites ci-dessous gardent leur date et leur périmètre.**
+
 
 <a id="activation-sms-swing-2026-11-21"></a>
 

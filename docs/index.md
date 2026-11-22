@@ -1,12 +1,29 @@
 ---
 title: "Documentation du serveur Spring Boot"
-summary: "Serveur 165d2e0 : activation SMS sécurisée, V28, OVHcloud et 1143/1143 tests complets."
+summary: "MFA restreint 51407e3 : 1191/1191 serveur, dix minutes absolues et Swing restant à raccorder."
 read_when:
   - "commencer une séance sur le serveur ou retrouver un document"
   - "préparer l’intégration Swing Spring Boot PostgreSQL"
 ---
 
 # Documentation du serveur Spring Boot
+
+<a id="mfa-restreint-2026-11-22"></a>
+
+## Reprise MFA restreint — 22 novembre 2026
+
+**Serveur relu `51407e3`.** Contexte `EnrollmentPrincipal` de dix minutes absolues, sans accès métier ; preuve consommée une seule fois à l’ouverture, begin réutilisable sans renouveler le secret ni l’échéance, confirmation puis fermeture du contexte. Connexion normale avec un nouveau TOTP ensuite, sans promotion automatique.
+
+- [Contrat HTTP, sérialisation Redis, révocations et quotas](AVANCEMENT.md#mfa-restreint-2026-11-22).
+- [Chaîne de lecture, erreurs réelles et migrations V29/V30](DEVELOPPEMENT.md#mfa-restreint-2026-11-22).
+- [Publication et précautions d’exploitation](PUBLICATION.md#mfa-restreint-2026-11-22).
+
+**Codex : 1 191/1 191 serveur, dont 14 scénarios sur deux JVM**, sans échec, erreur ou test ignoré. Les 25 empreintes du rapport correspondent à l’état actuel ; le rapport référence `e5f3434` avant modifications. Les 1 157/1 157 précédents restent historiques. Aucun test relancé pendant cette mise à jour.
+
+Le formulaire Swing reste à raccorder, sans nouveau code ou résultat client. Réception réelle de SMS et déploiement non validés. Refus CSRF : **403 `FORBIDDEN`**, avec `CSRF_REJECTED` comme raison d’audit.
+
+**Historique antérieur à la reprise MFA du 22 novembre : les résultats, décisions et anciennes limites ci-dessous gardent leur date et leur périmètre.**
+
 
 <a id="activation-sms-swing-2026-11-21"></a>
 
