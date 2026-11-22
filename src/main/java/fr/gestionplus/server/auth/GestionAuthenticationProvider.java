@@ -11,6 +11,7 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.stereotype.Component;
 
 import fr.gestionplus.server.audit.AuditReason;
@@ -68,7 +69,7 @@ public class GestionAuthenticationProvider implements AuthenticationProvider {
 			}
 
 			UsernamePasswordAuthenticationToken result = UsernamePasswordAuthenticationToken
-					.authenticated(attempt.account(), null, List.of());
+					.authenticated(attempt.account(), null, List.of(new SimpleGrantedAuthority("ROLE_USER")));
 			result.setDetails(new LoginAssurance(verification == AccountMfaService.Verification.VERIFIED));
 			return result;
 

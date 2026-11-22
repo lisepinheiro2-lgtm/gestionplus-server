@@ -29,6 +29,8 @@ public interface AccountMfaStore {
 
 	boolean consumeEnrollmentProof(UUID userID, long sessionVersion, String proofHash, Instant now);
 
+	Optional<EnrollmentProof> consumeEnrollmentProofHash(String proofHash, Instant now);
+
 	record Factor(byte[] encryptedSecret, long lastStep) {
 	}
 

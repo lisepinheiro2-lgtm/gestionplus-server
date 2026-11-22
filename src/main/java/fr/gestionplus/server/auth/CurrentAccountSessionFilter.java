@@ -3,11 +3,9 @@ package fr.gestionplus.server.auth;
 import java.io.IOException;
 import java.time.Instant;
 
-import org.springframework.http.HttpMethod;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
-import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import fr.gestionplus.server.account.AccountStore;

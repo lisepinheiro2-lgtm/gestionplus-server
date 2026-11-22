@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -11,6 +12,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
@@ -36,38 +38,40 @@ import fr.gestionplus.server.auth.AccountMfaStore.Factor;
 @Service
 public class AccountMfaService {
 
-	private final AccountStore accounts;
-	private final AccountMfaStore store;
-	private final AuthorizationService authorization;
+	private final AccountStore accountStore;
+	private final AccountMfaStore accountMfaStore;
+	private final AuthorizationService authorisationService;
 	private final MfaSecretCipher cipher;
 	private final ObjectProvider<MfaEnrollmentVerifier> identityVerifier;
 	private final LoginService login;
-	private final SessionRevocationService sessions;
+	private final SessionRevocationService sessionRevocation;
 	private final AuditService audit;
 	private final AuditContextProvider auditContext;
 	private final SecureRandom random = new SecureRandom();
+	private final Clock clock;
 
 	public AccountMfaService(AccountStore accounts, AccountMfaStore store, AuthorizationService authorization,
 			MfaSecretCipher cipher, ObjectProvider<MfaEnrollmentVerifier> identityVerifier, LoginService login,
-			SessionRevocationService sessions, AuditService audit, AuditContextProvider auditContext) {
-		this.accounts = accounts;
-		this.store = store;
-		this.authorization = authorization;
+			SessionRevocationService sessions, AuditService audit, AuditContextProvider auditContext, Clock clock) {
+		this.accountStore = accounts;
+		this.accountMfaStore = store;
+		this.authorisationService = authorization;
 		this.cipher = cipher;
 		this.identityVerifier = identityVerifier;
 		this.login = login;
-		this.sessions = sessions;
+		this.sessionRevocation = sessions;
 		this.audit = audit;
 		this.auditContext = auditContext;
+		this.clock = clock;
 	}
 
 	public boolean requiresVerification(UUID userID) {
-		return store.hasState(userID) || authorization.requiresMfa(userID);
+		return accountMfaStore.hasState(userID) || authorisationService.requiresMfa(userID);
 	}
 
 	@Transactional
 	public Verification verifyForLogin(UserAccount snapshot, String code) {
-		UserAccount current = accounts.findByIdForUpdate(snapshot.getUserID()).orElse(null);
+		UserAccount current = accountStore.findByIdForUpdate(snapshot.getUserID()).orElse(null);
 
 		if (current == null || !current.getUserID().equals(snapshot.getUserID())
 				|| current.getStatu() != UserAccountStatus.ACTIVE
@@ -75,10 +79,11 @@ public class AccountMfaService {
 			return Verification.DENIED;
 		}
 
-		Factor factor = store.findFactor(current.getUserID()).orElse(null);
+		Factor factor = accountMfaStore.findFactor(current.getUserID()).orElse(null);
 
 		if (factor == null) {
-			return authorization.requiresMfa(current.getUserID()) ? Verification.DENIED : Verification.NOT_REQUIRED;
+			return authorisationService.requiresMfa(current.getUserID()) ? Verification.DENIED
+					: Verification.NOT_REQUIRED;
 		}
 
 		if (factor.encryptedSecret() == null || !cipher.available()) {
@@ -89,7 +94,7 @@ public class AccountMfaService {
 
 		try {
 			OptionalLong step = TotpCodes.matchingStep(secret, code, Instant.now(), factor.lastStep());
-			return step.isPresent() && store.advanceAcceptedStep(current.getUserID(), step.getAsLong())
+			return step.isPresent() && accountMfaStore.advanceAcceptedStep(current.getUserID(), step.getAsLong())
 					? Verification.VERIFIED
 					: Verification.DENIED;
 		} finally {
@@ -119,7 +124,7 @@ public class AccountMfaService {
 	@Transactional
 	public RecoveryCodes completeEnrollment(UUID userID, UUID enrollmentID, String code) {
 		UserAccount current = activeAccount(userID);
-		EnrollmentState pending = store.findEnrollment(userID).orElseThrow(this::denied);
+		EnrollmentState pending = accountMfaStore.findEnrollment(userID).orElseThrow(this::denied);
 		Instant now = Instant.now();
 
 		if (!pending.enrollmentID().equals(enrollmentID) || !now.isBefore(pending.expiresAt())
@@ -144,9 +149,9 @@ public class AccountMfaService {
 				codes.add(Base64.getUrlEncoder().withoutPadding().encodeToString(bytes));
 			}
 
-			store.saveFactor(userID, cipher.encrypt(userID, null, secret), step.getAsLong(),
+			accountMfaStore.saveFactor(userID, cipher.encrypt(userID, null, secret), step.getAsLong(),
 					codes.stream().map(AccountMfaService::recoveryHash).toList());
-			store.removeEnrollment(userID);
+			accountMfaStore.removeEnrollment(userID);
 			revokeSessions(current);
 			record(AuditAction.MFA_ENROLLMENT, current);
 			return new RecoveryCodes(codes);
@@ -173,11 +178,11 @@ public class AccountMfaService {
 		UserAccount current = activeAccount(attempt.account().getUserID());
 
 		if (current.getSessionVersion() != attempt.account().getSessionVersion()
-				|| !store.consumeRecoveryCode(current.getUserID(), recoveryHash(recoveryCode))) {
+				|| !accountMfaStore.consumeRecoveryCode(current.getUserID(), recoveryHash(recoveryCode))) {
 			throw denied();
 		}
 
-		store.requireNewFactor(current.getUserID());
+		accountMfaStore.requireNewFactor(current.getUserID());
 		revokeSessions(current);
 		Enrollment enrollment = prepareEnrollment(current.getUserID(), current.getSessionVersion() + 1);
 		record(AuditAction.MFA_RECOVERY, current);
@@ -185,11 +190,11 @@ public class AccountMfaService {
 	}
 
 	private boolean hasConfiguredFactor(UUID userID) {
-		return store.findFactor(userID).filter(factor -> factor.encryptedSecret() != null).isPresent();
+		return accountMfaStore.findFactor(userID).filter(factor -> factor.encryptedSecret() != null).isPresent();
 	}
 
 	private UserAccount activeAccount(UUID userID) {
-		return accounts.findByIdForUpdate(userID).filter(account -> account.getUserID().equals(userID))
+		return accountStore.findByIdForUpdate(userID).filter(account -> account.getUserID().equals(userID))
 				.filter(account -> account.getStatu() == UserAccountStatus.ACTIVE).orElseThrow(this::denied);
 	}
 
@@ -200,8 +205,9 @@ public class AccountMfaService {
 		try {
 			UUID enrollmentID = UUID.randomUUID();
 			Instant expiresAt = Instant.now().plus(Duration.ofMinutes(10));
-			store.saveEnrollment(new EnrollmentState(enrollmentID, userID, cipher.encrypt(userID, enrollmentID, secret),
-					sessionVersion, expiresAt));
+			accountMfaStore.saveEnrollment(
+					new EnrollmentState(enrollmentID, userID, cipher.encrypt(userID, enrollmentID, secret),
+							sessionVersion, expiresAt));
 			return new Enrollment(enrollmentID, TotpCodes.setupKey(secret), expiresAt);
 		} finally {
 			Arrays.fill(secret, (byte) 0);
@@ -216,7 +222,7 @@ public class AccountMfaService {
 		String proof = (Base64.getUrlEncoder().withoutPadding().encodeToString(bytes));
 		String hash = recoveryHash(proof);
 
-		store.saveEnrollmentProof(
+		accountMfaStore.saveEnrollmentProof(
 				new EnrollmentProof(userID, hash, sessionVersion, Instant.now().plus(Duration.ofMinutes(5))));
 
 		return proof;
@@ -234,13 +240,34 @@ public class AccountMfaService {
 	}
 
 	public boolean requiresInitialEnrollment(UUID userID) {
-		return authorization.requiresMfa(userID) && !hasConfiguredFactor(userID);
+		return authorisationService.requiresMfa(userID) && !hasConfiguredFactor(userID);
 	}
 
 	private void revokeSessions(UserAccount current) {
-		accounts.advanceSessionVersion(current.getUserID());
+		accountStore.advanceSessionVersion(current.getUserID());
 		record(AuditAction.AUTH_SESSION_REVOKE, current);
-		sessions.revokeAllSessionsAfterCommit(current);
+		sessionRevocation.revokeAllSessionsAfterCommit(current);
+	}
+
+	public Optional<EnrollmentProof> openContext(String proof) {
+
+		Instant now = clock.instant();
+		String proofHash = recoveryHash(proof);
+		Optional<EnrollmentProof> consumed = accountMfaStore.consumeEnrollmentProofHash(proofHash, now);
+
+		if (consumed.isEmpty()) {
+			return Optional.empty();
+		}
+
+		UUID userID = consumed.get().userID();
+		Optional<UserAccount> account = accountStore.findById(userID);
+
+		if (account.isEmpty() || !account.get().getStatu().equals(UserAccountStatus.ACTIVE)
+				|| account.get().getSessionVersion() != consumed.get().sessionVersion()) {
+			return Optional.empty();
+		}
+
+		return consumed;
 	}
 
 	private void record(AuditAction action, UserAccount current) {

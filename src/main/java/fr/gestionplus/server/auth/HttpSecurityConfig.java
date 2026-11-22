@@ -16,7 +16,11 @@ import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
+import org.springframework.security.web.context.DelegatingSecurityContextRepository;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextHolderFilter;
+import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfException;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
 import org.springframework.web.filter.FormContentFilter;
@@ -52,11 +56,13 @@ public class HttpSecurityConfig {
 	public SecurityFilterChain securityFilterChain(HttpSecurity http, SessionRegistry registry,
 			AccountStore accountStore, AuditService auditService, SessionLifetime lifetime, AccountMfaService mfa,
 			HttpRequestPolicyFilter requestPolicy, ObjectProvider<FormContentFilter> formContentFilters,
-			RequestRateLimiter rateLimiter) throws Exception {
+			RequestRateLimiter rateLimiter, SecurityContextRepository securityContextRepository) throws Exception {
 
 		HttpSecurityAudit audit = new HttpSecurityAudit(auditService);
 		SecurityContextLogoutHandler logoutHandler = new SecurityContextLogoutHandler();
 
+		http.securityContext(config -> config.securityContextRepository(securityContextRepository));
+		
 		http.formLogin(form -> form.permitAll()
 				.authenticationDetailsSource(request -> new GestionAuthenticationProvider.LoginDetails(
 						request.getRemoteAddr(), request.getParameter("totp")))
@@ -117,14 +123,17 @@ public class HttpSecurityConfig {
 		http.requestCache(cache -> cache.disable());
 		http.authorizeHttpRequests(auth -> auth.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
 				.requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
-				.requestMatchers(HttpMethod.GET, "/api/auth/me", SessionLifetime.STATUS_PATH).authenticated()
+				.requestMatchers(HttpMethod.GET, "/api/auth/me", SessionLifetime.STATUS_PATH).hasAuthority("ROLE_USER")
 				.requestMatchers(HttpMethod.GET, OrganizationalStructureRoutes.STRUCTURES_PATH,
 						OrganizationalStructureRoutes.STRUCTURE_PATH)
-				.authenticated()
+				.hasAuthority("ROLE_USER")
 				.requestMatchers(HttpMethod.POST, AccountActivationRoutes.SMS_CHALLENGE_PATH).permitAll()
 				.requestMatchers(HttpMethod.POST, AccountActivationRoutes.ACTIVATION_PATH).permitAll()
-				.requestMatchers(HttpMethod.POST, MfaEnrollmentRoutes.ENROLLMENT_PATH).authenticated()
-				.requestMatchers(HttpMethod.POST, MfaEnrollmentRoutes.ENROLLMENT_COMPLETE_PATH).authenticated()
+				.requestMatchers(HttpMethod.POST, MfaEnrollmentRoutes.ENROLLMENT_PATH)
+				.hasAuthority("ROLE_MFA_ENROLLMENT")
+				.requestMatchers(HttpMethod.POST, MfaEnrollmentRoutes.ENROLLMENT_COMPLETE_PATH)
+				.hasAuthority("ROLE_MFA_ENROLLMENT")
+				.requestMatchers(HttpMethod.POST, MfaEnrollmentRoutes.ENROLLMENT_SESSION_PATH).permitAll()
 				.anyRequest().denyAll());
 
 		http.sessionManagement(sessions -> sessions.maximumSessions(-1).sessionRegistry(registry)
@@ -181,4 +190,12 @@ public class HttpSecurityConfig {
 		return new HttpSessionEventPublisher();
 	}
 
+	@Bean
+	public SecurityContextRepository securityContextRepository() {
+
+		SecurityContextRepository requestRepository = new RequestAttributeSecurityContextRepository();
+		SecurityContextRepository sessionRepository = new HttpSessionSecurityContextRepository();
+
+		return new DelegatingSecurityContextRepository(requestRepository, sessionRepository);
+	}
 }

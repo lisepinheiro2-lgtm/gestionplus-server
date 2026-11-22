@@ -124,4 +124,15 @@ public class PostgresqlAccountMfaStore implements AccountMfaStore {
 				WHERE user_id = ? AND proof_hash = ? AND session_version = ? AND expires_at > ?
 				""", userID, proofHash, sessionVersion, now.atOffset(ZoneOffset.UTC)) == 1;
 	}
+
+	@Override
+	public Optional<EnrollmentProof> consumeEnrollmentProofHash(String proofHash, Instant now) {
+		return jdbc.query("""
+				DELETE FROM account_mfa_enrollment_proofs
+				WHERE proof_hash = ? AND expires_at > ?
+				RETURNING user_id, proof_hash, session_version, expires_at
+				""", (row, rowNumber) -> new EnrollmentProof(row.getObject(1, UUID.class), row.getString(2),
+				row.getLong(3), row.getObject(4, OffsetDateTime.class).toInstant()), proofHash,
+				now.atOffset(ZoneOffset.UTC)).stream().findFirst();
+	}
 }
