@@ -24,6 +24,7 @@ import org.springframework.web.filter.FormContentFilter;
 import fr.gestionplus.server.account.AccountStore;
 import fr.gestionplus.server.api.AccountActivationRoutes;
 import fr.gestionplus.server.api.HttpApiError;
+import fr.gestionplus.server.api.MfaEnrollmentRoutes;
 import fr.gestionplus.server.api.OrganizationalStructureRoutes;
 import fr.gestionplus.server.audit.AuditReason;
 import fr.gestionplus.server.audit.AuditService;
@@ -122,6 +123,8 @@ public class HttpSecurityConfig {
 				.authenticated()
 				.requestMatchers(HttpMethod.POST, AccountActivationRoutes.SMS_CHALLENGE_PATH).permitAll()
 				.requestMatchers(HttpMethod.POST, AccountActivationRoutes.ACTIVATION_PATH).permitAll()
+				.requestMatchers(HttpMethod.POST, MfaEnrollmentRoutes.ENROLLMENT_PATH).authenticated()
+				.requestMatchers(HttpMethod.POST, MfaEnrollmentRoutes.ENROLLMENT_COMPLETE_PATH).authenticated()
 				.anyRequest().denyAll());
 
 		http.sessionManagement(sessions -> sessions.maximumSessions(-1).sessionRegistry(registry)

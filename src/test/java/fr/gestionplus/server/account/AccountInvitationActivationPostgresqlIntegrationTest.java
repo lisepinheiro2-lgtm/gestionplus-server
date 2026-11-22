@@ -10,7 +10,11 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CyclicBarrier;
@@ -22,10 +26,13 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import fr.gestionplus.server.account.AccountInvitationStore.Invitation;
+import fr.gestionplus.server.auth.MfaEnrollmentVerifier;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
 import fr.gestionplus.server.auth.UserCredential;
@@ -33,6 +40,60 @@ import fr.gestionplus.server.auth.UserRole;
 import fr.gestionplus.server.persistence.UserCredentialEntity;
 
 class AccountInvitationActivationPostgresqlIntegrationTest extends AbstractAccountInvitationPostgresqlIntegrationTest {
+
+	@Autowired
+	private MfaEnrollmentVerifier enrollmentVerifier;
+
+	@ParameterizedTest
+	@ValueSource(booleans = { false, true })
+	void activationOnlyPersistsAndReturnsAProofWhenInitialMfaEnrollmentIsRequired(boolean mfaRequired) throws Exception {
+		UUID userID = preparePendingAccount();
+		if (mfaRequired) {
+			addMfaRequiredRole(userID);
+		}
+		SentInvitation message = sendInitial(userID);
+		allowActivation(userID, message);
+
+		Optional<String> proof = activation.completeActivation(message.invitationID(), message.token(), "verified-proof",
+				"activated_" + userID, "valid-test-password");
+
+		assertEquals(UserAccountStatus.ACTIVE, account(userID).getStatu());
+		assertEquals(mfaRequired, proof.isPresent());
+		assertEquals(mfaRequired ? 1 : 0, enrollmentProofCount(userID));
+		if (mfaRequired) {
+			String supplied = proof.orElseThrow();
+			assertTrue(supplied.matches("[A-Za-z0-9_-]{22}"));
+			String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+					.digest(supplied.getBytes(StandardCharsets.US_ASCII)));
+			assertEquals(hash, jdbcTemplate.queryForObject(
+					"SELECT proof_hash FROM account_mfa_enrollment_proofs WHERE user_id = ?", String.class, userID));
+			long version = account(userID).getSessionVersion();
+			assertTrue(enrollmentVerifier.consumeVerifiedIdentity(userID, version, supplied));
+			assertFalse(enrollmentVerifier.consumeVerifiedIdentity(userID, version, supplied));
+		}
+	}
+
+	@Test
+	void rollingBackActivationAlsoRollsBackTheEnrollmentProofAndChallengeConsumption() {
+		UUID userID = preparePendingAccount();
+		addMfaRequiredRole(userID);
+		SentInvitation message = sendInitial(userID);
+		allowActivation(userID, message);
+
+		assertThrows(IllegalStateException.class, () -> new TransactionTemplate(transactionManager)
+				.executeWithoutResult(status -> {
+					assertTrue(activation.completeActivation(message.invitationID(), message.token(), "verified-proof",
+							"activated_" + userID, "valid-test-password").isPresent());
+					throw new IllegalStateException("Activation fictive annulée après émission de la preuve.");
+				}));
+
+		assertEquals(UserAccountStatus.PENDING_ACTIVATION, account(userID).getStatu());
+		assertEquals(0, enrollmentProofCount(userID));
+		assertEquals(InvitationTokenIssuer.digest(message.token()),
+				invitationStore.findByID(message.invitationID()).orElseThrow().tokenDigest());
+		assertTrue(challengeStore.findCurrentByInvitationAndUser(message.invitationID(), userID).isPresent());
+		assertFalse(credentials.existsById(userID));
+	}
 
 	@Test
 	void twoConcurrentActivationsCannotConsumeTheSameInvitation() throws Exception {
@@ -154,6 +215,16 @@ class AccountInvitationActivationPostgresqlIntegrationTest extends AbstractAccou
 
 		activate(loser, losingMessage, "verified-proof");
 		assertEquals(UserAccountStatus.ACTIVE, account(loser).getStatu());
+	}
+
+	private void addMfaRequiredRole(UUID userID) {
+		jdbcTemplate.update("INSERT INTO structure_membership_roles (user_id, structure_id, role) VALUES (?, ?, 'R_H')",
+				userID, structureID);
+	}
+
+	private int enrollmentProofCount(UUID userID) {
+		return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM account_mfa_enrollment_proofs WHERE user_id = ?",
+				Integer.class, userID);
 	}
 
 	private boolean claimUsername(CyclicBarrier start, SentInvitation message, String userName) throws Exception {

@@ -1,11 +1,15 @@
 package fr.gestionplus.server.account;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -16,6 +20,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -28,12 +33,19 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import fr.gestionplus.server.account.AccountInvitationDeliveryStore.Request;
 import fr.gestionplus.server.account.AccountInvitationStore.Invitation;
+import fr.gestionplus.server.account.ActivationIdentityChallengeStore.ActivationIdentityChallenge;
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditService;
+import fr.gestionplus.server.auth.AccountMfaService;
+import fr.gestionplus.server.auth.AuthorizationService;
 import fr.gestionplus.server.auth.CredentialService;
+import fr.gestionplus.server.auth.UserAccount;
+import fr.gestionplus.server.auth.UserAccountStatus;
+import fr.gestionplus.server.auth.UserCredential;
 
 class AccountActivationServiceTest {
 
@@ -42,6 +54,7 @@ class AccountActivationServiceTest {
 	private static final UUID USER_ID = UUID.randomUUID();
 	private static final UUID STRUCTURE_ID = UUID.randomUUID();
 	private static final String TOKEN = "Aa09_-".repeat(7) + "Z";
+	private static final String PASSWORD = "Fictitious-Activation-Password-2026!";
 
 	private final AccountStore accounts = mock(AccountStore.class);
 	private final AccountInvitationStore invitations = mock(AccountInvitationStore.class);
@@ -53,6 +66,8 @@ class AccountActivationServiceTest {
 	private final ActivationIdentityChallengeService challengeService = mock(ActivationIdentityChallengeService.class);
 	private final ObjectProvider<ActivationIdentityVerifier> verifiers = mock();
 	private final PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
+	private final AuthorizationService authorization = mock(AuthorizationService.class);
+	private final AccountMfaService mfa = mock(AccountMfaService.class);
 	private AccountActivationService service;
 
 	@BeforeEach
@@ -60,7 +75,7 @@ class AccountActivationServiceTest {
 		ObjectProvider<Clock> clocks = mock();
 		when(clocks.getIfAvailable(any())).thenReturn(Clock.fixed(NOW, ZoneOffset.UTC));
 		service = new AccountActivationService(accounts, invitations, challenges, deliveries, scope, audit,
-				credentials, challengeService, verifiers, transactions, clocks);
+				credentials, challengeService, verifiers, transactions, clocks, authorization, mfa);
 		when(invitations.findByID(INVITATION_ID)).thenReturn(Optional.of(
 				new Invitation(INVITATION_ID, USER_ID, STRUCTURE_ID, InvitationTokenIssuer.digest(TOKEN),
 						NOW.plusSeconds(3600), null)));
@@ -179,8 +194,71 @@ class AccountActivationServiceTest {
 		assertNoActivationWork();
 	}
 
+	@Test
+	void returnsTheEnrollmentProofOnlyAfterCommittingAnActivationThatNeedsInitialMfaEnrollment() {
+		SimpleTransactionStatus transaction = prepareValidActivation(true);
+		String proof = "fictitious-enrollment-proof";
+		when(mfa.issueEnrollmentProof(USER_ID, 7)).thenReturn(proof);
+
+		assertEquals(Optional.of(proof), service.completeActivation(INVITATION_ID, TOKEN, "verified-proof",
+				"fictitious_user", PASSWORD));
+
+		var order = inOrder(accounts, invitations, mfa, transactions);
+		order.verify(accounts).activateAccount(eq(USER_ID), eq("fictitious_user"), any(UserCredential.class));
+		order.verify(invitations).save(any(Invitation.class));
+		order.verify(mfa).requiresInitialEnrollment(USER_ID);
+		order.verify(mfa).issueEnrollmentProof(USER_ID, 7);
+		order.verify(transactions).commit(transaction);
+	}
+
+	@Test
+	void returnsNoProofWhenActivationDoesNotNeedInitialMfaEnrollment() {
+		SimpleTransactionStatus transaction = prepareValidActivation(false);
+
+		assertEquals(Optional.empty(), service.completeActivation(INVITATION_ID, TOKEN, "verified-proof",
+				"fictitious_user", PASSWORD));
+
+		verify(mfa).requiresInitialEnrollment(USER_ID);
+		verify(mfa, never()).issueEnrollmentProof(any(), anyLong());
+		verify(transactions).commit(transaction);
+	}
+
+	@Test
+	void rollsBackActivationWhenTheEnrollmentProofCannotBePersisted() {
+		SimpleTransactionStatus transaction = prepareValidActivation(true);
+		IllegalStateException failure = new IllegalStateException("Stockage de la preuve indisponible.");
+		when(mfa.issueEnrollmentProof(USER_ID, 7)).thenThrow(failure);
+
+		assertSame(failure, assertThrows(IllegalStateException.class,
+				() -> service.completeActivation(INVITATION_ID, TOKEN, "verified-proof", "fictitious_user", PASSWORD)));
+
+		verify(transactions).rollback(transaction);
+		verify(transactions, never()).commit(any());
+	}
+
+	private SimpleTransactionStatus prepareValidActivation(boolean initialEnrollmentRequired) {
+		UUID challengeID = UUID.randomUUID();
+		UserAccount account = new UserAccount(USER_ID, null, UserAccountStatus.PENDING_ACTIVATION, Set.of(),
+				UUID.randomUUID(), "Fictitious", "Activation", "activation@example.invalid", "+12025550100", 7);
+		when(accounts.findById(USER_ID)).thenReturn(Optional.of(account));
+		when(accounts.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(account));
+		ActivationIdentityVerifier verifier = mock(ActivationIdentityVerifier.class);
+		when(verifiers.getIfAvailable()).thenReturn(verifier);
+		when(verifier.verify(INVITATION_ID, USER_ID, account.getPhoneNumber(), "verified-proof"))
+				.thenReturn(Optional.of(challengeID));
+		when(challenges.findCurrentByInvitationAndUser(INVITATION_ID, USER_ID)).thenReturn(Optional.of(
+				new ActivationIdentityChallenge(challengeID, USER_ID, account.getPhoneNumber(), INVITATION_ID,
+						"a".repeat(64), 0, NOW, NOW.plusSeconds(300), null, null, NOW, NOW.plusSeconds(120))));
+		when(challenges.consumeIfCurrent(challengeID, NOW)).thenReturn(true);
+		when(credentials.encodePassword(USER_ID, PASSWORD)).thenReturn(new UserCredential(USER_ID, "fictitious-hash"));
+		when(mfa.requiresInitialEnrollment(USER_ID)).thenReturn(initialEnrollmentRequired);
+		SimpleTransactionStatus transaction = new SimpleTransactionStatus();
+		when(transactions.getTransaction(any())).thenReturn(transaction);
+		return transaction;
+	}
+
 	private void assertNoActivationWork() {
-		verifyNoInteractions(accounts, challenges, scope, audit, credentials, verifiers, transactions);
+		verifyNoInteractions(accounts, challenges, scope, audit, credentials, verifiers, transactions, authorization, mfa);
 	}
 
 	private void preparePendingDelivery(boolean invitationExists, String token) {

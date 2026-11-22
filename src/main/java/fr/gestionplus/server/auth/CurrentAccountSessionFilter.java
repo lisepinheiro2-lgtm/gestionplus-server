@@ -3,13 +3,16 @@ package fr.gestionplus.server.auth;
 import java.io.IOException;
 import java.time.Instant;
 
+import org.springframework.http.HttpMethod;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import fr.gestionplus.server.account.AccountStore;
 import fr.gestionplus.server.api.HttpApiError;
+import fr.gestionplus.server.api.MfaEnrollmentRoutes;
 import fr.gestionplus.server.audit.AuditReason;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -66,7 +69,8 @@ final class CurrentAccountSessionFilter extends OncePerRequestFilter {
 				return;
 			}
 
-			if (!access.mfaVerified() && mfa.requiresVerification(principal.getUserID())) {
+			if (!access.mfaVerified() && mfa.requiresVerification(principal.getUserID())
+					&& !isMfaEnrollmentRoute(request)) {
 				lifetime.end(session);
 				logoutHandler.logout(request, response, authentication);
 				audit.refused(request, principal, AuditReason.MFA_REQUIRED);
@@ -87,5 +91,14 @@ final class CurrentAccountSessionFilter extends OncePerRequestFilter {
 			lifetime.touch(session, requestStarted);
 		}
 
+	}
+
+	private boolean isMfaEnrollmentRoute(HttpServletRequest request) {
+
+		String method = request.getMethod();
+		String path = request.getRequestURI().substring(request.getContextPath().length());
+
+		return "POST".equals(method) && (path.equals(MfaEnrollmentRoutes.ENROLLMENT_PATH)
+				|| path.equals(MfaEnrollmentRoutes.ENROLLMENT_COMPLETE_PATH));
 	}
 }
