@@ -101,7 +101,7 @@ public class AccountNotificationDelivery {
 		transaction.executeWithoutResult(status -> {
 			notifications.remove(notification.notificationID());
 			audit.recordForActor(AuditAction.NOTIFICATION_ABANDON, AuditResult.FAILURE, null, null,
-					Set.of(new AuditTarget(AuditTargetType.ACCOUNT, notification.actorUserID())),
+					Set.of(new AuditTarget(AuditTargetType.ACCOUNT, notification.recipientUserID())),
 					AuditMetadata.because(AuditReason.OPERATION_FAILED));
 		});
 		LOGGER.warn("Notification {} abandonnée après {} tentatives", notification.notificationID(),
@@ -110,9 +110,9 @@ public class AccountNotificationDelivery {
 
 	private void deliver(Notification notification) {
 
-		String recipient = accountStore.findById(notification.actorUserID()).map(UserAccount::getEmail).orElse(null);
+		String recipient = accountStore.findById(notification.recipientUserID()).map(UserAccount::getEmail).orElse(null);
 
-		if (recipient == null) {
+		if (recipient == null || recipient.isBlank()) {
 			LOGGER.warn("Destinataire introuvable pour la notification {}", notification.notificationID());
 			transaction.executeWithoutResult(status -> notifications.retry(notification.notificationID()));
 			return;
@@ -127,17 +127,40 @@ public class AccountNotificationDelivery {
 		case ACCOUNT_DEACTIVATION:
 			message.setSubject("Gestion+ — Désactivation après révocation d'accès");
 			message.setText("""
-					Votre révocation du dernier rattachement préparé a désactivé le compte en attente.
+					Le retrait du dernier accès a entraîné la désactivation du compte concerné.
 
 					Référence du compte : %s
 					Référence de la structure : %s
 					""".formatted(notification.targetUserID(), notification.structureID()));
 			break;
 
+		case ACCOUNT_DEACTIVATION_TARGET:
+			message.setSubject("Gestion+ — Désactivation de votre compte");
+			message.setText("""
+					Votre compte Gestion+ a été désactivé après le retrait de son dernier accès.
+					L’accès à ce compte n’est plus disponible.
+
+					Si vous ne reconnaissez pas cette opération, contactez votre administrateur
+					par votre canal habituel. Ne communiquez jamais votre mot de passe ou vos codes.
+					""");
+			break;
+
 		case ADMIN_REMOVED:
 			message.setSubject("Gestion+ — Fin de votre fonction ADMIN");
 			message.setText(
 					"Votre fonction ADMIN a été transférée pour la structure " + notification.structureID() + ".");
+			break;
+
+		case MFA_ENROLLED:
+			message.setSubject("Gestion+ — Double authentification activée");
+			message.setText("""
+					La double authentification de votre compte Gestion+ vient d’être activée.
+
+					Si vous n’êtes pas à l’origine de cette opération, contactez sans délai
+					votre administrateur par votre canal habituel.
+					Ne communiquez jamais votre mot de passe, votre clé d’authentification
+					ou vos codes de validation et de récupération.
+					""");
 			break;
 
 		case ADMIN_GRANTED:

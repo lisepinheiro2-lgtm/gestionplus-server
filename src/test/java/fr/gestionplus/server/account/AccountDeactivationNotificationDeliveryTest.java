@@ -2,9 +2,11 @@ package fr.gestionplus.server.account;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -19,6 +21,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.mail.MailSendException;
@@ -49,7 +52,7 @@ class AccountDeactivationNotificationDeliveryTest {
 			mock(PlatformTransactionManager.class), executor);
 
 	@Test
-	void sendsToTheActorAndRemovesTheDeliveredNotification() {
+	void sendsToTheRecipientAndRemovesTheDeliveredNotification() {
 		Notification notification = prepareNotification(0);
 		ArgumentCaptor<SimpleMailMessage> message = ArgumentCaptor.forClass(SimpleMailMessage.class);
 
@@ -63,6 +66,73 @@ class AccountDeactivationNotificationDeliveryTest {
 		assertTrue(message.getValue().getText().contains(notification.structureID().toString()));
 		verify(notifications).remove(notification.notificationID());
 		verify(notifications, never()).retry(any());
+		verify(accountStore, never()).findById(notification.actorUserID());
+	}
+
+	@ParameterizedTest
+	@EnumSource(Kind.class)
+	void routesEachKindToItsRecipientAndKeepsOtherAccountsOutOfThePersonalMessage(Kind kind) {
+		UUID recipientID = UUID.randomUUID();
+		UUID actorID = kind == Kind.MFA_ENROLLED ? recipientID : UUID.randomUUID();
+		UUID targetID = kind == Kind.ACCOUNT_DEACTIVATION ? UUID.randomUUID() : recipientID;
+		Notification notification = new Notification(UUID.randomUUID(), actorID, targetID, recipientID,
+				kind == Kind.MFA_ENROLLED ? null : UUID.randomUUID(), kind, 0);
+		when(notifications.lockNext()).thenReturn(Optional.of(notification));
+		when(accountStore.findById(recipientID)).thenReturn(Optional.of(UserAccount.pending(recipientID,
+				"Fictitious", "Recipient", "recipient@example.invalid", "+12025550100")));
+		ArgumentCaptor<SimpleMailMessage> message = ArgumentCaptor.forClass(SimpleMailMessage.class);
+
+		delivery.deliverNext();
+
+		verify(accountStore).findById(recipientID);
+		verify(mailSender).send(message.capture());
+		assertEquals("recipient@example.invalid", message.getValue().getTo()[0]);
+		assertEquals("gestionplus@example.invalid", message.getValue().getFrom());
+		assertFalse(message.getValue().getText().isBlank());
+		if (kind != Kind.MFA_ENROLLED) {
+			verify(accountStore, never()).findById(actorID);
+			assertFalse(message.getValue().getText().contains(actorID.toString()));
+		}
+		if (kind == Kind.MFA_ENROLLED || kind == Kind.ACCOUNT_DEACTIVATION_TARGET) {
+			assertFalse(message.getValue().getText().contains(targetID.toString()));
+			assertFalse(message.getValue().getText().contains("000042"));
+			assertFalse(message.getValue().getText().contains("fictitious-recovery-code"));
+			assertFalse(message.getValue().getText().contains("A".repeat(32)));
+		}
+		verify(notifications).remove(notification.notificationID());
+	}
+
+	@Test
+	void aMissingRecipientIsRetriedWithoutLookingUpTheActorOrSendingMail() {
+		Notification notification = prepareNotification(0);
+		when(accountStore.findById(notification.recipientUserID())).thenReturn(Optional.empty());
+
+		delivery.deliverNext();
+
+		verify(notifications).retry(notification.notificationID());
+		verify(notifications, never()).remove(any());
+		verify(accountStore, never()).findById(notification.actorUserID());
+		verifyNoInteractions(mailSender);
+	}
+
+	@Test
+	void aFailedReservationNeverSendsAnEmail() {
+		Notification notification = prepareNotification(0);
+		doThrow(new IllegalStateException("Réservation fictive refusée.")).when(notifications).reserve(notification.notificationID());
+
+		delivery.deliverNext();
+
+		verifyNoInteractions(mailSender);
+		verify(notifications, never()).remove(any());
+	}
+
+	@Test
+	void aSaturatedMailExecutorLeavesTheQueueUntouched() {
+		doReturn(false).when(executor).trySubmit(any());
+
+		delivery.deliverNext();
+
+		verifyNoInteractions(notifications, mailSender, accountStore);
 	}
 
 	@Test
@@ -83,7 +153,7 @@ class AccountDeactivationNotificationDeliveryTest {
 	void sendsTheAppropriateTransferNotification(Kind kind, String subject) {
 		Notification base = prepareNotification(0);
 		Notification transfer = new Notification(base.notificationID(), base.actorUserID(), base.targetUserID(),
-				base.structureID(), kind, 0);
+				base.recipientUserID(), base.structureID(), kind, 0);
 		when(notifications.lockNext()).thenReturn(Optional.of(transfer));
 		ArgumentCaptor<SimpleMailMessage> message = ArgumentCaptor.forClass(SimpleMailMessage.class);
 
@@ -124,17 +194,17 @@ class AccountDeactivationNotificationDeliveryTest {
 		verifyNoInteractions(mailSender);
 		verify(notifications).remove(notification.notificationID());
 		verify(audit).recordForActor(AuditAction.NOTIFICATION_ABANDON, AuditResult.FAILURE, null, null,
-				Set.of(new AuditTarget(AuditTargetType.ACCOUNT, notification.actorUserID())),
+				Set.of(new AuditTarget(AuditTargetType.ACCOUNT, notification.recipientUserID())),
 				AuditMetadata.because(AuditReason.OPERATION_FAILED));
 	}
 
 	private Notification prepareNotification(int attempts) {
 		Notification notification = new Notification(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-				UUID.randomUUID(), Kind.ACCOUNT_DEACTIVATION, attempts);
-		UserAccount actor = UserAccount.pending(notification.actorUserID(), "Exemple", "Test", "actor@example.invalid",
+				UUID.randomUUID(), UUID.randomUUID(), Kind.ACCOUNT_DEACTIVATION, attempts);
+		UserAccount actor = UserAccount.pending(notification.recipientUserID(), "Exemple", "Test", "actor@example.invalid",
 				"+12025550100");
 		when(notifications.lockNext()).thenReturn(Optional.of(notification));
-		when(accountStore.findById(notification.actorUserID())).thenReturn(Optional.of(actor));
+		when(accountStore.findById(notification.recipientUserID())).thenReturn(Optional.of(actor));
 		return notification;
 	}
 

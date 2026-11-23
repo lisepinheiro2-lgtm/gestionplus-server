@@ -3,11 +3,15 @@ package fr.gestionplus.server.auth;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -35,6 +39,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.mail.MailSendException;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -42,10 +50,15 @@ import org.springframework.security.core.context.SecurityContextImpl;
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import fr.gestionplus.server.account.AccountStore;
+import fr.gestionplus.server.account.AccountNotificationStore;
+import fr.gestionplus.server.account.AccountNotificationDelivery;
+import fr.gestionplus.server.account.MailDeliveryExecutor;
+import fr.gestionplus.server.audit.AuditService;
 import fr.gestionplus.server.api.MfaEnrollmentRoutes;
 import fr.gestionplus.server.support.AuditStorageIntegrationTest;
 import tools.jackson.databind.JsonNode;
@@ -77,6 +90,10 @@ class MfaEnrollmentHttpTest extends AuditStorageIntegrationTest {
 	private SessionLifetime sessionLifetime;
 	@Autowired
 	private MfaSecretCipher cipher;
+	@Autowired
+	private AccountNotificationStore notificationStore;
+	@Autowired
+	private PlatformTransactionManager transactionManager;
 	@MockitoBean
 	private Clock clock;
 	@MockitoBean
@@ -190,6 +207,11 @@ class MfaEnrollmentHttpTest extends AuditStorageIntegrationTest {
 				JSON.createObjectNode().put("enrollmentID", enrollment.get("enrollmentID").asString()).put("code", code).toString()))
 				.andExpect(status().isOk()).andExpect(jsonPath("$.codes.length()").value(10));
 		assertTrue(session.isInvalid());
+		assertEquals(1, jdbc.queryForObject("""
+				SELECT COUNT(*) FROM account_deactivation_notifications
+				WHERE kind = 'MFA_ENROLLED' AND actor_user_id = ? AND target_id = ?
+				  AND recipient_user_id = ? AND structure_id IS NULL
+				""", Integer.class, userID, userID, userID));
 		mockMvc.perform(get("/api/auth/me")).andExpect(status().isUnauthorized());
 		mockMvc.perform(login(csrf(null), code)).andExpect(status().isUnauthorized());
 		Thread.sleep(500);
@@ -206,6 +228,62 @@ class MfaEnrollmentHttpTest extends AuditStorageIntegrationTest {
 		} finally {
 			java.util.Arrays.fill(secret, (byte) 0);
 		}
+	}
+
+	@Test
+	void aNotificationInsertFailureRollsBackMfaThePendingEnrollmentAndTheSecurityVersion() throws Exception {
+		MockHttpSession session = openSession();
+		JsonNode enrollment = begin(csrf(session));
+		UUID enrollmentID = UUID.fromString(enrollment.get("enrollmentID").asString());
+		String code = enrollmentCode(enrollment);
+		long version = accountStore.findById(userID).orElseThrow().getSessionVersion();
+		jdbc.execute("ALTER TABLE account_deactivation_notifications ADD CONSTRAINT fictitious_reject_mfa_notification "
+				+ "CHECK (kind <> 'MFA_ENROLLED' OR target_id <> '" + userID + "'::uuid)");
+		try {
+			assertThrows(DataIntegrityViolationException.class, () -> accountMfaService.completeEnrollment(userID, enrollmentID, code));
+
+			assertTrue(accountMfaStore.findFactor(userID).isEmpty());
+			assertEquals(enrollmentID, accountMfaStore.findEnrollment(userID).orElseThrow().enrollmentID());
+			assertEquals(version, accountStore.findById(userID).orElseThrow().getSessionVersion());
+			assertFalse(session.isInvalid());
+			assertEquals(0, jdbc.queryForObject(
+					"SELECT COUNT(*) FROM account_deactivation_notifications WHERE target_id = ?", Integer.class, userID));
+		} finally {
+			jdbc.execute("ALTER TABLE account_deactivation_notifications DROP CONSTRAINT fictitious_reject_mfa_notification");
+		}
+	}
+
+	@Test
+	void smtpFailureAfterCommitLeavesTheMfaActivatedAndTheNotificationAvailableForRetry() throws Exception {
+		MockHttpSession session = openSession();
+		Csrf restricted = csrf(session);
+		JsonNode enrollment = begin(restricted);
+		mockMvc.perform(jsonPost(MfaEnrollmentRoutes.ENROLLMENT_COMPLETE_PATH, restricted,
+				JSON.createObjectNode().put("enrollmentID", enrollment.get("enrollmentID").asString())
+						.put("code", enrollmentCode(enrollment)).toString())).andExpect(status().isOk());
+		long version = accountStore.findById(userID).orElseThrow().getSessionVersion();
+		jdbc.update("""
+				UPDATE account_deactivation_notifications SET next_attempt_at = TIMESTAMP WITH TIME ZONE '1970-01-01 00:00:00+00'
+				WHERE target_id = ? AND kind = 'MFA_ENROLLED'
+				""", userID);
+		JavaMailSender mailSender = mock(JavaMailSender.class);
+		doThrow(new MailSendException("Panne SMTP fictive après activation MFA."))
+				.when(mailSender).send(any(SimpleMailMessage.class));
+		MailDeliveryExecutor executor = mock(MailDeliveryExecutor.class);
+		doAnswer(call -> { ((Runnable) call.getArgument(0)).run(); return true; }).when(executor).trySubmit(any());
+		var delivery = new AccountNotificationDelivery(notificationStore, accountStore, mailSender,
+				"fictitious@example.invalid", mock(AuditService.class), transactionManager, executor);
+
+		delivery.deliverNext();
+
+		verify(mailSender).send(any(SimpleMailMessage.class));
+		assertTrue(accountMfaStore.findFactor(userID).isPresent());
+		assertTrue(accountMfaStore.findEnrollment(userID).isEmpty());
+		assertEquals(version, accountStore.findById(userID).orElseThrow().getSessionVersion());
+		assertTrue(session.isInvalid());
+		assertEquals(1, jdbc.queryForObject("""
+				SELECT attempts FROM account_deactivation_notifications WHERE target_id = ? AND kind = 'MFA_ENROLLED'
+				""", Integer.class, userID));
 	}
 
 	@Test

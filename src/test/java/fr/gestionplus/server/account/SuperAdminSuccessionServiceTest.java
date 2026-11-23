@@ -125,8 +125,8 @@ class SuperAdminSuccessionServiceTest {
 		verify(verifier).consumeRecentProof(successorID, 7L, Action.SUPER_ADMIN_SUCCESSION_ACCEPTANCE,
 				preview.confirmationDigest(), "accept-proof");
 		verify(tenants).replaceSuperAdmin(tenantID, outgoingID, successorID);
-		verify(transfers).moveAdminRole(firstStructure, outgoingID, Set.of(), successorID, Set.of(UserRole.EMPLOYEE));
-		verify(transfers, never()).moveAdminRole(eq(secondStructure), any(), any(), any(), any());
+		verify(transfers).moveAdminRole(successorID, firstStructure, outgoingID, Set.of(), successorID, Set.of(UserRole.EMPLOYEE));
+		verify(transfers, never()).moveAdminRole(any(), eq(secondStructure), any(), any(), any(), any());
 		verify(lifecycle).invalidateSessions(eq(outgoing), any());
 		verify(lifecycle).invalidateSessions(eq(successor), any());
 		verify(lifecycle, never()).disable(any(), any());
@@ -154,7 +154,7 @@ class SuperAdminSuccessionServiceTest {
 
 		assertThrows(AccessDeniedException.class,
 				() -> service.acceptSuccession(preview, "offer-proof", "accept-proof"));
-		verify(transfers, never()).moveAdminRole(any(), any(), any(), any(), any());
+		verify(transfers, never()).moveAdminRole(any(), any(), any(), any(), any(), any());
 		verifyNoInteractions(lifecycle, audit);
 	}
 
@@ -236,7 +236,7 @@ class SuperAdminSuccessionServiceTest {
 
 	private void assertNoChanges() {
 		verify(tenants, never()).replaceSuperAdmin(any(), any(), any());
-		verify(transfers, never()).moveAdminRole(any(), any(), any(), any(), any());
+		verify(transfers, never()).moveAdminRole(any(), any(), any(), any(), any(), any());
 		verifyNoInteractions(lifecycle, audit);
 	}
 

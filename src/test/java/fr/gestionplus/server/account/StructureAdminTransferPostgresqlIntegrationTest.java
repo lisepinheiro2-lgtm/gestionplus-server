@@ -211,7 +211,11 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 		assertEquals(successor.getSessionVersion() + 1,
 				accountStore.findById(newAdminUserID).orElseThrow().getSessionVersion());
 		assertEquals(Set.of(oldAdminUserID, newAdminUserID), Set.copyOf(jdbcTemplate.queryForList("""
-				SELECT actor_id FROM account_deactivation_notifications
+				SELECT recipient_user_id FROM account_deactivation_notifications
+				WHERE structure_id = ? AND kind IN ('ADMIN_REMOVED', 'ADMIN_GRANTED')
+				""", UUID.class, structureID)));
+		assertEquals(Set.of(actorID), Set.copyOf(jdbcTemplate.queryForList("""
+				SELECT actor_user_id FROM account_deactivation_notifications
 				WHERE structure_id = ? AND kind IN ('ADMIN_REMOVED', 'ADMIN_GRANTED')
 				""", UUID.class, structureID)));
 		assertEquals(Set.of("EMPLOYEE"), rolesInStructure(oldAdminUserID));
@@ -328,6 +332,14 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 				accountStore.findById(actorID).orElseThrow().getSessionVersion());
 		assertEquals(incoming.getSessionVersion() + 1,
 				accountStore.findById(newAdminUserID).orElseThrow().getSessionVersion());
+		assertEquals(Set.of(actorID, newAdminUserID), Set.copyOf(jdbcTemplate.queryForList("""
+				SELECT recipient_user_id FROM account_deactivation_notifications
+				WHERE structure_id = ? AND actor_user_id = ? AND kind IN ('ADMIN_REMOVED', 'ADMIN_GRANTED')
+				""", UUID.class, structureID, newAdminUserID)));
+		assertEquals(2, jdbcTemplate.queryForObject("""
+				SELECT COUNT(*) FROM account_deactivation_notifications
+				WHERE structure_id = ? AND actor_user_id = ? AND target_id = recipient_user_id
+				""", Integer.class, structureID, newAdminUserID));
 		assertEquals(1L,
 				jdbcTemplate.queryForObject(
 						"""

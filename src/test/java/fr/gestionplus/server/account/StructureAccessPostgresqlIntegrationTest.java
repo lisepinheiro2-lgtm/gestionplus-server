@@ -177,6 +177,8 @@ class StructureAccessPostgresqlIntegrationTest extends AuditStorageIntegrationTe
 		assertTrue(authorizationService.canInStructure(targetId, otherStructureId, Permission.VIEW_ACCOUNTING));
 		assertTrue(sessionRegistry.getSessionInformation(sessionID).isExpired());
 		assertEquals(UserAccountStatus.ACTIVE, accountStore.findById(targetId).orElseThrow().getStatu());
+		assertEquals(0, jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM account_deactivation_notifications WHERE target_id = ?", Integer.class, targetId));
 	}
 
 	@Test
@@ -244,6 +246,50 @@ class StructureAccessPostgresqlIntegrationTest extends AuditStorageIntegrationTe
 		assertThrows(AccessDeniedException.class,
 				() -> service.addStructureAccess(targetId, structureId, Set.of(UserRole.EMPLOYEE)));
 		assertEquals(1, auditIds(AuditAction.ACCOUNT_DISABLE).size());
+		assertEquals(Set.of(actor.getUserID(), targetId), Set.copyOf(jdbcTemplate.queryForList("""
+				SELECT recipient_user_id FROM account_deactivation_notifications
+				WHERE target_id = ? AND actor_user_id = ? AND structure_id = ?
+				""", UUID.class, targetId, actor.getUserID(), structureId)));
+	}
+
+	@Test
+	void aFailedDeactivationNotificationRollsBackAccessStatusVersionAndSessionRevocation() {
+		service.addStructureAccess(targetId, structureId, Set.of(UserRole.EMPLOYEE));
+		UserAccount before = accountStore.findById(targetId).orElseThrow();
+		String sessionID = UUID.randomUUID().toString();
+		sessionRegistry.registerNewSession(sessionID, before);
+		jdbcTemplate.execute("ALTER TABLE account_deactivation_notifications ADD CONSTRAINT fictitious_reject_target_notification "
+				+ "CHECK (kind <> 'ACCOUNT_DEACTIVATION_TARGET' OR target_id <> '" + targetId + "'::uuid)");
+		try {
+			assertThrows(DataIntegrityViolationException.class, () -> service.revokeStructureAccess(targetId, structureId));
+
+			UserAccount after = accountStore.findById(targetId).orElseThrow();
+			assertEquals(UserAccountStatus.ACTIVE, after.getStatu());
+			assertEquals(before.getSessionVersion(), after.getSessionVersion());
+			assertEquals(1L, membershipCount(targetId, structureId));
+			assertFalse(sessionRegistry.getSessionInformation(sessionID).isExpired());
+			assertEquals(0, jdbcTemplate.queryForObject(
+					"SELECT COUNT(*) FROM account_deactivation_notifications WHERE target_id = ?", Integer.class, targetId));
+		} finally {
+			jdbcTemplate.execute("ALTER TABLE account_deactivation_notifications DROP CONSTRAINT fictitious_reject_target_notification");
+		}
+	}
+
+	@Test
+	void retainingAnotherPreparedAccessDoesNotDisableOrNotifyThePendingAccount() {
+		UUID pendingID = UUID.randomUUID();
+		accountStore.createAccount(UserAccount.pending(pendingID, "Fictitious", "Pending", "pending@example.invalid", "+12025550100"));
+		joinTenant(pendingID);
+		UUID otherStructureID = createStructure("Fictitious other structure");
+		service.addStructureAccess(pendingID, structureId, Set.of(UserRole.EMPLOYEE));
+		service.addStructureAccess(pendingID, otherStructureID, Set.of(UserRole.EMPLOYEE));
+
+		service.revokeStructureAccess(pendingID, structureId);
+
+		assertEquals(UserAccountStatus.PENDING_ACTIVATION, accountStore.findById(pendingID).orElseThrow().getStatu());
+		assertEquals(1L, membershipCount(pendingID, otherStructureID));
+		assertEquals(0, jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM account_deactivation_notifications WHERE target_id = ?", Integer.class, pendingID));
 	}
 
 	@Test
@@ -445,9 +491,17 @@ class StructureAccessPostgresqlIntegrationTest extends AuditStorageIntegrationTe
 		assertEquals(UserAccountStatus.DISABLED, accountStore.findById(pendingID).orElseThrow().getStatu());
 		assertEquals(0L, membershipCount(pendingID, structureId));
 		assertEquals(actor.getUserID(), jdbcTemplate.queryForObject("""
-				SELECT actor_id FROM account_deactivation_notifications
-				WHERE target_id = ? AND structure_id = ?
+				SELECT recipient_user_id FROM account_deactivation_notifications
+				WHERE target_id = ? AND structure_id = ? AND kind = 'ACCOUNT_DEACTIVATION'
 				""", UUID.class, pendingID, structureId));
+		assertEquals(pendingID, jdbcTemplate.queryForObject("""
+				SELECT recipient_user_id FROM account_deactivation_notifications
+				WHERE target_id = ? AND structure_id = ? AND kind = 'ACCOUNT_DEACTIVATION_TARGET'
+				""", UUID.class, pendingID, structureId));
+		assertEquals(2, jdbcTemplate.queryForObject("""
+				SELECT COUNT(*) FROM account_deactivation_notifications
+				WHERE target_id = ? AND actor_user_id = ? AND structure_id = ?
+				""", Integer.class, pendingID, actor.getUserID(), structureId));
 	}
 
 	@Test
