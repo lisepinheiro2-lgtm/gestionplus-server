@@ -1,11 +1,40 @@
 ---
-summary: "MFA Swing ff68060 raccordé ; 443/443 client par mode, suite serveur antérieure et reprise encore limitée."
+summary: "23 novembre : V31 à V33, mise à niveau coordonnée, confirmations et verrous PostgreSQL ; cycle métier de succession à raccorder."
 read_when:
   - "explorer les couches Java JPA PostgreSQL et les migrations sans lancer le serveur"
   - "préparer ultérieurement un lancement ou des tests expressément autorisés"
 ---
 
 # Explorer et lancer le serveur localement
+
+<a id="notifications-confirmations-succession-2026-11-23"></a>
+
+## Repères techniques et mise à niveau — 23 novembre 2026
+
+État relu sur **`aa9eff7`**, également HEAD de `main` distant. Voir [le suivi du 23 novembre](AVANCEMENT.md#notifications-confirmations-succession-2026-11-23) pour les six commits publiés et l’attribution des validations Codex : notifications **1 215/1 215** (24 nouveaux cas), confirmations **1 255/1 255** (40), puis offres **58/58 ciblés et 1 284/1 284 complets** (29). Aucun test ou lancement exécuté pendant l’actualisation documentaire.
+
+| Domaine | Classes et migration à examiner | Contrat et précaution |
+| --- | --- | --- |
+| File de notifications | `AccountNotificationStore`, `PostgresqlAccountNotificationStore`, `AccountNotificationDelivery` ; V31 | Distinguer auteur, cible et destinataire ; adresse lue par `recipientUserID`. Enregistrement obligatoire dans la transaction métier, livraison SMTP ultérieure hors transaction. |
+| Confirmations renforcées | `PrivilegedConfirmationService`, `StoredPrivilegedConfirmationVerifier`, `PostgresqlPrivilegedConfirmationProofStore` ; V32 | Empreinte SHA-256 seule, une preuve par compte/action, cinq minutes maximum ; contrôle après attente du verrou, DELETE conditionnel dans la transaction métier. Rollback conservant la preuve. |
+| Offres de succession | `SuccessionOffer`, `SuccessionOfferStore`, `SuperAdminSuccessionService`, `PostgresqlSuccessionOfferStore` ; V33 | Offre PENDING de 24 heures créée par le service, sans changement des droits/sessions. Transaction métier MANDATORY et verrou partagé PostgreSQL d’organisation. |
+
+**V31 exige une mise à niveau coordonnée** : `actor_id` devient `recipient_user_id`, car cette ancienne colonne contenait le destinataire. La nouvelle `actor_user_id` reste NULL pour les auteurs historiques inconnus ; conserver les destinations. Les types sont étendus et la structure peut être absente pour MFA. Ne pas supposer qu’une ancienne instance utilisant les anciens noms/types peut continuer à fonctionner avec ce schéma ; aucun déploiement mixte validé.
+
+La perte du dernier accès produit une confirmation à l’administrateur et une information au titulaire, dans la transaction de désactivation ; aucun avis de désactivation si d’autres accès subsistent. Chaque transfert ADMIN produit deux avis, y compris lorsqu’il est effectué pendant une succession ; aucune notification générale d’offre ou de succession sans transfert ADMIN n’est déduite. La notification d’activation du facteur MFA est atomique avec cette activation, sans secret TOTP ni code de récupération.
+
+La livraison reste conditionnée par `spring.mail.host` et `gestionplus.notifications.from`. Ordonnanceur et `MailDeliveryExecutor` réservent le travail, envoient hors transaction, puis finalisent ou reportent. **Trois tentatives maximum, puis abandon audité**, délai/réservation de cinq minutes inchangé : aucune réception garantie, reprise manuelle garantie ou absence de doublons SMTP. Un message accepté avant échec de finalisation peut être renvoyé.
+
+La preuve V32 lie **compte, version de sécurité, action et digest du récapitulatif**, pas un identifiant individuel de session HTTP. OFFER et ACCEPTANCE restent indépendantes. `StoredPrivilegedConfirmationVerifier` est **bean Spring depuis `468edda`** ; les anciennes mentions d’absence de bean restent historiques. Limiteur dédié des tentatives et audit spécifique de l’émission/refus restent à compléter.
+
+Pour V33, conserver l’ordre **structures triées → comptes triés → organisation → offre**. Le service prépare les verrous de structures et de comptes ; l’adaptateur verrouille l’organisation avant insertion et revérifie le titulaire sortant. La recherche d’anciennes offres ne verrouille pas leurs lignes. Sous READ_COMMITTED, ce verrou PostgreSQL commun sérialise les créations entre adaptateurs et JVM : une seule offre PENDING ou ACCEPTED non expirée par organisation. L’index partiel est non unique ; ne pas le présenter comme une contrainte unique temporelle. Expiration ou annulation autorisent une nouvelle offre, sans effacer l’historique ; rollback sans insertion résiduelle.
+
+**Raccordement restant :** le dernier lot n’a pas réécrit les parcours métier d’annulation/finalisation. L’ancien `acceptSuccession()` ignore l’offre persistée et ne la marque pas COMPLETED. Toute adaptation devra préserver l’ordre des verrous pour éviter un interblocage. Ni ce cycle ni un parcours HTTP/Swing complet ne sont validés.
+
+V33 testée par Codex sur bases jetables neuves et en passage V32 → V33, V1 à V32 inchangées dans ce dernier lot. La suite finale comprend les 14 scénarios de sessions à deux JVM existants et un nouveau scénario de concurrence du stockage entre deux JVM. Aucun e-mail/SMS réel ni déploiement validé. Aucun nouveau résultat client ; les limites MFA de reprise après contexte perdu/expiré et de codes irrécupérables après réponse perdue restent ouvertes.
+
+**Historique conservé : les jalons antérieurs ci-dessous restent datés ; cette reprise décrit les évolutions du 23 novembre 2026.**
+
 
 <a id="mfa-swing-2026-11-22"></a>
 

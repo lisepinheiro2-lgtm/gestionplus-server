@@ -1,11 +1,34 @@
 ---
-summary: "MFA Swing ff68060 raccordé ; 443/443 client par mode, suite serveur antérieure et reprise encore limitée."
+summary: "23 novembre : publications jusqu’à aa9eff7, V31 à coordonner, validations isolées et limites de déploiement conservées."
 read_when:
   - "préparer une revue avant commit ou publication GitHub"
   - "retrouver les limites du transfert Git et de la synchronisation des notes privées"
 ---
 
 # Publier les sources et travailler sur deux ordinateurs
+
+<a id="notifications-confirmations-succession-2026-11-23"></a>
+
+## Publications constatées et limites de mise à niveau — 23 novembre 2026
+
+Le serveur **`aa9eff7`** est présent sur `main` distant et dans le checkout local. Six commits publiés le 23 novembre, heure de Paris, ont été vérifiés : `2a1b487`, `b97465f`, `7768258`, `c45d64b`, `468edda`, `aa9eff7`. Le dernier est la persistance PostgreSQL des offres avec V33 et tests, validée sur le socle `468edda` avec modifications locales. Voir [l’inventaire horodaté et les validations](AVANCEMENT.md#notifications-confirmations-succession-2026-11-23). Les heures de push de cet inventaire proviennent du reflog local « update by push », pas d’un audit GitHub ; la présence distante et le HEAD ont été contrôlés séparément.
+
+Avant cette mission : arbres propres, serveur `aa9eff7`, client `9c9e1b9` (documentation ; code MFA `ff68060`), dépôt privé `8bfed9e`. Aucun nouveau commit du 23 novembre dans les historiques locaux client/privé. Les modifications produites par cette mission sont **documentaires et non committées** ; aucune commande Git modifiante exécutée.
+
+Les validations **Codex** sont attachées à trois copies isolées successives : **1 215/1 215** notifications, **1 255/1 255** confirmations, puis **58/58 ciblés et 1 284/1 284 complets** offres. Ne pas les additionner ou les attribuer à Lise. Ni tests relancés ici, ni nouveau résultat client ; aucun parcours HTTP/Swing complet de succession validé.
+
+**Précautions à préparer avant un déploiement ultérieur :**
+
+- V31 conserve les destinataires historiques en renommant `actor_id` en `recipient_user_id` et ajoute l’auteur réel nullable. Coordonner migration et basculement des instances : les anciens noms de colonnes/types ne permettent pas de supposer la compatibilité d’un déploiement mixte. Aucun basculement réel testé.
+- V32 stocke une empreinte de preuve par compte/action, cinq minutes maximum, consommée dans la transaction métier ; liaison à la version du compte, pas à une session HTTP individuelle. `StoredPrivilegedConfirmationVerifier` est un bean depuis `468edda` ; limiter les tentatives et ajouter l’audit spécifique restent ouverts.
+- V33 utilise le verrou PostgreSQL partagé d’organisation sous READ_COMMITTED, non un index unique temporel. Conserver structures triées → comptes triés → organisation → offre ; une inversion future expose à un interblocage. Les anciennes offres sont recherchées sans verrou de ligne à la création.
+- V33 a été vérifiée en base jetable neuve et en passage V32 → V33, V1 à V32 inchangées dans ce lot. Ce résultat ne vaut ni répétition générale ni validation de production.
+- La livraison SMTP reste plafonnée à **trois tentatives puis abandon audité**. Ni réception garantie, ni reprise manuelle garantie, ni absence de doublons ; aucune livraison réelle d’e-mail/SMS ou mise en production validée.
+
+**Restent à raccorder :** cycle métier des offres, notamment `acceptSuccession()` qui ne consulte pas l’offre et ne la termine pas en COMPLETED ; parcours d’annulation/finalisation non réécrits dans le dernier lot ; exposition HTTP/Swing complète. Les limites MFA de contexte perdu/expiré et de réponse contenant les codes perdue restent à traiter ou à accepter explicitement, sans mécanisme administratif supplémentaire livré.
+
+**Historique conservé : les jalons antérieurs ci-dessous restent datés ; cette reprise décrit les évolutions du 23 novembre 2026.**
+
 
 <a id="mfa-swing-2026-11-22"></a>
 

@@ -1,5 +1,5 @@
 ---
-summary: "MFA Swing ff68060 raccordé ; 443/443 client par mode, suite serveur antérieure et reprise encore limitée."
+summary: "23 novembre : notifications V31, confirmations V32, offres V33 sur aa9eff7 ; 1 284/1 284 Codex, cycle de succession encore à raccorder."
 read_when:
   - "reprendre les 900/900 tests, la chaîne HTTP réelle, les sessions et le simulateur SMS du 19 novembre"
   - "reprendre le contrôleur de demande de code SMS et son contrat HTTP"
@@ -32,6 +32,72 @@ read_when:
 ---
 
 # Avancement et feuille de route
+
+<a id="notifications-confirmations-succession-2026-11-23"></a>
+
+## Notifications, confirmations renforcées et offres de succession — 23 novembre 2026
+
+### Publications vérifiées et attribution
+
+Le serveur local et `main` distant pointent sur **`aa9eff7`**. Six commits de la journée ont été retrouvés sur GitHub ; la lecture des branches distantes ne montre que `main`. Les heures suivantes sont en **Europe/Paris (UTC+01)**. La dernière colonne est la trace locale « update by push » de `origin/main`, pas un horodatage d’audit fourni par GitHub.
+
+| Commit publié | Objet | Heure du commit | Trace locale du push |
+| --- | --- | --- | --- |
+| [2a1b487](https://github.com/lisepinheiro2-lgtm/gestionplus-server/commit/2a1b4876afdcc72384cb3d5b61a527abb9e4d4a4) | Préparation des notifications de comptes et MFA | 10:50:16 | 10:50:21 |
+| [b97465f](https://github.com/lisepinheiro2-lgtm/gestionplus-server/commit/b97465fc04a07f2838e028ea0ff03d4de58be008) | Finalisation des notifications | 11:10:43 | 11:10:49 |
+| [7768258](https://github.com/lisepinheiro2-lgtm/gestionplus-server/commit/776825815f21f6e3380184db228ff8eb9a660d0e) | Préparation des confirmations renforcées | 15:21:10 | 15:21:13 |
+| [c45d64b](https://github.com/lisepinheiro2-lgtm/gestionplus-server/commit/c45d64b68220aa28a5901f05dd41eff9f51b518f) | Persistance transactionnelle des confirmations | 16:02:23 | 16:02:27 |
+| [468edda](https://github.com/lisepinheiro2-lgtm/gestionplus-server/commit/468edda4b02604992f74bf012cba4a8ec8f67361) | Préparation du cycle des offres ; déclaration du vérificateur Spring | 19:02:59 | 19:03:04 |
+| [aa9eff7](https://github.com/lisepinheiro2-lgtm/gestionplus-server/commit/aa9eff7b4ec64fd1f2281d99ea04cdbb4d9f9b0f) | Stockage PostgreSQL des offres, V33 et tests | 19:27:31 | 19:27:35 |
+
+Le dernier lot, validé sur le socle `468edda` avec modifications locales, est donc désormais publié dans `aa9eff7`. Avant cette mission documentaire, les trois arbres de travail étaient propres : serveur `aa9eff7`, client `9c9e1b9` et documentation privée `8bfed9e`. Aucun commit du 23 novembre trouvé dans ces deux derniers dépôts locaux ; `9c9e1b9` est documentaire, le raccordement MFA Swing reste celui de `ff68060`. Aucun nouveau résultat client n’est déduit de ces commits serveur.
+
+Les validations ci-dessous sont celles **exécutées par Codex en copies isolées**, distinctes des résultats historiques rapportés par Lise. Les préparations intermédiaires et les lots finalisés restent identifiés séparément ; ni le nom de l’auteur Git ni une publication ultérieure ne transforment ces validations en travail ou en maîtrise personnelle de Lise.
+
+### Notifications de comptes et MFA — V31
+
+`AccountNotificationStore`, `PostgresqlAccountNotificationStore` et `AccountNotificationDelivery` distinguent l’**auteur réel** (`actorUserID`), le **compte concerné** (`targetUserID`) et le **destinataire** (`recipientUserID`). La table historique `account_deactivation_notifications` est réutilisée. V31 renomme l’ancienne colonne `actor_id`, qui contenait en réalité le destinataire, en `recipient_user_id` et ajoute `actor_user_id` nullable. La destination historique est préservée ; l’acteur historique inconnu reste **NULL**, sans attribution inventée.
+
+Après perte du dernier accès, `AccountAccessLifecycle` désactive le compte et enregistre dans **la transaction métier** une confirmation à l’administrateur et une information au titulaire. S’il subsiste un accès valide, aucune notification de désactivation n’est créée. Les transferts ADMIN enregistrent une notification à l’ancien et au nouveau titulaire, y compris pour les transferts ADMIN effectués par la succession SUPER_ADMIN. Cela ne constitue pas une notification générale de création d’offre ou de toute succession sans transfert ADMIN.
+
+`AccountMfaService.completeEnrollment` inscrit la notification dans la transaction d’activation du facteur MFA, pour le compte lui-même. Aucun secret TOTP ni code de récupération n’est inclus dans la notification. L’adresse de livraison est recherchée par **`recipientUserID`**, et non par l’auteur.
+
+La livraison SMTP est ultérieure : réservation transactionnelle, exécution asynchrone via `MailDeliveryExecutor`, envoi hors transaction, puis finalisation ou reprise. Les réservations et délais de reprise de cinq minutes restent en place. **La politique existante reste limitée à trois tentatives, puis suppression de la file et abandon audité (`NOTIFICATION_ABANDON`).** Aucune réception garantie ni reprise manuelle garantie ; un SMTP accepté suivi d’un échec de finalisation peut provoquer un doublon. L’ancienne expression « au moins une fois » ne doit pas être interprétée comme une garantie de réception.
+
+**Mise à niveau V31 :** coordonner le basculement des instances et la migration ; les anciennes instances qui utilisent `actor_id` ou les anciens types de notification ne sont pas supposées compatibles avec le nouveau schéma. Aucun déploiement mixte ni basculement réel n’est validé ici.
+
+### Confirmations renforcées — V32 et vérificateur Spring
+
+`PrivilegedConfirmationService` délivre une preuve après vérification du mot de passe et d’un TOTP frais. `PostgresqlPrivilegedConfirmationProofStore` ne conserve que l’**empreinte SHA-256 du jeton**, avec le compte, sa version de sécurité, l’action, le digest du récapitulatif et les dates. Une seule preuve courante par **compte/action** ; une nouvelle preuve pour cette paire remplace la précédente. OFFER et ACCEPTANCE sont des actions indépendantes.
+
+La validité maximale est de **cinq minutes**. Le contrôle d’échéance est strict et relit l’horloge après l’attente du verrou du compte ; une preuve arrivée à échéance pendant cette attente est refusée. La liaison à la version de sécurité du compte **n’est pas une liaison à un identifiant individuel de session HTTP**.
+
+`StoredPrivilegedConfirmationVerifier` consomme la preuve par un **DELETE conditionnel atomique dans la transaction métier obligatoire**. Un rollback métier conserve la preuve. Le vérificateur possède désormais **`@Component` dans `468edda`** : le constat « vérificateur non déclaré comme bean » du rapport antérieur à ce commit est historique et résolu. La **limitation dédiée des tentatives** et l’**audit spécifique des émissions et refus de confirmation** restent à compléter ; les audits des opérations métier ne les remplacent pas. La persistance et le bean ne prouvent pas un parcours HTTP/Swing complet.
+
+### Offres de succession — V33, concurrence et raccordement restant
+
+`SuccessionOffer`, `SuccessionOfferStore`, `SuperAdminSuccessionService` et `PostgresqlSuccessionOfferStore` séparent l’offre persistée de la preuve renforcée. Le service crée une offre **PENDING de 24 heures**, distincte de la preuve de cinq minutes, sans changer les droits ni les sessions des participants. Cette durée est produite par le service ; ne pas en déduire un plafond de 24 heures imposé séparément par le schéma.
+
+La création suit l’ordre **structures triées → comptes triés → organisation → offre**. L’adaptateur exige une transaction métier (`MANDATORY`), verrouille l’organisation PostgreSQL avant insertion et revérifie sous ce verrou le titulaire sortant désigné. La recherche des anciennes offres ne prend pas de verrou sur leurs lignes. Sous **READ_COMMITTED**, le verrou d’organisation partagé empêche deux créations concurrentes d’offres **PENDING ou ACCEPTED non expirées** pour la même organisation, y compris entre deux adaptateurs ou deux processus Java. Ce contrôle ne repose pas sur un index unique temporel : l’index partiel V33 est non unique.
+
+Une offre expirée ou annulée permet une nouvelle offre ; l’historique est conservé. Un rollback ne laisse pas d’insertion résiduelle. Les opérations de statut de l’adaptateur ne signifient pas que le cycle métier complet est raccordé : les parcours métier d’annulation et de finalisation n’ont pas été réécrits par le dernier lot. **L’ancien `acceptSuccession()` ne consulte toujours pas l’offre persistée et ne la marque pas COMPLETED.** Il faut raccorder et vérifier ce cycle, puis son exposition HTTP/Swing, avant de le déclarer achevé. Une future adaptation qui inverse l’ordre des verrous peut créer un interblocage ; l’ordre devra être conservé dans les parcours raccordés.
+
+### Validations antérieures recoupées, sans réexécution
+
+| Lot Codex | Socle du rapport ; commit final retrouvé | Résultat de la copie isolée |
+| --- | --- | --- |
+| Notifications | `2a1b487` avec modifications ; `b97465f` | **1 215/1 215**, dont 24 nouveaux cas |
+| Confirmations renforcées | `7768258` avec modifications ; `c45d64b` | **1 255/1 255**, dont 40 nouveaux cas |
+| Persistance des offres | `468edda` avec modifications ; `aa9eff7` | **58/58 ciblés**, puis **1 284/1 284 complets**, dont 29 nouveaux cas |
+
+Aucun échec, erreur ou test ignoré dans ces bilans. Les totaux sont des jalons successifs, **pas des résultats à additionner**. La dernière suite comprend les **14 scénarios serveur de sessions à deux JVM déjà existants**, plus **un nouveau scénario de concurrence du stockage entre deux JVM** ; ce ne sont pas quinze scénarios de sessions. V33 a été vérifiée sur des bases jetables neuves et en passage **V32 → V33** ; V1 à V32 inchangées dans le dernier lot. V31 et V32 étaient les seules nouvelles migrations de leurs lots respectifs.
+
+PostgreSQL/Redis jetables et livraison simulée : **aucun e-mail ni SMS réel**, aucune réception réelle ou mise en production validée. Les rapports indiquent l’arrêt des environnements d’essai ; pour le dernier lot, conteneurs supprimés et JVM enfants arrêtées. Aucun test, build, serveur ou migration exécuté pendant cette mission documentaire ; aucun nouveau résultat client ou parcours HTTP/Swing de succession complet annoncé.
+
+**Limites MFA préservées :** contexte d’enrôlement perdu ou expiré sans reprise autonome par nouvelle preuve vérifiée ; aucun mécanisme administratif supplémentaire développé. Codes de récupération impossibles à relire si leur réponse de confirmation est perdue. L’étape MFA reste non entièrement close avant traitement ou acceptation explicite de ces limites. Les anciennes validations client (443/443 par mode) restent datées du 22 novembre.
+
+**Historique conservé : les jalons antérieurs ci-dessous restent datés ; cette reprise décrit les évolutions du 23 novembre 2026.**
+
 
 <a id="mfa-swing-2026-11-22"></a>
 

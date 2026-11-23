@@ -1,12 +1,31 @@
 ---
 title: "Documentation du serveur Spring Boot"
-summary: "MFA Swing ff68060 raccordé ; 443/443 client par mode, suite serveur antérieure et reprise encore limitée."
+summary: "23 novembre : six commits publiés jusqu’à aa9eff7 ; notifications V31, confirmations V32 et offres V33, 1 284/1 284 Codex et cycle incomplet."
 read_when:
   - "commencer une séance sur le serveur ou retrouver un document"
   - "préparer l’intégration Swing Spring Boot PostgreSQL"
 ---
 
 # Documentation du serveur Spring Boot
+
+<a id="notifications-confirmations-succession-2026-11-23"></a>
+
+## Reprise du 23 novembre 2026 — notifications, confirmations et offres
+
+**Serveur `aa9eff7`, présent localement et sur `main` distant.** Six commits publiés ont été vérifiés : `2a1b487`, `b97465f`, `7768258`, `c45d64b`, `468edda` et **`aa9eff7`**, dernier lot de persistance des offres validé sur le socle `468edda` avec modifications locales. Les arbres des trois dépôts étaient propres avant l’actualisation documentaire ; aucun commit local supplémentaire ou changement de code non committé constaté.
+
+- **Notifications V31 :** auteur réel, compte concerné et destinataire distincts ; conservation de la destination historique et auteur inconnu NULL. Avis de désactivation au dernier accès seulement, aux deux participants de chaque transfert ADMIN, y compris pendant une succession, et au titulaire lors de l’activation MFA. Enregistrement dans la transaction métier ; livraison SMTP ultérieure par `recipientUserID`. **Trois tentatives puis abandon audité**, aucune réception/reprise manuelle garantie ni absence de doublons. Mise à niveau des anciennes instances à coordonner pour V31.
+- **Confirmations V32 :** empreinte du jeton seule, une preuve par compte/action, cinq minutes au maximum, échéance vérifiée après attente du verrou. Liaison compte/version de sécurité/action/récapitulatif, pas identifiant individuel de session HTTP ; consommation atomique dans la transaction métier et rollback conservant la preuve. OFFER/ACCEPTANCE indépendantes. Vérificateur **bean Spring depuis `468edda`** ; limiteur dédié et audit spécifique des confirmations encore manquants.
+- **Offres V33 :** offre de 24 heures créée sans modifier droits/sessions ; transaction métier obligatoire, verrou PostgreSQL d’organisation avant insertion et revalidation du titulaire sortant. Une seule PENDING ou ACCEPTED non expirée par organisation sous READ_COMMITTED ; expiration/annulation permettent une nouvelle offre sans effacer l’historique. Ordre structures triées → comptes triés → organisation → offre, anciennes offres recherchées sans verrou de ligne. **`acceptSuccession()` ignore encore l’offre persistée et ne la marque pas COMPLETED** ; annulation/finalisation non réécrites par ce lot. Préserver l’ordre des verrous lors du raccordement pour éviter l’interblocage.
+
+**Validations antérieures de Codex en copies isolées :** notifications **1 215/1 215** (24 nouveaux cas), confirmations **1 255/1 255** (40), offres **58/58 ciblés puis 1 284/1 284 complets** (29), sans échec, erreur ou test ignoré. La dernière suite conserve les **14 scénarios de sessions à deux JVM** et ajoute **un scénario de concurrence du stockage entre deux JVM**. V33 vérifiée sur bases jetables neuves et V32 → V33 ; V1 à V32 inchangées dans le dernier lot. Résultats successifs à ne pas additionner ou attribuer rétroactivement aux commits suivants.
+
+Aucun test/build/serveur/migration exécuté pendant cette mission documentaire. Aucun e-mail/SMS réel, aucune réception réelle ni déploiement validé ; aucun nouveau résultat client ou parcours HTTP/Swing de succession complet. Les limites MFA restent ouvertes : reprise autonome après contexte perdu/expiré absente et codes non récupérables après réponse perdue ; étape non entièrement close avant traitement ou acceptation explicite.
+
+Voir [les commits et validations](AVANCEMENT.md#notifications-confirmations-succession-2026-11-23), [les contrats et verrous](DEVELOPPEMENT.md#notifications-confirmations-succession-2026-11-23) et [les précautions de publication](PUBLICATION.md#notifications-confirmations-succession-2026-11-23).
+
+**Historique conservé : les jalons antérieurs ci-dessous restent datés ; cette reprise décrit les évolutions du 23 novembre 2026.**
+
 
 <a id="mfa-swing-2026-11-22"></a>
 
