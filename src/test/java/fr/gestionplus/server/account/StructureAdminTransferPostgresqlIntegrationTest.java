@@ -12,11 +12,15 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.time.Clock;
+import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -36,9 +40,13 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import fr.gestionplus.server.account.StructureAdminTransferService.TransferPreview;
 import fr.gestionplus.server.account.SuperAdminSuccessionService.SuccessionPreview;
+import fr.gestionplus.server.account.PrivilegedConfirmationProofStore.Proof;
+import fr.gestionplus.server.account.PrivilegedConfirmationVerifier.Action;
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditEvent;
 import fr.gestionplus.server.audit.AuditFallback;
@@ -110,6 +118,12 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 
 	@MockitoSpyBean
 	private AuditFallback auditFallback;
+	@Autowired
+	private PrivilegedConfirmationProofStore proofStore;
+	@Autowired
+	private PlatformTransactionManager transactionManager;
+	@Autowired
+	private Clock clock;
 
 	private UUID actorID;
 	private UUID oldAdminUserID;
@@ -241,6 +255,88 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 				"SELECT COUNT(*) FROM audit_events "
 						+ "WHERE actor_user_id = ? AND action = ? AND result = 'SUCCESS'",
 				Long.class, actorID, "STRUCTURE_ADMIN_TRANSFER"));
+	}
+
+	@Test
+	void aRealStoredProofIsConsumedByTheAdminTransferTransaction() {
+		TransferPreview preview = service.previewTransfer(structureID, newAdminUserID);
+		String token = storeProof(actorID, Action.STRUCTURE_ADMIN_TRANSFER, preview.confirmationDigest());
+		useTheStoredVerifier();
+
+		service.transferStructureAdmin(preview, token);
+
+		assertEquals(Set.of("ADMIN"), rolesInStructure(newAdminUserID));
+		assertEquals(0, proofCount(actorID));
+		boolean replayAccepted = new TransactionTemplate(transactionManager).execute(status -> proofStore.consumeIfValid(actorID,
+				preview.actorSessionVersion(), Action.STRUCTURE_ADMIN_TRANSFER, preview.confirmationDigest(),
+				PrivilegedConfirmationService.digest(token), clock.instant()));
+		assertFalse(replayAccepted);
+	}
+
+	@Test
+	void anAdminTransferRollbackRestoresItsRealProofForAnotherConfirmedAttempt() {
+		TransferPreview preview = service.previewTransfer(structureID, newAdminUserID);
+		String token = storeProof(actorID, Action.STRUCTURE_ADMIN_TRANSFER, preview.confirmationDigest());
+		useTheStoredVerifier();
+		UserAccount outgoing = accountStore.findById(oldAdminUserID).orElseThrow();
+		String session = registerSession(outgoing);
+		IllegalStateException failure = new IllegalStateException("Échec d’audit fictif après consommation.");
+		doThrow(failure).when(auditFallback).writeInBusinessTransaction(argThat(event ->
+				event.getAction() == AuditAction.STRUCTURE_ADMIN_TRANSFER && event.getResult() == AuditResult.SUCCESS));
+
+		assertSame(failure, assertThrows(IllegalStateException.class, () -> service.transferStructureAdmin(preview, token)));
+
+		assertEquals(1, proofCount(actorID));
+		assertEquals(Set.of("ADMIN"), rolesInStructure(oldAdminUserID));
+		assertTrue(rolesInStructure(newAdminUserID).isEmpty());
+		assertFalse(sessionRegistry.getSessionInformation(session).isExpired());
+		doCallRealMethod().when(auditFallback).writeInBusinessTransaction(any());
+		service.transferStructureAdmin(preview, token);
+		assertEquals(Set.of("ADMIN"), rolesInStructure(newAdminUserID));
+		assertEquals(0, proofCount(actorID));
+		assertTrue(sessionRegistry.getSessionInformation(session).isExpired());
+	}
+
+	@Test
+	void aSuccessionConsumesBothRealProofsTogetherAndRestoresTheOfferIfAcceptanceIsWrong() {
+		service.transferStructureAdmin(service.previewTransfer(structureID, actorID), "verified-proof");
+		authenticate(actorID);
+		SuccessionPreview preview = succession.previewSuccession(tenantID, newAdminUserID, Set.of(structureID));
+		String offer = storeProof(actorID, Action.SUPER_ADMIN_SUCCESSION_OFFER, preview.confirmationDigest());
+		String acceptance = storeProof(newAdminUserID, Action.SUPER_ADMIN_SUCCESSION_ACCEPTANCE, preview.confirmationDigest());
+		useTheStoredVerifier();
+		authenticate(newAdminUserID);
+
+		assertThrows(AccessDeniedException.class, () -> succession.acceptSuccession(preview, offer, "x".repeat(43)));
+
+		assertEquals(1, proofCount(actorID));
+		assertEquals(1, proofCount(newAdminUserID));
+		assertEquals(actorID, tenantRepository.findById(tenantID).orElseThrow().toDomain().getSuperAdminUserID());
+		succession.acceptSuccession(preview, offer, acceptance);
+		assertEquals(newAdminUserID, tenantRepository.findById(tenantID).orElseThrow().toDomain().getSuperAdminUserID());
+		assertEquals(0, proofCount(actorID));
+		assertEquals(0, proofCount(newAdminUserID));
+	}
+
+	private String storeProof(UUID userID, Action action, String previewDigest) {
+		byte[] bytes = new byte[32];
+		new SecureRandom().nextBytes(bytes);
+		String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+		new TransactionTemplate(transactionManager).executeWithoutResult(status -> proofStore.replaceCurrent(new Proof(
+				userID, accountStore.findById(userID).orElseThrow().getSessionVersion(), action,
+				previewDigest, PrivilegedConfirmationService.digest(token), clock.instant().plusSeconds(300))));
+		return token;
+	}
+
+	private void useTheStoredVerifier() {
+		StoredPrivilegedConfirmationVerifier storedVerifier = new StoredPrivilegedConfirmationVerifier(proofStore, clock);
+		when(verifier.consumeRecentProof(any(), anyLong(), any(), anyString(), anyString())).thenAnswer(call ->
+				storedVerifier.consumeRecentProof(call.getArgument(0), call.getArgument(1), call.getArgument(2),
+						call.getArgument(3), call.getArgument(4)));
+	}
+
+	private int proofCount(UUID userID) {
+		return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM privileged_confirmation_proofs WHERE user_id = ?", Integer.class, userID);
 	}
 
 	@Test

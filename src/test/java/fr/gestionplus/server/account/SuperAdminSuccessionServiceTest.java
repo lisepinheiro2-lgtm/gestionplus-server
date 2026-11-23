@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.time.Clock;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,9 @@ import fr.gestionplus.server.auth.AuthorizationService;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
 import fr.gestionplus.server.auth.UserRole;
+import fr.gestionplus.server.auth.CredentialService;
+import fr.gestionplus.server.auth.UserCredentialLookup;
+import fr.gestionplus.server.auth.AccountMfaService;
 import fr.gestionplus.server.organization.OrganizationalStructure;
 import fr.gestionplus.server.organization.OrganizationalStructureStore;
 import fr.gestionplus.server.organization.StructureMembership;
@@ -66,7 +70,10 @@ class SuperAdminSuccessionServiceTest {
 		beans.addBean("verifier", verifier);
 		service = new SuperAdminSuccessionService(authenticated, authorization, tenants, structures, memberships,
 				transfers, lifecycle,
-				new PrivilegedConfirmationService(beans.getBeanProvider(PrivilegedConfirmationVerifier.class)), audit);
+				new PrivilegedConfirmationService(beans.getBeanProvider(PrivilegedConfirmationVerifier.class),
+						mock(PrivilegedConfirmationProofStore.class), mock(AccountStore.class), authenticated,
+						mock(UserCredentialLookup.class), mock(CredentialService.class), mock(AccountMfaService.class),
+						Clock.systemUTC()), audit);
 		when(authenticated.getCurrentAccount()).thenReturn(outgoing);
 		when(tenants.findById(tenantID)).thenReturn(Optional.of(
 				new TenantOrganization(tenantID, "Entreprise test", outgoingID)));
