@@ -3,9 +3,11 @@ package fr.gestionplus.server.account;
 import java.time.Clock;
 import java.util.UUID;
 
+import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+@Component
 public class StoredPrivilegedConfirmationVerifier implements PrivilegedConfirmationVerifier {
 
 	private final PrivilegedConfirmationProofStore proofStore;
