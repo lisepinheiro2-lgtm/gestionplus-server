@@ -130,6 +130,48 @@ public class SuperAdminSuccessionService {
 		auditService.record(AuditAction.SUPER_ADMIN_SUCCESSION, AuditResult.SUCCESS, targets);
 	}
 
+	@Transactional
+	public String issueSuccessionOfferProof(SuccessionPreview confirmed, String rawPassword, String totpCode) {
+
+		UserAccount principal = authenticatedUserProvider.getCurrentAccount();
+
+		if (confirmed == null || !principal.getUserID().equals(confirmed.outgoing().userID())) {
+			throw denied();
+		}
+
+		SuccessionState state = load(confirmed.tenantID(), confirmed.outgoing().userID(),
+				confirmed.successor().userID(), Set.copyOf(confirmed.adminRolesToTransfer()));
+
+		if (state.outgoing().getSessionVersion() != principal.getSessionVersion()
+				|| !state.preview().equals(confirmed)) {
+			throw denied();
+		}
+
+		return confirmations.issueProof(Action.SUPER_ADMIN_SUCCESSION_OFFER, state.preview().confirmationDigest(),
+				rawPassword, totpCode);
+	}
+
+	@Transactional
+	public String issueSuccessionAcceptanceProof(SuccessionPreview confirmed, String rawPassword, String totpCode) {
+
+		UserAccount principal = authenticatedUserProvider.getCurrentAccount();
+
+		if (confirmed == null || !principal.getUserID().equals(confirmed.successor().userID())) {
+			throw denied();
+		}
+
+		SuccessionState state = load(confirmed.tenantID(), confirmed.outgoing().userID(),
+				confirmed.successor().userID(), Set.copyOf(confirmed.adminRolesToTransfer()));
+
+		if (state.successor().getSessionVersion() != principal.getSessionVersion()
+				|| !state.preview().equals(confirmed)) {
+			throw denied();
+		}
+
+		return confirmations.issueProof(Action.SUPER_ADMIN_SUCCESSION_ACCEPTANCE, state.preview().confirmationDigest(),
+				rawPassword, totpCode);
+	}
+
 	private SuccessionState load(UUID tenantID, UUID outgoingID, UUID successorID, Set<UUID> adminRolesToTransfer) {
 
 		if (tenantID == null || outgoingID == null || successorID == null || outgoingID.equals(successorID)) {

@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import fr.gestionplus.server.account.PrivilegedConfirmationVerifier.Action;
+import fr.gestionplus.server.account.StructureAdminTransferService.TransferPreview;
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditResult;
 import fr.gestionplus.server.audit.AuditService;
@@ -176,6 +177,22 @@ public class StructureAdminTransferService {
 	PrivilegedAccountSnapshot snapshot(UserAccount account, UUID tenantID) {
 		return PrivilegedAccountSnapshot.capture(account,
 				structureMembershipStore.findByUserAndTenant(account.getUserID(), tenantID));
+	}
+
+	@Transactional
+	public String issueTransferProof(TransferPreview confirmed, String rawPassword, String totpCode) {
+
+		Objects.requireNonNull(confirmed);
+		TransferState state = loadTransfer(confirmed.structureID(), confirmed.successor().userID(),
+				Set.copyOf(confirmed.rolesToKeep()));
+
+		if (!state.preview().equals(confirmed)) {
+			throw new AccessDeniedException(
+					"Les conditions du transfert ont changé. Une nouvelle confirmation est requise.");
+		}
+
+		return confirmations.issueProof(Action.STRUCTURE_ADMIN_TRANSFER,  state.preview().confirmationDigest(), rawPassword,
+				totpCode);
 	}
 
 	void moveAdminRole(UUID actorUserID, UUID structureID, UUID oldAdminID, Set<UserRole> retainedRoles,
