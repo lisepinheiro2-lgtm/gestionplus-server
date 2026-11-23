@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.time.Clock;
+import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.concurrent.CyclicBarrier;
@@ -124,6 +126,8 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 	private PlatformTransactionManager transactionManager;
 	@Autowired
 	private Clock clock;
+	@Autowired
+	private SuccessionOfferStore offerStore;
 
 	private UUID actorID;
 	private UUID oldAdminUserID;
@@ -166,6 +170,117 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 	@AfterEach
 	void clearSecurityContext() {
 		SecurityContextHolder.clearContext();
+	}
+
+	@Test
+	void creatingASuccessionOfferPersistsTheProposalWithoutChangingRightsOrSessions() {
+		UserAccount outgoing = accountStore.findById(actorID).orElseThrow();
+		UserAccount successor = accountStore.findById(newAdminUserID).orElseThrow();
+		String outgoingSession = registerSession(outgoing);
+		String successorSession = registerSession(successor);
+		SuccessionPreview preview = succession.previewSuccession(tenantID, newAdminUserID, Set.of());
+
+		SuccessionOffer offer = succession.createSuccessionOffer(preview);
+
+		SuccessionOffer stored = offerStore.findById(offer.offerID()).orElseThrow();
+		assertEquals(actorID, stored.outgoingUserID());
+		assertEquals(newAdminUserID, stored.successorUserID());
+		assertEquals(tenantID, stored.tenantID());
+		assertEquals(preview.confirmationDigest(), stored.previewDigest());
+		assertEquals(SuccessionOffer.Status.PENDING, stored.status());
+		assertEquals(offer.createdAt().truncatedTo(ChronoUnit.MICROS), stored.createdAt());
+		assertEquals(Duration.ofHours(24), Duration.between(stored.createdAt(), stored.expiresAt()));
+		assertTrue(stored.adminRolesToTransfer().isEmpty());
+		assertEquals(actorID, tenantRepository.findById(tenantID).orElseThrow().toDomain().getSuperAdminUserID());
+		assertEquals(Set.of("ADMIN"), rolesInStructure(oldAdminUserID));
+		assertTrue(rolesInStructure(newAdminUserID).isEmpty());
+		assertEquals(outgoing.getSessionVersion(), accountStore.findById(actorID).orElseThrow().getSessionVersion());
+		assertEquals(successor.getSessionVersion(), accountStore.findById(newAdminUserID).orElseThrow().getSessionVersion());
+		assertFalse(sessionRegistry.getSessionInformation(outgoingSession).isExpired());
+		assertFalse(sessionRegistry.getSessionInformation(successorSession).isExpired());
+	}
+
+	@Test
+	void creatingASuccessionOfferPreservesTheConfirmedLocalAdminChoicesWithoutTransferringThem() {
+		service.transferStructureAdmin(service.previewTransfer(structureID, actorID), "verified-proof");
+		authenticate(actorID);
+		SuccessionPreview preview = succession.previewSuccession(tenantID, newAdminUserID, Set.of(structureID));
+
+		SuccessionOffer offer = succession.createSuccessionOffer(preview);
+
+		assertEquals(List.of(structureID), offerStore.findById(offer.offerID()).orElseThrow().adminRolesToTransfer());
+		assertEquals(Set.of("ADMIN"), rolesInStructure(actorID));
+		assertTrue(rolesInStructure(newAdminUserID).isEmpty());
+		assertEquals(actorID, tenantRepository.findById(tenantID).orElseThrow().toDomain().getSuperAdminUserID());
+	}
+
+	@Test
+	void aSecondLiveProposalIsRefusedByTheTransactionalBusinessService() {
+		SuccessionPreview preview = succession.previewSuccession(tenantID, newAdminUserID, Set.of());
+		SuccessionOffer offer = succession.createSuccessionOffer(preview);
+
+		assertThrows(AccessDeniedException.class, () -> succession.createSuccessionOffer(preview));
+
+		assertEquals(SuccessionOffer.Status.PENDING, offerStore.findById(offer.offerID()).orElseThrow().status());
+		assertEquals(1, successionOfferCount());
+	}
+
+	@Test
+	void cancellationByTheOutgoingSuperAdminAllowsANewProposalAndPreservesTheOldOne() {
+		SuccessionPreview preview = succession.previewSuccession(tenantID, newAdminUserID, Set.of());
+		SuccessionOffer first = succession.createSuccessionOffer(preview);
+
+		succession.cancelSuccessionOffer(first.offerID());
+		SuccessionOffer second = succession.createSuccessionOffer(preview);
+
+		assertEquals(SuccessionOffer.Status.CANCELLED, offerStore.findById(first.offerID()).orElseThrow().status());
+		assertEquals(SuccessionOffer.Status.PENDING, offerStore.findById(second.offerID()).orElseThrow().status());
+		assertEquals(2, successionOfferCount());
+		assertEquals(actorID, tenantRepository.findById(tenantID).orElseThrow().toDomain().getSuperAdminUserID());
+	}
+
+	@Test
+	void rollingBackTheBusinessTransactionAlsoRollsBackItsNewOffer() {
+		SuccessionPreview preview = succession.previewSuccession(tenantID, newAdminUserID, Set.of());
+
+		assertThrows(IllegalStateException.class, () -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+			succession.createSuccessionOffer(preview);
+			throw new IllegalStateException("Échec métier fictif après création de l’offre.");
+		}));
+
+		assertEquals(0, successionOfferCount());
+		succession.createSuccessionOffer(preview);
+		assertEquals(1, successionOfferCount());
+	}
+
+	@Test
+	void twoConcurrentBusinessCallsCannotBothCreateAnOpenSuccessionOffer() throws Exception {
+		SuccessionPreview preview = succession.previewSuccession(tenantID, newAdminUserID, Set.of());
+		CyclicBarrier start = new CyclicBarrier(2);
+		try (ExecutorService workers = Executors.newFixedThreadPool(2)) {
+			Future<Boolean> first = workers.submit(() -> attemptOfferCreation(preview, start));
+			Future<Boolean> second = workers.submit(() -> attemptOfferCreation(preview, start));
+			assertTrue(first.get(15, TimeUnit.SECONDS) ^ second.get(15, TimeUnit.SECONDS));
+		}
+		assertEquals(1, successionOfferCount());
+		assertEquals(actorID, tenantRepository.findById(tenantID).orElseThrow().toDomain().getSuperAdminUserID());
+	}
+
+	private boolean attemptOfferCreation(SuccessionPreview preview, CyclicBarrier start) throws Exception {
+		authenticate(actorID);
+		try {
+			start.await(5, TimeUnit.SECONDS);
+			succession.createSuccessionOffer(preview);
+			return true;
+		} catch (AccessDeniedException denied) {
+			return false;
+		} finally {
+			SecurityContextHolder.clearContext();
+		}
+	}
+
+	private int successionOfferCount() {
+		return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM succession_offers WHERE tenant_id = ?", Integer.class, tenantID);
 	}
 
 	@Test

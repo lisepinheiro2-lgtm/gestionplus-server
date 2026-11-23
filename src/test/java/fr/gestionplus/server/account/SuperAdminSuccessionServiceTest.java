@@ -3,6 +3,7 @@ package fr.gestionplus.server.account;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -18,9 +19,12 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.security.access.AccessDeniedException;
 
@@ -51,6 +55,9 @@ class SuperAdminSuccessionServiceTest {
 	private final TenantOrganizationStore tenants = mock(TenantOrganizationStore.class);
 	private final OrganizationalStructureStore structures = mock(OrganizationalStructureStore.class);
 	private final StructureMembershipStore memberships = mock(StructureMembershipStore.class);
+	private final SuccessionOfferStore offerStore = mock(SuccessionOfferStore.class);
+	private final AccountStore accountStore = mock(AccountStore.class);
+	private final Clock clock = Clock.fixed(Instant.parse("2026-11-23T12:00:00Z"), ZoneOffset.UTC);
 	private final StructureAdminTransferService transfers = mock(StructureAdminTransferService.class);
 	private final AccountAccessLifecycle lifecycle = mock(AccountAccessLifecycle.class);
 	private final PrivilegedConfirmationVerifier verifier = mock(PrivilegedConfirmationVerifier.class);
@@ -69,11 +76,11 @@ class SuperAdminSuccessionServiceTest {
 		StaticListableBeanFactory beans = new StaticListableBeanFactory();
 		beans.addBean("verifier", verifier);
 		service = new SuperAdminSuccessionService(authenticated, authorization, tenants, structures, memberships,
-				transfers, lifecycle,
+				offerStore, accountStore, transfers, lifecycle,
 				new PrivilegedConfirmationService(beans.getBeanProvider(PrivilegedConfirmationVerifier.class),
 						mock(PrivilegedConfirmationProofStore.class), mock(AccountStore.class), authenticated,
 						mock(UserCredentialLookup.class), mock(CredentialService.class), mock(AccountMfaService.class),
-						Clock.systemUTC()), audit);
+						Clock.systemUTC()), audit, clock);
 		when(authenticated.getCurrentAccount()).thenReturn(outgoing);
 		when(tenants.findById(tenantID)).thenReturn(Optional.of(
 				new TenantOrganization(tenantID, "Entreprise test", outgoingID)));
@@ -98,6 +105,64 @@ class SuperAdminSuccessionServiceTest {
 				anyString(), eq("offer-proof"))).thenReturn(true);
 		when(verifier.consumeRecentProof(eq(successorID), eq(7L), eq(Action.SUPER_ADMIN_SUCCESSION_ACCEPTANCE),
 				anyString(), eq("accept-proof"))).thenReturn(true);
+	}
+
+	@Test
+	void creatingAnOfferStoresTheConfirmedTwentyFourHourProposalWithoutTransferringAnyRights() {
+		SuccessionPreview preview = preview(Set.of(firstStructure));
+
+		SuccessionOffer offer = service.createSuccessionOffer(preview);
+
+		ArgumentCaptor<SuccessionOffer> stored = ArgumentCaptor.forClass(SuccessionOffer.class);
+		verify(offerStore).create(stored.capture());
+		assertEquals(offer, stored.getValue());
+		assertEquals(tenantID, offer.tenantID());
+		assertEquals(outgoingID, offer.outgoingUserID());
+		assertEquals(successorID, offer.successorUserID());
+		assertEquals(List.of(firstStructure), offer.adminRolesToTransfer());
+		assertEquals(preview.confirmationDigest(), offer.previewDigest());
+		assertEquals(SuccessionOffer.Status.PENDING, offer.status());
+		assertEquals(clock.instant(), offer.createdAt());
+		assertEquals(clock.instant().plusSeconds(86400), offer.expiresAt());
+		verify(tenants, never()).replaceSuperAdmin(any(), any(), any());
+		verify(transfers, never()).moveAdminRole(any(), any(), any(), any(), any(), any());
+		verifyNoInteractions(lifecycle);
+	}
+
+	@Test
+	void onlyTheOutgoingSuperAdminCanCreateAnOffer() {
+		SuccessionPreview preview = preview(Set.of(firstStructure));
+		when(authenticated.getCurrentAccount()).thenReturn(successor);
+		assertThrows(AccessDeniedException.class, () -> service.createSuccessionOffer(preview));
+		verifyNoInteractions(offerStore, lifecycle);
+	}
+
+	@Test
+	void aStaleOutgoingSessionCannotCreateAnOffer() {
+		SuccessionPreview preview = preview(Set.of(firstStructure));
+		when(transfers.lockAccounts(outgoingID, successorID)).thenReturn(Map.of(outgoingID,
+				account(outgoingID, UserAccountStatus.ACTIVE, 3), successorID, successor));
+		assertThrows(AccessDeniedException.class, () -> service.createSuccessionOffer(preview));
+		verifyNoInteractions(offerStore, lifecycle);
+	}
+
+	@Test
+	void aDisabledSuccessorCannotReceiveANewOffer() {
+		SuccessionPreview preview = preview(Set.of(firstStructure));
+		when(transfers.lockAccounts(outgoingID, successorID)).thenReturn(Map.of(outgoingID, outgoing,
+				successorID, account(successorID, UserAccountStatus.DISABLED, 7)));
+		assertThrows(AccessDeniedException.class, () -> service.createSuccessionOffer(preview));
+		verifyNoInteractions(offerStore, lifecycle);
+	}
+
+	@Test
+	void creatingAnOfferRequiresTheSameConfirmedPreview() {
+		SuccessionPreview preview = preview(Set.of(firstStructure));
+		when(transfers.snapshot(outgoing, tenantID)).thenReturn(PrivilegedAccountSnapshot.capture(outgoing,
+				List.of(new StructureMembership(outgoingID, firstStructure, Set.of(UserRole.ADMIN, UserRole.EMPLOYEE)),
+						new StructureMembership(outgoingID, secondStructure, Set.of(UserRole.ADMIN)))));
+		assertThrows(AccessDeniedException.class, () -> service.createSuccessionOffer(preview));
+		verifyNoInteractions(offerStore, lifecycle);
 	}
 
 	@Test
