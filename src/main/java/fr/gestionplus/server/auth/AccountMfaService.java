@@ -22,6 +22,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import fr.gestionplus.server.account.AccountNotificationStore;
 import fr.gestionplus.server.account.AccountStore;
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditContextProvider;
@@ -45,14 +46,17 @@ public class AccountMfaService {
 	private final ObjectProvider<MfaEnrollmentVerifier> identityVerifier;
 	private final LoginService login;
 	private final SessionRevocationService sessionRevocation;
+	private final AccountNotificationStore notifications;
 	private final AuditService audit;
 	private final AuditContextProvider auditContext;
 	private final SecureRandom random = new SecureRandom();
 	private final Clock clock;
 
-	public AccountMfaService(AccountStore accountStore, AccountMfaStore accountMfaStore, AuthorizationService authorisationService,
+	public AccountMfaService(AccountStore accountStore, AccountMfaStore accountMfaStore,
+			AuthorizationService authorisationService,
 			MfaSecretCipher cipher, ObjectProvider<MfaEnrollmentVerifier> identityVerifier, LoginService login,
-			SessionRevocationService sessionRevocation, AuditService audit, AuditContextProvider auditContext, Clock clock) {
+			SessionRevocationService sessionRevocation, AccountNotificationStore notifications,
+			AuditService audit, AuditContextProvider auditContext, Clock clock) {
 		this.accountStore = accountStore;
 		this.accountMfaStore = accountMfaStore;
 		this.authorisationService = authorisationService;
@@ -60,6 +64,7 @@ public class AccountMfaService {
 		this.identityVerifier = identityVerifier;
 		this.login = login;
 		this.sessionRevocation = sessionRevocation;
+		this.notifications = notifications;
 		this.audit = audit;
 		this.auditContext = auditContext;
 		this.clock = clock;
@@ -124,19 +129,25 @@ public class AccountMfaService {
 	@Transactional
 	public Enrollment beginEnrollment(EnrollmentPrincipal principal) {
 		UserAccount current = enrollmentAccount(principal);
+
 		if (!cipher.available() || !requiresInitialEnrollment(current.getUserID())) {
 			throw denied();
 		}
+
 		EnrollmentState pending = accountMfaStore.findEnrollment(current.getUserID())
 				.filter(value -> value.sessionVersion() == current.getSessionVersion()
-						&& clock.instant().isBefore(value.expiresAt())).orElse(null);
+						&& clock.instant().isBefore(value.expiresAt()))
+				.orElse(null);
 		Enrollment enrollment;
+
 		if (pending == null) {
 			enrollment = prepareEnrollment(current.getUserID(), current.getSessionVersion(), principal.expiresAt());
 		} else {
 			Instant expiresAt = pending.expiresAt().isBefore(principal.expiresAt())
-					? pending.expiresAt() : principal.expiresAt();
+					? pending.expiresAt()
+					: principal.expiresAt();
 			byte[] secret = cipher.decrypt(current.getUserID(), pending.enrollmentID(), pending.encryptedSecret());
+
 			try {
 				accountMfaStore.saveEnrollment(new EnrollmentState(pending.enrollmentID(), current.getUserID(),
 						pending.encryptedSecret(), current.getSessionVersion(), expiresAt));
@@ -144,7 +155,9 @@ public class AccountMfaService {
 			} finally {
 				Arrays.fill(secret, (byte) 0);
 			}
+
 		}
+
 		record(AuditAction.MFA_ENROLLMENT, current);
 		return enrollment;
 	}
@@ -194,6 +207,7 @@ public class AccountMfaService {
 			accountMfaStore.removeEnrollment(userID);
 			revokeSessions(current);
 			record(AuditAction.MFA_ENROLLMENT, current);
+			notifications.enqueueMfaEnrollment(userID);
 			return new RecoveryCodes(codes);
 		} finally {
 			Arrays.fill(secret, (byte) 0);
@@ -294,6 +308,7 @@ public class AccountMfaService {
 
 	@Transactional
 	public Optional<EnrollmentPrincipal> openContext(String proof) {
+
 		if (proof == null || !proof.matches("[A-Za-z0-9_-]{22}")) {
 			return Optional.empty();
 		}
@@ -320,13 +335,17 @@ public class AccountMfaService {
 	}
 
 	private UserAccount enrollmentAccount(EnrollmentPrincipal principal) {
+
 		if (principal == null) {
 			throw denied();
 		}
+
 		UserAccount current = activeAccount(principal.userID());
+
 		if (current.getSessionVersion() != principal.sessionVersion() || principal.isExpired(clock.instant())) {
 			throw denied();
 		}
+
 		return current;
 	}
 

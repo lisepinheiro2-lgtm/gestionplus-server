@@ -77,7 +77,7 @@ class AccountManagementServiceTest {
 	private final AccountAccessLifecycle accountAccessLifecycle = mock(AccountAccessLifecycle.class);
 
 	private final PrivilegedConfirmationService confirmations = mock(PrivilegedConfirmationService.class);
-	private final AccountDeactivationNotifications notifications = mock(AccountDeactivationNotifications.class);
+	private final AccountNotificationStore notifications = mock(AccountNotificationStore.class);
 
 	private AuthorizationService authorizationService;
 	private StructureAccessService accessService;

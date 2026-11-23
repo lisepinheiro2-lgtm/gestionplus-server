@@ -17,7 +17,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import fr.gestionplus.server.account.AccountDeactivationNotifications.Notification;
+import fr.gestionplus.server.account.AccountNotificationStore.Notification;
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditMetadata;
 import fr.gestionplus.server.audit.AuditReason;
@@ -30,12 +30,12 @@ import fr.gestionplus.server.auth.UserAccount;
 @Service
 @EnableScheduling
 @ConditionalOnProperty(name = { "spring.mail.host", "gestionplus.notifications.from" })
-public class AccountDeactivationNotificationDelivery {
+public class AccountNotificationDelivery {
 
-	private static final Logger LOGGER = LoggerFactory.getLogger(AccountDeactivationNotificationDelivery.class);
+	private static final Logger LOGGER = LoggerFactory.getLogger(AccountNotificationDelivery.class);
 	private static final int MAX_ATTEMPTS = 3;
 
-	private final AccountDeactivationNotifications notifications;
+	private final AccountNotificationStore notifications;
 	private final AccountStore accountStore;
 	private final JavaMailSender mailSender;
 	private final String from;
@@ -43,7 +43,7 @@ public class AccountDeactivationNotificationDelivery {
 	private final TransactionTemplate transaction;
 	private final MailDeliveryExecutor executor;
 
-	public AccountDeactivationNotificationDelivery(AccountDeactivationNotifications notifications,
+	public AccountNotificationDelivery(AccountNotificationStore notifications,
 			AccountStore accountStore, JavaMailSender mailSender,
 			@Value("${gestionplus.notifications.from}") String from, AuditService audit,
 			PlatformTransactionManager transactionManager, MailDeliveryExecutor executor) {

@@ -42,13 +42,13 @@ public class StructureAdminTransferService {
 	private final TenantMembershipStore tenantMembershipStore;
 	private final AccountAccessLifecycle accountAccessLifecycle;
 	private final PrivilegedConfirmationService confirmations;
-	private final AccountDeactivationNotifications notifications;
+	private final AccountNotificationStore notifications;
 
 	public StructureAdminTransferService(AuthorizationService authorizationService, AccountStore store,
 			StructureMembershipStore structureMembershipStore, AuthenticatedUserProvider authenticatedUserProvider,
 			AuditService auditService, OrganizationalStructureStore organizationalStructureStore,
 			TenantMembershipStore tenantMembershipStore, AccountAccessLifecycle accountAccessLifecycle,
-			PrivilegedConfirmationService confirmations, AccountDeactivationNotifications notifications) {
+			PrivilegedConfirmationService confirmations, AccountNotificationStore notifications) {
 
 		this.authorizationService = Objects.requireNonNull(authorizationService);
 		this.store = Objects.requireNonNull(store);
@@ -90,8 +90,9 @@ public class StructureAdminTransferService {
 				proof);
 
 		UUID structureID = confirmed.structureID();
-		moveAdminRole(structureID, state.incumbent().getUserID(), Set.copyOf(confirmed.rolesToKeep()),
-				state.successor().getUserID(), confirmed.successor().rolesIn(structureID));
+		moveAdminRole(state.actor().getUserID(), structureID, state.incumbent().getUserID(),
+				Set.copyOf(confirmed.rolesToKeep()), state.successor().getUserID(),
+				confirmed.successor().rolesIn(structureID));
 
 		AuditTarget scope = new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID);
 
@@ -177,7 +178,8 @@ public class StructureAdminTransferService {
 				structureMembershipStore.findByUserAndTenant(account.getUserID(), tenantID));
 	}
 
-	void moveAdminRole(UUID structureID, UUID oldAdminID, Set<UserRole> retainedRoles, UUID newAdminID,
+	void moveAdminRole(UUID actorUserID, UUID structureID, UUID oldAdminID, Set<UserRole> retainedRoles,
+			UUID newAdminID,
 			Set<UserRole> currentSuccessorRoles) {
 
 		if (retainedRoles.isEmpty()) {
@@ -194,7 +196,7 @@ public class StructureAdminTransferService {
 				Set.of(new AuditTarget(AuditTargetType.ACCOUNT, oldAdminID),
 						new AuditTarget(AuditTargetType.ACCOUNT, newAdminID),
 						new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID)));
-		notifications.enqueueAdminTransfer(oldAdminID, newAdminID, structureID);
+		notifications.enqueueAdminTransfer(actorUserID, oldAdminID, newAdminID, structureID);
 	}
 
 	@AuditedOperation(value = AuditAction.STRUCTURE_ADMIN_TRANSFER_PREVIEW, structure = 0, account = 1)

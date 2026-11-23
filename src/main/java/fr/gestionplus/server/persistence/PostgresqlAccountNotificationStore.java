@@ -6,24 +6,26 @@ import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
-import fr.gestionplus.server.account.AccountDeactivationNotifications;
+import fr.gestionplus.server.account.AccountNotificationStore;
 
 @Repository
-public class PostgresqlAccountDeactivationNotifications implements AccountDeactivationNotifications {
+public class PostgresqlAccountNotificationStore implements AccountNotificationStore {
 
 	private final JdbcTemplate jdbcTemplate;
 
-	public PostgresqlAccountDeactivationNotifications(JdbcTemplate jdbcTemplate) {
+	public PostgresqlAccountNotificationStore(JdbcTemplate jdbcTemplate) {
 		this.jdbcTemplate = jdbcTemplate;
 	}
 
 	@Override
-	public void enqueue(UUID actorUserID, UUID targetUserID, UUID structureID) {
+	public void enqueueAccountDeactivation(UUID actorUserID, UUID targetUserID, UUID structureID) {
 		enqueue(actorUserID, targetUserID, structureID, Kind.ACCOUNT_DEACTIVATION);
 	}
 
 	@Override
-	public void enqueueAdminTransfer(UUID oldAdminID, UUID newAdminID, UUID structureID) {
+	public void enqueueAdminTransfer(UUID actorUserID, UUID oldAdminID,
+			UUID newAdminID, UUID structureID) {
+
 		enqueue(oldAdminID, oldAdminID, structureID, Kind.ADMIN_REMOVED);
 		enqueue(newAdminID, newAdminID, structureID, Kind.ADMIN_GRANTED);
 	}
@@ -47,8 +49,8 @@ public class PostgresqlAccountDeactivationNotifications implements AccountDeacti
 				LIMIT 1 FOR UPDATE SKIP LOCKED
 				""", (row, rowNumber) -> new Notification(row.getObject("notification_id", UUID.class),
 				row.getObject("actor_id", UUID.class), row.getObject("target_id", UUID.class),
-				row.getObject("structure_id", UUID.class), Kind.valueOf(row.getString("kind")),
-				row.getInt("attempts"))).stream().findFirst();
+				row.getObject("recipient_user_id", UUID.class), row.getObject("structure_id", UUID.class),
+				Kind.valueOf(row.getString("kind")), row.getInt("attempts"))).stream().findFirst();
 	}
 
 	@Override

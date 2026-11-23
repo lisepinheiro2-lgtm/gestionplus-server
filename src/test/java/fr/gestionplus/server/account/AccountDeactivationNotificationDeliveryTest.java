@@ -26,8 +26,8 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.transaction.PlatformTransactionManager;
 
-import fr.gestionplus.server.account.AccountDeactivationNotifications.Kind;
-import fr.gestionplus.server.account.AccountDeactivationNotifications.Notification;
+import fr.gestionplus.server.account.AccountNotificationStore.Kind;
+import fr.gestionplus.server.account.AccountNotificationStore.Notification;
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditMetadata;
 import fr.gestionplus.server.audit.AuditReason;
@@ -39,12 +39,12 @@ import fr.gestionplus.server.auth.UserAccount;
 
 class AccountDeactivationNotificationDeliveryTest {
 
-	private final AccountDeactivationNotifications notifications = mock(AccountDeactivationNotifications.class);
+	private final AccountNotificationStore notifications = mock(AccountNotificationStore.class);
 	private final AccountStore accountStore = mock(AccountStore.class);
 	private final JavaMailSender mailSender = mock(JavaMailSender.class);
 	private final AuditService audit = mock(AuditService.class);
 	private final MailDeliveryExecutor executor = synchronousExecutor();
-	private final AccountDeactivationNotificationDelivery delivery = new AccountDeactivationNotificationDelivery(
+	private final AccountNotificationDelivery delivery = new AccountNotificationDelivery(
 			notifications, accountStore, mailSender, "gestionplus@example.invalid", audit,
 			mock(PlatformTransactionManager.class), executor);
 

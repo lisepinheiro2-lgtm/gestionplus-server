@@ -102,8 +102,8 @@ public class SuperAdminSuccessionService {
 		for (UUID structureID : confirmed.adminRolesToTransfer()) {
 			Set<UserRole> retainedRoles = new HashSet<>(confirmed.outgoing().rolesIn(structureID));
 			retainedRoles.remove(UserRole.ADMIN);
-			adminTransfer.moveAdminRole(structureID, oldAdminID, retainedRoles, newAdminID,
-					confirmed.successor().rolesIn(structureID));
+			adminTransfer.moveAdminRole(state.successor().getUserID(), structureID, oldAdminID, retainedRoles,
+					newAdminID, confirmed.successor().rolesIn(structureID));
 		}
 
 		AuditTarget scope = new AuditTarget(AuditTargetType.TENANT_ORGANIZATION, confirmed.tenantID());

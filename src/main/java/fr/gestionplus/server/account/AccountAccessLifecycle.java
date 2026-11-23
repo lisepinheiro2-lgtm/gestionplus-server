@@ -30,12 +30,12 @@ public class AccountAccessLifecycle {
 	private final AuthorizationService authorizationService;
 	private final SessionRevocationService sessionRevocationService;
 	private final AuditService auditService;
-	private final AccountDeactivationNotifications notifications;
+	private final AccountNotificationStore notifications;
 
 	public AccountAccessLifecycle(AccountStore store, StructureMembershipStore membershipStore,
 			OrganizationalStructureStore structureStore, AuthorizationService authorizationService,
 			SessionRevocationService sessionRevocationService, AuditService auditService,
-			AccountDeactivationNotifications notifications) {
+			AccountNotificationStore notifications) {
 		this.store = store;
 		this.membershipStore = membershipStore;
 		this.structureStore = structureStore;
@@ -63,11 +63,7 @@ public class AccountAccessLifecycle {
 		}
 
 		disable(account, structureID);
-
-		if (account.getStatu() == UserAccountStatus.PENDING_ACTIVATION) {
-			notifications.enqueue(actorUserID, account.getUserID(), structureID);
-		}
-
+		notifications.enqueueAccountDeactivation(actorUserID, account.getUserID(), structureID);
 	}
 
 	boolean hasValidAccessOutside(UserAccount account, UUID excludedStructureID) {
