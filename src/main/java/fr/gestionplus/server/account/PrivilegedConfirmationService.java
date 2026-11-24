@@ -9,6 +9,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.UUID;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -30,6 +31,7 @@ import fr.gestionplus.server.auth.UserCredentialLookup;
 public class PrivilegedConfirmationService {
 
 	private final ObjectProvider<PrivilegedConfirmationVerifier> verifiers;
+	private final CurrentSessionProvider currentSessionProvider;
 	private final PrivilegedConfirmationProofStore proofStore;
 	private final AccountStore accounts;
 	private final AuthenticatedUserProvider authenticated;
@@ -39,10 +41,12 @@ public class PrivilegedConfirmationService {
 	private final Clock clock;
 
 	public PrivilegedConfirmationService(ObjectProvider<PrivilegedConfirmationVerifier> verifiers,
-			PrivilegedConfirmationProofStore proofStore, AccountStore accounts, AuthenticatedUserProvider authenticated,
-			UserCredentialLookup credentials, CredentialService passwords, AccountMfaService mfa, Clock clock) {
+			CurrentSessionProvider currentSessionProvider, PrivilegedConfirmationProofStore proofStore,
+			AccountStore accounts, AuthenticatedUserProvider authenticated, UserCredentialLookup credentials,
+			CredentialService passwords, AccountMfaService mfa, Clock clock) {
 
 		this.verifiers = verifiers;
+		this.currentSessionProvider = currentSessionProvider;
 		this.proofStore = proofStore;
 		this.accounts = accounts;
 		this.authenticated = authenticated;
@@ -55,10 +59,15 @@ public class PrivilegedConfirmationService {
 	void require(UserAccount account, Action action, String previewDigest, String proof) {
 
 		PrivilegedConfirmationVerifier verifier = verifiers.getIfAvailable();
+		String sessionIDHash = currentSessionProvider.getCurrentSessionIDHash();
 
-		if (verifier == null || proof == null || proof.isBlank()
-				|| !verifier.consumeRecentProof(account.getUserID(), account.getSessionVersion(), action, previewDigest,
-						proof)) {
+		if (sessionIDHash == null) {
+			throw denied();
+		}
+
+		if (verifier == null || proof == null
+				|| !verifier.consumeRecentProof(account.getUserID(), sessionIDHash, account.getSessionVersion(), action,
+						previewDigest, proof)) {
 			throw new AuditedAccessDeniedException(
 					"Une confirmation avec authentification renforcée récente est requise.",
 					AuditReason.CONFIRMATION_REQUIRED);
@@ -74,9 +83,58 @@ public class PrivilegedConfirmationService {
 		}
 
 		UserAccount principal = authenticated.getCurrentAccount();
+		String sessionIDHash = currentSessionProvider.getCurrentSessionIDHash();
+
+		if (sessionIDHash == null) {
+			throw denied();
+		}
+
 		UserAccount current = accounts.findByIdForUpdate(principal.getUserID())
 				.filter(id -> id.getUserID().equals(principal.getUserID())).orElseThrow(this::denied);
 		AccountLocks.requireCurrentSession(current, principal);
+
+		verifyCredentials(current, rawPassword, totpCode);
+
+		String proofToken = generateProofToken();
+		String proofHash = digest(proofToken);
+		Instant expiresAt = clock.instant().plus(PROOF_TTL);
+
+		Proof proof = new Proof(current.getUserID(), sessionIDHash, current.getSessionVersion(), action, previewDigest,
+				proofHash, expiresAt);
+
+		proofStore.replaceCurrent(proof);
+
+		return proofToken;
+	}
+
+	SuccessionConfirmation createSuccessionConfirmation(UserAccount current, UUID offerID, String previewDigest,
+			String rawPassword, String totpCode) {
+
+		UserAccount principal = authenticated.getCurrentAccount();
+
+		if (!principal.getUserID().equals(current.getUserID())) {
+			throw denied();
+		}
+
+		AccountLocks.requireCurrentSession(current, principal);
+
+		String currentSessionIDHash = currentSessionProvider.getCurrentSessionIDHash();
+
+		if (currentSessionIDHash == null) {
+			throw denied();
+		}
+
+		verifyCredentials(current, rawPassword, totpCode);
+
+		Instant confirmedAt = clock.instant();
+		Instant expiresAt = confirmedAt.plus(PROOF_TTL);
+
+		return new SuccessionConfirmation(offerID, current.getUserID(), current.getSessionVersion(),
+				currentSessionIDHash, previewDigest, confirmedAt, expiresAt);
+	}
+
+	private void verifyCredentials(UserAccount current, String rawPassword, String totpCode) {
+
 		UserCredential credential = credentials.findByUserId(current.getUserID())
 				.filter(found -> current.getUserID().equals(found.getUserId())).orElseThrow(this::denied);
 
@@ -90,16 +148,6 @@ public class PrivilegedConfirmationService {
 			throw denied();
 		}
 
-		String proofToken = generateProofToken();
-		String proofHash = digest(proofToken);
-		Instant expiresAt = clock.instant().plus(PROOF_TTL);
-
-		Proof proof = new Proof(current.getUserID(), current.getSessionVersion(), action, previewDigest, proofHash,
-				expiresAt);
-
-		proofStore.replaceCurrent(proof);
-
-		return proofToken;
 	}
 
 	private String generateProofToken() {

@@ -25,6 +25,7 @@ public class SpringAuditContextProvider implements AuditContextProvider {
 		}
 
 		Object principal = authentication.getPrincipal();
+
 		if (principal instanceof EnrollmentPrincipal enrollment) {
 			return enrollment.userID();
 		}

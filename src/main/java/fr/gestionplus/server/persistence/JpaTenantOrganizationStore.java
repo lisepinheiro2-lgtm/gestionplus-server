@@ -32,4 +32,9 @@ public class JpaTenantOrganizationStore implements TenantOrganizationStore {
 	public boolean replaceSuperAdmin(UUID tenantID, UUID currentUserID, UUID successorUserID) {
 		return repository.replaceSuperAdmin(tenantID, currentUserID, successorUserID) == 1;
 	}
+
+	@Override
+	public Optional<TenantOrganization> findByIdForUpdate(UUID tenantID) {
+		return repository.findByIdForUpdate(tenantID).map(TenantOrganizationEntity::toDomain);
+	}
 }

@@ -14,7 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import fr.gestionplus.server.account.PrivilegedConfirmationVerifier.Action;
-import fr.gestionplus.server.account.SuccessionOffer.Status;
+import fr.gestionplus.server.account.SuccessionOffer.OfferStatus;
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditResult;
 import fr.gestionplus.server.audit.AuditService;
@@ -36,12 +36,15 @@ import fr.gestionplus.server.organization.TenantOrganizationStore;
 public class SuperAdminSuccessionService {
 
 	private final AuthenticatedUserProvider authenticatedUserProvider;
+	private final CurrentSessionProvider sessionProvider;
+	private final SessionValidityVerifier sessionValidityVerifier;
 	private final AuthorizationService authorizationService;
 	private final TenantOrganizationStore tenantStore;
 	private final OrganizationalStructureStore structureStore;
 	private final StructureMembershipStore membershipStore;
 	private final SuccessionOfferStore offerStore;
 	private final AccountStore accountStore;
+	private final SuccessionConfirmationStore confirmationStore;
 	private final StructureAdminTransferService adminTransfer;
 	private final AccountAccessLifecycle lifecycle;
 	private final PrivilegedConfirmationService confirmations;
@@ -49,19 +52,23 @@ public class SuperAdminSuccessionService {
 	private final Clock clock;
 
 	public SuperAdminSuccessionService(AuthenticatedUserProvider authenticatedUserProvider,
+			CurrentSessionProvider sessionProvider, SessionValidityVerifier sessionValidityVerifier,
 			AuthorizationService authorizationService, TenantOrganizationStore tenantStore,
 			OrganizationalStructureStore structureStore, StructureMembershipStore membershipStore,
-			SuccessionOfferStore offerStore, AccountStore accountStore, StructureAdminTransferService adminTransfer,
-			AccountAccessLifecycle lifecycle, PrivilegedConfirmationService confirmations, AuditService auditService,
-			Clock clock) {
+			SuccessionOfferStore offerStore, AccountStore accountStore, SuccessionConfirmationStore confirmationStrore,
+			StructureAdminTransferService adminTransfer, AccountAccessLifecycle lifecycle,
+			PrivilegedConfirmationService confirmations, AuditService auditService, Clock clock) {
 
 		this.authenticatedUserProvider = authenticatedUserProvider;
+		this.sessionProvider = sessionProvider;
+		this.sessionValidityVerifier = sessionValidityVerifier;
 		this.authorizationService = authorizationService;
 		this.tenantStore = tenantStore;
 		this.structureStore = structureStore;
 		this.membershipStore = membershipStore;
 		this.offerStore = offerStore;
 		this.accountStore = accountStore;
+		this.confirmationStore = confirmationStrore;
 		this.adminTransfer = adminTransfer;
 		this.lifecycle = lifecycle;
 		this.confirmations = confirmations;
@@ -82,27 +89,190 @@ public class SuperAdminSuccessionService {
 		return state.preview();
 	}
 
-	@AuditedOperation(AuditAction.SUPER_ADMIN_SUCCESSION)
 	@Transactional
-	public void acceptSuccession(SuccessionPreview confirmed, String outgoingProof, String successorProof) {
+	public void acceptSuccessionOffer(UUID offerID) {
 
 		UserAccount principal = authenticatedUserProvider.getCurrentAccount();
 
-		if (confirmed == null || !principal.getUserID().equals(confirmed.successor().userID())) {
+		if (offerID == null) {
+			throw denied();
+		}
+
+		SuccessionOffer offer = offerStore.findById(offerID)
+				.filter(found -> found.successorUserID().equals(principal.getUserID()))
+				.orElseThrow(SuperAdminSuccessionService::denied);
+
+		SuccessionState state = load(offer.tenantID(), offer.outgoingUserID(),
+				offer.successorUserID(), Set.copyOf(offer.adminRolesToTransfer()));
+
+		String previewDigest = state.preview().confirmationDigest();
+
+		if (state.successor().getSessionVersion() != principal.getSessionVersion()
+				|| !previewDigest.equals(offer.previewDigest())) {
+			throw denied();
+		}
+
+		TenantOrganization organization = tenantStore.findByIdForUpdate(offer.tenantID())
+				.filter(found -> found.getSuperAdminUserID().equals(state.outgoing().getUserID()))
+				.orElseThrow(SuperAdminSuccessionService::denied);
+
+		offerStore.findByIdForUpdate(offerID).filter(valid -> valid.status() == OfferStatus.PENDING)
+				.filter(valid -> valid.expiresAt().isAfter(clock.instant()))
+				.filter(valid -> valid.successorUserID().equals(state.successor().getUserID()))
+				.filter(valid -> valid.tenantID().equals(organization.getTenantID()))
+				.filter(valid -> valid.outgoingUserID().equals(organization.getSuperAdminUserID()))
+				.filter(valid -> valid.previewDigest().equals(previewDigest))
+				.orElseThrow(SuperAdminSuccessionService::denied);
+
+		if (!offerStore.updateStatus(offerID, OfferStatus.PENDING, OfferStatus.ACCEPTED)) {
+			throw denied();
+		}
+
+	}
+
+	@Transactional
+	public String issueSuccessionCreationProof(SuccessionPreview confirmed, String rawPassword, String totpCode) {
+
+		UserAccount principal = authenticatedUserProvider.getCurrentAccount();
+
+		if (confirmed == null || !principal.getUserID().equals(confirmed.outgoing().userID())) {
 			throw denied();
 		}
 
 		SuccessionState state = load(confirmed.tenantID(), confirmed.outgoing().userID(),
 				confirmed.successor().userID(), Set.copyOf(confirmed.adminRolesToTransfer()));
 
-		if (state.successor().getSessionVersion() != principal.getSessionVersion()
-				|| !confirmed.equals(state.preview())) {
+		if (state.outgoing().getSessionVersion() != principal.getSessionVersion()
+				|| !state.preview().equals(confirmed)) {
 			throw denied();
 		}
 
-		String digest = state.preview().confirmationDigest();
-		confirmations.require(state.outgoing(), Action.SUPER_ADMIN_SUCCESSION_OFFER, digest, outgoingProof);
-		confirmations.require(state.successor(), Action.SUPER_ADMIN_SUCCESSION_ACCEPTANCE, digest, successorProof);
+		return confirmations.issueProof(Action.SUPER_ADMIN_SUCCESSION_CREATE, state.preview().confirmationDigest(),
+				rawPassword, totpCode);
+
+	}
+
+	@Transactional
+	public void confirmSuccession(UUID offerID, String rawPassword, String totpCode) {
+
+		if (offerID == null) {
+			throw denied();
+		}
+
+		UserAccount principal = authenticatedUserProvider.getCurrentAccount();
+
+		SuccessionOffer offer = offerStore.findById(offerID)
+				.filter(valid -> valid.status() == OfferStatus.ACCEPTED)
+				.filter(valid -> valid.expiresAt().isAfter(clock.instant()))
+				.orElseThrow(SuperAdminSuccessionService::denied);
+
+		if (!offer.successorUserID().equals(principal.getUserID())
+				&& !offer.outgoingUserID().equals(principal.getUserID())) {
+			throw denied();
+		}
+
+		SuccessionState state = load(offer.tenantID(), offer.outgoingUserID(),
+				offer.successorUserID(), Set.copyOf(offer.adminRolesToTransfer()));
+
+		UserAccount current = principal.getUserID().equals(state.outgoing().getUserID()) ? state.outgoing()
+				: state.successor();
+
+		AccountLocks.requireCurrentSession(current, principal);
+
+		if (!offer.previewDigest().equals(state.preview().confirmationDigest())) {
+			throw denied();
+		}
+
+		TenantOrganization organization = tenantStore.findByIdForUpdate(offer.tenantID())
+				.filter(found -> found.getSuperAdminUserID().equals(state.outgoing().getUserID()))
+				.orElseThrow(SuperAdminSuccessionService::denied);
+
+		SuccessionOffer currentOffer = offerStore.findByIdForUpdate(offerID)
+				.filter(valid -> valid.status() == OfferStatus.ACCEPTED)
+				.filter(valid -> valid.expiresAt().isAfter(clock.instant()))
+				.filter(valid -> valid.successorUserID().equals(state.successor().getUserID()))
+				.filter(valid -> valid.tenantID().equals(organization.getTenantID()))
+				.filter(valid -> valid.outgoingUserID().equals(organization.getSuperAdminUserID()))
+				.filter(valid -> valid.previewDigest().equals(state.preview().confirmationDigest()))
+				.orElseThrow(SuperAdminSuccessionService::denied);
+
+		SuccessionConfirmation confirmation = confirmations.createSuccessionConfirmation(current, offerID,
+				currentOffer.previewDigest(), rawPassword, totpCode);
+
+		if (!currentOffer.expiresAt().isAfter(clock.instant())) {
+			throw denied();
+		}
+
+		confirmationStore.replaceCurrent(confirmation);
+	}
+
+	@Transactional
+	public void finalizeSuccession(UUID offerID) {
+
+		if (offerID == null) {
+			throw denied();
+		}
+
+		UserAccount principal = authenticatedUserProvider.getCurrentAccount();
+		SuccessionOffer offer = offerStore.findById(offerID)
+				.filter(valid -> valid.status() == OfferStatus.ACCEPTED)
+				.filter(valid -> valid.expiresAt().isAfter(clock.instant()))
+				.orElseThrow(SuperAdminSuccessionService::denied);
+
+		if (!offer.successorUserID().equals(principal.getUserID())) {
+			throw denied();
+		}
+
+		SuccessionState state = load(offer.tenantID(), offer.outgoingUserID(),
+				offer.successorUserID(), Set.copyOf(offer.adminRolesToTransfer()));
+
+		AccountLocks.requireCurrentSession(state.successor(), principal);
+
+		if (!offer.previewDigest().equals(state.preview().confirmationDigest())) {
+			throw denied();
+		}
+
+		TenantOrganization organization = tenantStore.findByIdForUpdate(offer.tenantID())
+				.filter(found -> found.getSuperAdminUserID().equals(state.outgoing().getUserID()))
+				.orElseThrow(SuperAdminSuccessionService::denied);
+
+		SuccessionOffer currentOffer = offerStore.findByIdForUpdate(offerID)
+				.filter(valid -> valid.status() == OfferStatus.ACCEPTED)
+				.filter(valid -> valid.expiresAt().isAfter(clock.instant()))
+				.filter(valid -> valid.successorUserID().equals(state.successor().getUserID()))
+				.filter(valid -> valid.tenantID().equals(organization.getTenantID()))
+				.filter(valid -> valid.outgoingUserID().equals(organization.getSuperAdminUserID()))
+				.filter(valid -> valid.previewDigest().equals(state.preview().confirmationDigest()))
+				.orElseThrow(SuperAdminSuccessionService::denied);
+
+		SuccessionConfirmation outgoingConfirmation = confirmationStore
+				.findByOfferIDAndUserID(offerID, currentOffer.outgoingUserID())
+				.orElseThrow(SuperAdminSuccessionService::denied);
+		SuccessionConfirmation successorConfirmation = confirmationStore
+				.findByOfferIDAndUserID(offerID, currentOffer.successorUserID())
+				.orElseThrow(SuperAdminSuccessionService::denied);
+
+		validateConfirmation(outgoingConfirmation, currentOffer, state.outgoing());
+		validateConfirmation(successorConfirmation, currentOffer, state.successor());
+
+		if (!successorConfirmation.sessionIDHash().equals(sessionProvider.getCurrentSessionIDHash())) {
+			throw denied();
+		}
+
+		Instant authorizedAt = sessionValidityVerifier
+				.validateTogether(state.outgoing().getUserID(), state.outgoing().getSessionVersion(),
+						outgoingConfirmation.sessionIDHash(), state.successor().getUserID(),
+						state.successor().getSessionVersion(), successorConfirmation.sessionIDHash())
+				.orElseThrow(SuperAdminSuccessionService::denied);
+
+		if (!currentOffer.expiresAt().isAfter(authorizedAt) || !outgoingConfirmation.expiresAt().isAfter(authorizedAt)
+				|| !successorConfirmation.expiresAt().isAfter(authorizedAt)
+				|| outgoingConfirmation.confirmedAt().isAfter(authorizedAt)
+				|| successorConfirmation.confirmedAt().isAfter(authorizedAt)) {
+			throw denied();
+		}
+
+		SuccessionPreview confirmed = state.preview();
 
 		UUID oldAdminID = state.outgoing().getUserID();
 		UUID newAdminID = state.successor().getUserID();
@@ -139,11 +309,16 @@ public class SuperAdminSuccessionService {
 			targets.add(new AuditTarget(AuditTargetType.ORGANIZATIONAL_STRUCTURE, structureID));
 		}
 
+		if (!offerStore.complete(offerID, authorizedAt)) {
+			throw denied();
+		}
+
+		confirmationStore.deleteByOfferID(offerID);
 		auditService.record(AuditAction.SUPER_ADMIN_SUCCESSION, AuditResult.SUCCESS, targets);
 	}
 
 	@Transactional
-	public String issueSuccessionOfferProof(SuccessionPreview confirmed, String rawPassword, String totpCode) {
+	public SuccessionOffer createSuccessionOffer(SuccessionPreview confirmed, String proof) {
 
 		UserAccount principal = authenticatedUserProvider.getCurrentAccount();
 
@@ -159,56 +334,21 @@ public class SuperAdminSuccessionService {
 			throw denied();
 		}
 
-		return confirmations.issueProof(Action.SUPER_ADMIN_SUCCESSION_OFFER, state.preview().confirmationDigest(),
-				rawPassword, totpCode);
-	}
-
-	@Transactional
-	public String issueSuccessionAcceptanceProof(SuccessionPreview confirmed, String rawPassword, String totpCode) {
-
-		UserAccount principal = authenticatedUserProvider.getCurrentAccount();
-
-		if (confirmed == null || !principal.getUserID().equals(confirmed.successor().userID())) {
-			throw denied();
-		}
-
-		SuccessionState state = load(confirmed.tenantID(), confirmed.outgoing().userID(),
-				confirmed.successor().userID(), Set.copyOf(confirmed.adminRolesToTransfer()));
-
-		if (state.successor().getSessionVersion() != principal.getSessionVersion()
-				|| !state.preview().equals(confirmed)) {
-			throw denied();
-		}
-
-		return confirmations.issueProof(Action.SUPER_ADMIN_SUCCESSION_ACCEPTANCE, state.preview().confirmationDigest(),
-				rawPassword, totpCode);
-	}
-
-	@Transactional
-	public SuccessionOffer createSuccessionOffer(SuccessionPreview confirmed) {
-
-		UserAccount principal = authenticatedUserProvider.getCurrentAccount();
-
-		if (confirmed == null || !principal.getUserID().equals(confirmed.outgoing().userID())) {
-			throw denied();
-		}
-
-		SuccessionState state = load(confirmed.tenantID(), confirmed.outgoing().userID(),
-				confirmed.successor().userID(), Set.copyOf(confirmed.adminRolesToTransfer()));
-
-		if (state.outgoing().getSessionVersion() != principal.getSessionVersion()
-				|| !state.preview().equals(confirmed)) {
-			throw denied();
-		}
-
-		Instant createdAt = clock.instant();
-		Instant expiresAt = createdAt.plus(Duration.ofHours(24));
 		UUID offerID = UUID.randomUUID();
 		String previewDigest = state.preview().confirmationDigest();
 
+		tenantStore.findByIdForUpdate(state.preview().tenantID())
+				.filter(found -> found.getSuperAdminUserID().equals(state.outgoing().getUserID()))
+				.orElseThrow(SuperAdminSuccessionService::denied);
+
+		confirmations.require(state.outgoing(), Action.SUPER_ADMIN_SUCCESSION_CREATE, previewDigest, proof);
+
+		Instant createdAt = clock.instant();
+		Instant expiresAt = createdAt.plus(Duration.ofHours(24));
+
 		SuccessionOffer offer = new SuccessionOffer(offerID, state.preview().outgoing().userID(),
 				state.preview().successor().userID(),
-				state.preview().tenantID(), state.preview().adminRolesToTransfer(), previewDigest, Status.PENDING,
+				state.preview().tenantID(), state.preview().adminRolesToTransfer(), previewDigest, OfferStatus.PENDING,
 				createdAt, expiresAt);
 
 		offerStore.create(offer);
@@ -219,12 +359,11 @@ public class SuperAdminSuccessionService {
 	@Transactional
 	public void cancelSuccessionOffer(UUID offerID) {
 
-		UserAccount principal = authenticatedUserProvider.getCurrentAccount();
-
-		if (principal == null || offerID == null) {
+		if (offerID == null) {
 			throw denied();
 		}
 
+		UserAccount principal = authenticatedUserProvider.getCurrentAccount();
 		SuccessionOffer offer = offerStore.findById(offerID).orElseThrow(SuperAdminSuccessionService::denied);
 
 		if (!principal.getUserID().equals(offer.outgoingUserID())) {
@@ -233,27 +372,29 @@ public class SuperAdminSuccessionService {
 
 		UserAccount current = accountStore.findByIdForUpdate(offer.outgoingUserID())
 				.orElseThrow(SuperAdminSuccessionService::denied);
-
 		AccountLocks.requireCurrentSession(current, principal);
-		SuccessionOffer currentOffer = offerStore.findByIdForUpdate(offerID)
-				.orElseThrow(SuperAdminSuccessionService::denied);
-
-		if (!principal.getUserID().equals(currentOffer.outgoingUserID())
-				|| (currentOffer.status() != Status.PENDING && currentOffer.status() != Status.ACCEPTED)
-				|| !clock.instant().isBefore(currentOffer.expiresAt())) {
-			throw denied();
-		}
-
-		TenantOrganization organization = tenantStore.findById(currentOffer.tenantID())
+		TenantOrganization organization = tenantStore.findByIdForUpdate(offer.tenantID())
 				.orElseThrow(SuperAdminSuccessionService::denied);
 
 		if (!organization.getSuperAdminUserID().equals(principal.getUserID())) {
 			throw denied();
 		}
 
-		if (!offerStore.updateStatus(offerID, currentOffer.status(), Status.CANCELLED)) {
+		SuccessionOffer currentOffer = offerStore.findByIdForUpdate(offerID)
+				.orElseThrow(SuperAdminSuccessionService::denied);
+
+		if (!principal.getUserID().equals(currentOffer.outgoingUserID())
+				|| (currentOffer.status() != OfferStatus.PENDING && currentOffer.status() != OfferStatus.ACCEPTED)
+				|| !clock.instant().isBefore(currentOffer.expiresAt())
+				|| !currentOffer.tenantID().equals(organization.getTenantID())) {
 			throw denied();
 		}
+
+		if (!offerStore.updateStatus(offerID, currentOffer.status(), OfferStatus.CANCELLED)) {
+			throw denied();
+		}
+
+		confirmationStore.deleteByOfferID(offerID);
 
 	}
 
@@ -312,6 +453,22 @@ public class SuperAdminSuccessionService {
 		SuccessionPreview preview = new SuccessionPreview(tenantID, structureIDs, outgoingSnapshot, successorSnapshot,
 				adminRolesToTransfer.stream().sorted().toList(), disabled);
 		return new SuccessionState(preview, outgoing, successor);
+	}
+
+	private void validateConfirmation(SuccessionConfirmation confirmation, SuccessionOffer offer, UserAccount account) {
+
+		Instant now = clock.instant();
+
+		if (confirmation == null
+				|| !confirmation.offerID().equals(offer.offerID())
+				|| !confirmation.userID().equals(account.getUserID())
+				|| confirmation.sessionVersion() != account.getSessionVersion()
+				|| !confirmation.previewDigest().equals(offer.previewDigest())
+				|| confirmation.confirmedAt().isAfter(now)
+				|| !confirmation.expiresAt().isAfter(now)) {
+			throw denied();
+		}
+
 	}
 
 	private boolean hasInvalidLocalRole(PrivilegedAccountSnapshot snapshot) {

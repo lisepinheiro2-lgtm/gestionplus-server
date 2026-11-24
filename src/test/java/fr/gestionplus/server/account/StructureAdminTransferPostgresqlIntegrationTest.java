@@ -187,7 +187,7 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 		assertEquals(newAdminUserID, stored.successorUserID());
 		assertEquals(tenantID, stored.tenantID());
 		assertEquals(preview.confirmationDigest(), stored.previewDigest());
-		assertEquals(SuccessionOffer.Status.PENDING, stored.status());
+		assertEquals(SuccessionOffer.OfferStatus.PENDING, stored.status());
 		assertEquals(offer.createdAt().truncatedTo(ChronoUnit.MICROS), stored.createdAt());
 		assertEquals(Duration.ofHours(24), Duration.between(stored.createdAt(), stored.expiresAt()));
 		assertTrue(stored.adminRolesToTransfer().isEmpty());
@@ -221,7 +221,7 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 
 		assertThrows(AccessDeniedException.class, () -> succession.createSuccessionOffer(preview));
 
-		assertEquals(SuccessionOffer.Status.PENDING, offerStore.findById(offer.offerID()).orElseThrow().status());
+		assertEquals(SuccessionOffer.OfferStatus.PENDING, offerStore.findById(offer.offerID()).orElseThrow().status());
 		assertEquals(1, successionOfferCount());
 	}
 
@@ -233,8 +233,8 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 		succession.cancelSuccessionOffer(first.offerID());
 		SuccessionOffer second = succession.createSuccessionOffer(preview);
 
-		assertEquals(SuccessionOffer.Status.CANCELLED, offerStore.findById(first.offerID()).orElseThrow().status());
-		assertEquals(SuccessionOffer.Status.PENDING, offerStore.findById(second.offerID()).orElseThrow().status());
+		assertEquals(SuccessionOffer.OfferStatus.CANCELLED, offerStore.findById(first.offerID()).orElseThrow().status());
+		assertEquals(SuccessionOffer.OfferStatus.PENDING, offerStore.findById(second.offerID()).orElseThrow().status());
 		assertEquals(2, successionOfferCount());
 		assertEquals(actorID, tenantRepository.findById(tenantID).orElseThrow().toDomain().getSuperAdminUserID());
 	}

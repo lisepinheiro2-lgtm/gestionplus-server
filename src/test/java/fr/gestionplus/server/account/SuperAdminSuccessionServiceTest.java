@@ -121,7 +121,7 @@ class SuperAdminSuccessionServiceTest {
 		assertEquals(successorID, offer.successorUserID());
 		assertEquals(List.of(firstStructure), offer.adminRolesToTransfer());
 		assertEquals(preview.confirmationDigest(), offer.previewDigest());
-		assertEquals(SuccessionOffer.Status.PENDING, offer.status());
+		assertEquals(SuccessionOffer.OfferStatus.PENDING, offer.status());
 		assertEquals(clock.instant(), offer.createdAt());
 		assertEquals(clock.instant().plusSeconds(86400), offer.expiresAt());
 		verify(tenants, never()).replaceSuperAdmin(any(), any(), any());

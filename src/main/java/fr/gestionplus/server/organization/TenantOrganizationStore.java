@@ -9,5 +9,7 @@ public interface TenantOrganizationStore {
 
 	Optional<TenantOrganization> findBySuperAdminUserID(UUID userID);
 
+	Optional<TenantOrganization> findByIdForUpdate(UUID tenantID);
+
 	boolean replaceSuperAdmin(UUID tenantID, UUID currentUserID, UUID successorUserID);
 }

@@ -20,16 +20,18 @@ public class StoredPrivilegedConfirmationVerifier implements PrivilegedConfirmat
 
 	@Override
 	@Transactional(propagation = Propagation.MANDATORY)
-	public boolean consumeRecentProof(UUID userID, long sessionVersion, Action action, String previewDigest,
-			String proof) {
+	public boolean consumeRecentProof(UUID userID, String sessionIDHash, long sessionVersion, Action action,
+			String previewDigest, String proof) {
 
-		if (proof == null || proof.isBlank() || !proof.matches("[A-Za-z0-9_-]{43}")) {
+		if (proof == null || !proof.matches("[A-Za-z0-9_-]{43}") || sessionIDHash == null
+				|| !sessionIDHash.matches("[0-9a-f]{64}")) {
 			return false;
 		}
 
 		String proofHash = PrivilegedConfirmationService.digest(proof);
 
-		return proofStore.consumeIfValid(userID, sessionVersion, action, previewDigest, proofHash, clock.instant());
+		return proofStore.consumeIfValid(userID, sessionIDHash, sessionVersion, action, previewDigest, proofHash,
+				clock.instant());
 
 	}
 

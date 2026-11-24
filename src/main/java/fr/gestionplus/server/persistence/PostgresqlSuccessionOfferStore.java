@@ -24,7 +24,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import fr.gestionplus.server.account.SuccessionOffer;
-import fr.gestionplus.server.account.SuccessionOffer.Status;
+import fr.gestionplus.server.account.SuccessionOffer.OfferStatus;
 import fr.gestionplus.server.account.SuccessionOfferStore;
 
 @Repository
@@ -42,36 +42,50 @@ public class PostgresqlSuccessionOfferStore implements SuccessionOfferStore {
 	@Transactional(propagation = Propagation.MANDATORY)
 	public void create(SuccessionOffer offer) {
 		Objects.requireNonNull(offer, "L’offre est obligatoire.");
-		if (offer.status() != Status.PENDING || new HashSet<>(offer.adminRolesToTransfer()).size() != offer.adminRolesToTransfer().size()) {
+
+		if (offer.status() != OfferStatus.PENDING
+				|| new HashSet<>(offer.adminRolesToTransfer()).size() != offer.adminRolesToTransfer().size()) {
 			throw new IllegalArgumentException("L’offre de succession est invalide.");
 		}
+
 		for (UUID userID : new TreeSet<>(List.of(offer.outgoingUserID(), offer.successorUserID()))) {
-			if (jdbcTemplate.queryForList("SELECT user_id FROM user_accounts WHERE user_id = ? FOR KEY SHARE", UUID.class, userID).isEmpty()) {
+
+			if (jdbcTemplate.queryForList("SELECT user_id FROM user_accounts WHERE user_id = ? FOR KEY SHARE",
+					UUID.class, userID).isEmpty()) {
 				throw denied();
 			}
+
 		}
+
 		List<UUID> holders = jdbcTemplate.queryForList("""
 				SELECT super_admin_user_id FROM tenant_organizations
 				WHERE tenant_id = ? FOR UPDATE
 				""", UUID.class, offer.tenantID());
+
 		if (holders.isEmpty() || !offer.outgoingUserID().equals(holders.getFirst())) {
 			throw denied();
 		}
+
 		Instant now = clock.instant();
+
 		if (offer.createdAt().isAfter(now) || !now.isBefore(offer.expiresAt())) {
 			throw denied();
 		}
+
 		boolean exists = jdbcTemplate.queryForObject("""
 				SELECT EXISTS (
 				    SELECT 1 FROM succession_offers
 				    WHERE tenant_id = ? AND status IN ('PENDING', 'ACCEPTED') AND expires_at > ?
 				)
 				""", Boolean.class, offer.tenantID(), atUtc(now));
+
 		if (exists) {
 			throw denied();
 		}
+
 		jdbcTemplate.execute((ConnectionCallback<Void>) connection -> {
 			Array roles = connection.createArrayOf("uuid", offer.adminRolesToTransfer().toArray(UUID[]::new));
+
 			try (PreparedStatement statement = connection.prepareStatement("""
 					INSERT INTO succession_offers
 					    (offer_id, tenant_id, outgoing_user_id, successor_user_id, admin_roles_to_transfer,
@@ -92,60 +106,94 @@ public class PostgresqlSuccessionOfferStore implements SuccessionOfferStore {
 			} finally {
 				roles.free();
 			}
+
 		});
 	}
 
 	@Override
 	public Optional<SuccessionOffer> findById(UUID offerID) {
 		Objects.requireNonNull(offerID, "L’identifiant de l’offre est obligatoire.");
-		return jdbcTemplate.query("SELECT * FROM succession_offers WHERE offer_id = ?", this::read, offerID).stream().findFirst();
+		return jdbcTemplate.query("SELECT * FROM succession_offers WHERE offer_id = ?", this::read, offerID).stream()
+				.findFirst();
 	}
 
 	@Override
 	@Transactional(propagation = Propagation.MANDATORY)
 	public Optional<SuccessionOffer> findByIdForUpdate(UUID offerID) {
 		Objects.requireNonNull(offerID, "L’identifiant de l’offre est obligatoire.");
-		return jdbcTemplate.query("SELECT * FROM succession_offers WHERE offer_id = ? FOR UPDATE", this::read, offerID).stream().findFirst();
+		return jdbcTemplate.query("SELECT * FROM succession_offers WHERE offer_id = ? FOR UPDATE", this::read, offerID)
+				.stream().findFirst();
 	}
 
 	@Override
 	@Transactional(propagation = Propagation.MANDATORY)
-	public boolean cancel(UUID offerID, Status expectedStatus, Status newStatus) {
-		return newStatus == Status.CANCELLED && updateStatus(offerID, expectedStatus, newStatus);
+	public boolean cancel(UUID offerID, OfferStatus expectedStatus, OfferStatus newStatus) {
+		return newStatus == OfferStatus.CANCELLED && updateStatus(offerID, expectedStatus, newStatus);
 	}
 
 	@Override
 	@Transactional(propagation = Propagation.MANDATORY)
-	public boolean complete(UUID offerID, Status expectedStatus, Status newStatus) {
-		return expectedStatus == Status.ACCEPTED && newStatus == Status.COMPLETED && updateStatus(offerID, expectedStatus, newStatus);
-	}
+	public boolean complete(UUID offerID, Instant authorizedAt) {
 
-	@Override
-	@Transactional(propagation = Propagation.MANDATORY)
-	public boolean updateStatus(UUID offerID, Status expectedStatus, Status newStatus) {
-		if (offerID == null || expectedStatus == null || newStatus == null
-				|| !(expectedStatus == Status.PENDING && (newStatus == Status.ACCEPTED || newStatus == Status.CANCELLED)
-						|| expectedStatus == Status.ACCEPTED && (newStatus == Status.CANCELLED || newStatus == Status.COMPLETED))) {
+		if (offerID == null || authorizedAt == null) {
 			return false;
 		}
+
 		SuccessionOffer current = findByIdForUpdate(offerID).orElse(null);
-		if (current == null || current.status() != expectedStatus || !clock.instant().isBefore(current.expiresAt())) {
+
+		if (current == null || current.status() != OfferStatus.ACCEPTED
+				|| authorizedAt.isBefore(current.createdAt())
+				|| !current.expiresAt().isAfter(authorizedAt)) {
 			return false;
 		}
-		return jdbcTemplate.update("UPDATE succession_offers SET status = ? WHERE offer_id = ? AND status = ?",
+
+		return jdbcTemplate.update("""
+				UPDATE succession_offers
+				SET status = ?
+				WHERE offer_id = ? AND status = ?
+				""", OfferStatus.COMPLETED.name(), offerID,
+				OfferStatus.ACCEPTED.name()) == 1;
+	}
+
+	@Override
+	@Transactional(propagation = Propagation.MANDATORY)
+	public boolean updateStatus(UUID offerID, OfferStatus expectedStatus, OfferStatus newStatus) {
+
+		if (offerID == null || expectedStatus == null || newStatus == null
+				|| !(expectedStatus == OfferStatus.PENDING
+						&& (newStatus == OfferStatus.ACCEPTED || newStatus == OfferStatus.CANCELLED)
+						|| expectedStatus == OfferStatus.ACCEPTED
+								&& newStatus == OfferStatus.CANCELLED)) {
+			return false;
+		}
+
+		SuccessionOffer current = findByIdForUpdate(offerID).orElse(null);
+
+		if (current == null || current.status() != expectedStatus
+				|| !clock.instant().isBefore(current.expiresAt())) {
+			return false;
+		}
+
+		return jdbcTemplate.update(
+				"UPDATE succession_offers SET status = ? WHERE offer_id = ? AND status = ?",
 				newStatus.name(), offerID, expectedStatus.name()) == 1;
 	}
 
 	private SuccessionOffer read(ResultSet row, int rowNumber) throws SQLException {
 		Array roles = row.getArray("admin_roles_to_transfer");
+
 		try {
-			return new SuccessionOffer(row.getObject("offer_id", UUID.class), row.getObject("outgoing_user_id", UUID.class),
+			return new SuccessionOffer(row.getObject("offer_id", UUID.class),
+					row.getObject("outgoing_user_id", UUID.class),
 					row.getObject("successor_user_id", UUID.class), row.getObject("tenant_id", UUID.class),
-					Arrays.stream((Object[]) roles.getArray()).map(UUID.class::cast).toList(), row.getString("preview_digest"),
-					Status.valueOf(row.getString("status")), readInstant(row, "created_at"), readInstant(row, "expires_at"));
+					Arrays.stream((Object[]) roles.getArray()).map(UUID.class::cast).toList(),
+					row.getString("preview_digest"),
+					OfferStatus.valueOf(row.getString("status")), readInstant(row, "created_at"),
+					readInstant(row, "expires_at"));
 		} finally {
 			roles.free();
 		}
+
 	}
 
 	private static Instant readInstant(ResultSet row, String column) throws SQLException {

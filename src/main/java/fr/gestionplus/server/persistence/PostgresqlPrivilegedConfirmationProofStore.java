@@ -32,16 +32,21 @@ public class PostgresqlPrivilegedConfirmationProofStore implements PrivilegedCon
 	@Transactional(propagation = Propagation.MANDATORY)
 	public void replaceCurrent(Proof proof) {
 		Objects.requireNonNull(proof, "La preuve est obligatoire.");
+
 		if (proof.sessionVersion() < 0 || !isDigest(proof.previewDigest()) || !isDigest(proof.proofHash())) {
 			throw new IllegalArgumentException("La preuve de confirmation est invalide.");
 		}
+
 		if (!lockCurrentAccount(proof.userID(), proof.sessionVersion())) {
 			throw new IllegalArgumentException("Le compte ou sa version de sécurité n’est plus valide.");
 		}
+
 		Instant createdAt = clock.instant();
+
 		if (!proof.expiresAt().isAfter(createdAt) || proof.expiresAt().isAfter(createdAt.plus(MAX_VALIDITY))) {
 			throw new IllegalArgumentException("La preuve doit expirer dans les cinq minutes.");
 		}
+
 		jdbcTemplate.update("""
 				INSERT INTO privileged_confirmation_proofs
 				    (user_id, action, session_version, preview_digest, proof_hash, created_at, expires_at)
@@ -58,23 +63,29 @@ public class PostgresqlPrivilegedConfirmationProofStore implements PrivilegedCon
 
 	@Override
 	@Transactional(propagation = Propagation.MANDATORY)
-	public boolean consumeIfValid(UUID userID, long sessionVersion, Action action, String previewDigest,
-			String proofHash, Instant now) {
-		if (userID == null || sessionVersion < 0 || action == null || !isDigest(previewDigest)
-				|| !isDigest(proofHash) || now == null || !lockCurrentAccount(userID, sessionVersion)) {
+	public boolean consumeIfValid(UUID userID, String sessionIDHash, long sessionVersion,
+			Action action, String previewDigest, String proofHash, Instant now) {
+
+		if (userID == null || !isDigest(sessionIDHash) || sessionVersion < 0
+				|| action == null || !isDigest(previewDigest) || !isDigest(proofHash)
+				|| now == null || !lockCurrentAccount(userID, sessionVersion)) {
 			return false;
 		}
+
 		Instant checkedAt = clock.instant();
+
 		if (now.isAfter(checkedAt)) {
 			checkedAt = now;
 		}
+
 		return jdbcTemplate.update("""
 				DELETE FROM privileged_confirmation_proofs
-				WHERE user_id = ? AND session_version = ? AND action = ?
+				WHERE user_id = ? AND session_id_hash = ?
+				  AND session_version = ? AND action = ?
 				  AND preview_digest = ? AND proof_hash = ?
 				  AND created_at <= ? AND expires_at > ?
-				""", userID, sessionVersion, action.name(), previewDigest, proofHash,
-				atUtc(checkedAt), atUtc(checkedAt)) == 1;
+				""", userID, sessionIDHash, sessionVersion, action.name(),
+				previewDigest, proofHash, atUtc(checkedAt), atUtc(checkedAt)) == 1;
 	}
 
 	private boolean lockCurrentAccount(UUID userID, long sessionVersion) {

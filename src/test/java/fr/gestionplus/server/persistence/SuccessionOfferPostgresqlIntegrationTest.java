@@ -46,7 +46,7 @@ import com.github.dockerjava.api.model.PortBinding;
 import com.github.dockerjava.api.model.Ports;
 
 import fr.gestionplus.server.account.SuccessionOffer;
-import fr.gestionplus.server.account.SuccessionOffer.Status;
+import fr.gestionplus.server.account.SuccessionOffer.OfferStatus;
 import fr.gestionplus.server.account.SuccessionOfferStore;
 import fr.gestionplus.server.support.SuccessionOfferCreationProcess;
 
@@ -110,33 +110,33 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		Participants participants = participants();
 		List<UUID> roles = List.of(UUID.randomUUID(), UUID.randomUUID());
 		SuccessionOffer offer = new SuccessionOffer(UUID.randomUUID(), participants.outgoing(), participants.successor(),
-				participants.tenant(), roles, "a".repeat(64), Status.PENDING, NOW, NOW.plusSeconds(86400));
+				participants.tenant(), roles, "a".repeat(64), OfferStatus.PENDING, NOW, NOW.plusSeconds(86400));
 		create(offer);
 		assertEquals(offer, offerStore.findById(offer.offerID()).orElseThrow());
 		assertTrue(offerStore.findById(UUID.randomUUID()).isEmpty());
 	}
 
 	@ParameterizedTest
-	@EnumSource(value = Status.class, names = { "PENDING", "ACCEPTED" })
-	void anUnexpiredOpenOfferPreventsAnotherOfferForTheSameOrganization(Status status) {
+	@EnumSource(value = OfferStatus.class, names = { "PENDING", "ACCEPTED" })
+	void anUnexpiredOpenOfferPreventsAnotherOfferForTheSameOrganization(OfferStatus status) {
 		Participants participants = participants();
 		SuccessionOffer first = offer(participants);
 		create(first);
-		if (status == Status.ACCEPTED) {
-			assertTrue(change(first.offerID(), Status.PENDING, Status.ACCEPTED));
+		if (status == OfferStatus.ACCEPTED) {
+			assertTrue(change(first.offerID(), OfferStatus.PENDING, OfferStatus.ACCEPTED));
 		}
 		assertThrows(AccessDeniedException.class, () -> create(offer(participants)));
 		assertEquals(1, count(participants.tenant()));
 	}
 
 	@ParameterizedTest
-	@EnumSource(value = Status.class, names = { "PENDING", "ACCEPTED" })
-	void anOfferExpiringAtTheCurrentInstantDoesNotBlockANewOfferOrLoseItsHistory(Status status) {
+	@EnumSource(value = OfferStatus.class, names = { "PENDING", "ACCEPTED" })
+	void anOfferExpiringAtTheCurrentInstantDoesNotBlockANewOfferOrLoseItsHistory(OfferStatus status) {
 		Participants participants = participants();
 		SuccessionOffer first = offer(participants);
 		create(first);
-		if (status == Status.ACCEPTED) {
-			assertTrue(change(first.offerID(), Status.PENDING, Status.ACCEPTED));
+		if (status == OfferStatus.ACCEPTED) {
+			assertTrue(change(first.offerID(), OfferStatus.PENDING, OfferStatus.ACCEPTED));
 		}
 		TIME.set(first.expiresAt());
 		create(offer(participants));
@@ -149,10 +149,10 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		Participants participants = participants();
 		SuccessionOffer first = offer(participants);
 		create(first);
-		boolean cancelled = transaction.execute(status -> offerStore.cancel(first.offerID(), Status.PENDING, Status.CANCELLED));
+		boolean cancelled = transaction.execute(status -> offerStore.cancel(first.offerID(), OfferStatus.PENDING, OfferStatus.CANCELLED));
 		assertTrue(cancelled);
 		create(offer(participants));
-		assertFalse(change(first.offerID(), Status.CANCELLED, Status.ACCEPTED));
+		assertFalse(change(first.offerID(), OfferStatus.CANCELLED, OfferStatus.ACCEPTED));
 		assertEquals(2, count(participants.tenant()));
 	}
 
@@ -161,8 +161,8 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		Participants participants = participants();
 		SuccessionOffer first = offer(participants);
 		create(first);
-		assertTrue(change(first.offerID(), Status.PENDING, Status.ACCEPTED));
-		boolean completed = transaction.execute(status -> offerStore.complete(first.offerID(), Status.ACCEPTED, Status.COMPLETED));
+		assertTrue(change(first.offerID(), OfferStatus.PENDING, OfferStatus.ACCEPTED));
+		boolean completed = transaction.execute(status -> offerStore.complete(first.offerID(), OfferStatus.ACCEPTED, OfferStatus.COMPLETED));
 		assertTrue(completed);
 		create(offer(participants));
 		assertEquals(2, count(participants.tenant()));
@@ -189,10 +189,10 @@ class SuccessionOfferPostgresqlIntegrationTest {
 	void expiryAndInitialStatusAreCheckedBeforeInsertion() {
 		Participants participants = participants();
 		SuccessionOffer expired = new SuccessionOffer(UUID.randomUUID(), participants.outgoing(), participants.successor(), participants.tenant(),
-				List.of(), "a".repeat(64), Status.PENDING, NOW.minusSeconds(86400), NOW);
+				List.of(), "a".repeat(64), OfferStatus.PENDING, NOW.minusSeconds(86400), NOW);
 		assertThrows(AccessDeniedException.class, () -> create(expired));
 		SuccessionOffer accepted = new SuccessionOffer(UUID.randomUUID(), participants.outgoing(), participants.successor(), participants.tenant(),
-				List.of(), "a".repeat(64), Status.ACCEPTED, NOW, NOW.plusSeconds(86400));
+				List.of(), "a".repeat(64), OfferStatus.ACCEPTED, NOW, NOW.plusSeconds(86400));
 		assertThrows(IllegalArgumentException.class, () -> create(accepted));
 		assertEquals(0, count(participants.tenant()));
 	}
@@ -202,7 +202,7 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		SuccessionOffer offer = offer(participants());
 		assertThrows(IllegalTransactionStateException.class, () -> offerStore.create(offer));
 		assertThrows(IllegalTransactionStateException.class, () -> offerStore.findByIdForUpdate(offer.offerID()));
-		assertThrows(IllegalTransactionStateException.class, () -> offerStore.updateStatus(offer.offerID(), Status.PENDING, Status.CANCELLED));
+		assertThrows(IllegalTransactionStateException.class, () -> offerStore.updateStatus(offer.offerID(), OfferStatus.PENDING, OfferStatus.CANCELLED));
 	}
 
 	@Test
@@ -242,7 +242,7 @@ class SuccessionOfferPostgresqlIntegrationTest {
 	void anOfferThatExpiresWhileCreationWaitsDoesNotBlockItsSuccessor() throws Exception {
 		Participants participants = participants();
 		create(new SuccessionOffer(UUID.randomUUID(), participants.outgoing(), participants.successor(), participants.tenant(),
-				List.of(), "a".repeat(64), Status.PENDING, NOW, NOW.plusSeconds(1)));
+				List.of(), "a".repeat(64), OfferStatus.PENDING, NOW, NOW.plusSeconds(1)));
 		assertTrue(createAfterTenantWait(offer(participants), () -> TIME.set(NOW.plusSeconds(1))));
 		assertEquals(2, count(participants.tenant()));
 	}
@@ -251,7 +251,7 @@ class SuccessionOfferPostgresqlIntegrationTest {
 	void anIncomingOfferThatExpiresDuringTheLockWaitCannotBeInserted() throws Exception {
 		Participants participants = participants();
 		SuccessionOffer incoming = new SuccessionOffer(UUID.randomUUID(), participants.outgoing(), participants.successor(), participants.tenant(),
-				List.of(), "a".repeat(64), Status.PENDING, NOW, NOW.plusSeconds(1));
+				List.of(), "a".repeat(64), OfferStatus.PENDING, NOW, NOW.plusSeconds(1));
 		assertFalse(createAfterTenantWait(incoming, () -> TIME.set(NOW.plusSeconds(1))));
 		assertEquals(0, count(participants.tenant()));
 	}
@@ -325,13 +325,13 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		catch (AccessDeniedException denied) { return false; }
 	}
 
-	private static boolean change(UUID id, Status expected, Status next) {
+	private static boolean change(UUID id, OfferStatus expected, OfferStatus next) {
 		return transaction.execute(status -> offerStore.updateStatus(id, expected, next));
 	}
 
 	private static SuccessionOffer offer(Participants participants) {
 		return new SuccessionOffer(UUID.randomUUID(), participants.outgoing(), participants.successor(), participants.tenant(),
-				List.of(), "a".repeat(64), Status.PENDING, TIME.get(), TIME.get().plusSeconds(86400));
+				List.of(), "a".repeat(64), OfferStatus.PENDING, TIME.get(), TIME.get().plusSeconds(86400));
 	}
 
 	private static Participants participants() {

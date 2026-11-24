@@ -21,7 +21,7 @@ import org.springframework.transaction.interceptor.TransactionInterceptor;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import fr.gestionplus.server.account.SuccessionOffer;
-import fr.gestionplus.server.account.SuccessionOffer.Status;
+import fr.gestionplus.server.account.SuccessionOffer.OfferStatus;
 import fr.gestionplus.server.account.SuccessionOfferStore;
 import fr.gestionplus.server.persistence.PostgresqlSuccessionOfferStore;
 
@@ -40,7 +40,7 @@ public final class SuccessionOfferCreationProcess {
 		SuccessionOfferStore store = (SuccessionOfferStore) proxy.getProxy();
 		SuccessionOffer offer = new SuccessionOffer(UUID.randomUUID(), UUID.fromString(settings.getProperty("outgoing")),
 				UUID.fromString(settings.getProperty("successor")), UUID.fromString(settings.getProperty("tenant")),
-				List.of(), "a".repeat(64), Status.PENDING, now, now.plusSeconds(86400));
+				List.of(), "a".repeat(64), OfferStatus.PENDING, now, now.plusSeconds(86400));
 		Path directory = Path.of(settings.getProperty("directory"));
 		String node = settings.getProperty("node");
 		Files.writeString(directory.resolve(node + "-ready"), "ready");
