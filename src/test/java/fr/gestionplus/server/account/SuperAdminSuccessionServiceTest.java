@@ -56,6 +56,11 @@ class SuperAdminSuccessionServiceTest {
 	private final OrganizationalStructureStore structures = mock(OrganizationalStructureStore.class);
 	private final StructureMembershipStore memberships = mock(StructureMembershipStore.class);
 	private final SuccessionOfferStore offerStore = mock(SuccessionOfferStore.class);
+	private final CurrentSessionProvider sessionProvider = mock(CurrentSessionProvider.class);
+	private final SessionValidityVerifier sessionValidityVerifier = mock(SessionValidityVerifier.class);
+	private final SuccessionConfirmationStore confirmationStore = mock(SuccessionConfirmationStore.class);
+	private final String outgoingSession = "1".repeat(64);
+	private final String successorSession = "2".repeat(64);
 	private final AccountStore accountStore = mock(AccountStore.class);
 	private final Clock clock = Clock.fixed(Instant.parse("2026-11-23T12:00:00Z"), ZoneOffset.UTC);
 	private final StructureAdminTransferService transfers = mock(StructureAdminTransferService.class);
@@ -75,10 +80,10 @@ class SuperAdminSuccessionServiceTest {
 	void prepare() {
 		StaticListableBeanFactory beans = new StaticListableBeanFactory();
 		beans.addBean("verifier", verifier);
-		service = new SuperAdminSuccessionService(authenticated, authorization, tenants, structures, memberships,
-				offerStore, accountStore, transfers, lifecycle,
+		service = new SuperAdminSuccessionService(authenticated, sessionProvider, sessionValidityVerifier, authorization, tenants, structures, memberships,
+				offerStore, accountStore, confirmationStore, transfers, lifecycle,
 				new PrivilegedConfirmationService(beans.getBeanProvider(PrivilegedConfirmationVerifier.class),
-						mock(PrivilegedConfirmationProofStore.class), mock(AccountStore.class), authenticated,
+						sessionProvider, mock(PrivilegedConfirmationProofStore.class), mock(AccountStore.class), authenticated,
 						mock(UserCredentialLookup.class), mock(CredentialService.class), mock(AccountMfaService.class),
 						Clock.systemUTC()), audit, clock);
 		when(authenticated.getCurrentAccount()).thenReturn(outgoing);
@@ -101,17 +106,18 @@ class SuperAdminSuccessionServiceTest {
 				new StructureMembership(outgoingID, secondStructure, Set.of(UserRole.ADMIN)))));
 		when(transfers.snapshot(successor, tenantID)).thenReturn(PrivilegedAccountSnapshot.capture(successor, List.of(
 				new StructureMembership(successorID, firstStructure, Set.of(UserRole.EMPLOYEE)))));
-		when(verifier.consumeRecentProof(eq(outgoingID), eq(2L), eq(Action.SUPER_ADMIN_SUCCESSION_OFFER),
-				anyString(), eq("offer-proof"))).thenReturn(true);
-		when(verifier.consumeRecentProof(eq(successorID), eq(7L), eq(Action.SUPER_ADMIN_SUCCESSION_ACCEPTANCE),
-				anyString(), eq("accept-proof"))).thenReturn(true);
+		when(tenants.findByIdForUpdate(tenantID)).thenReturn(Optional.of(
+				new TenantOrganization(tenantID, "Entreprise test", outgoingID)));
+		when(sessionProvider.getCurrentSessionIDHash()).thenReturn(outgoingSession);
+		when(verifier.consumeRecentProof(eq(outgoingID), eq(outgoingSession), eq(2L),
+				eq(Action.SUPER_ADMIN_SUCCESSION_CREATE), anyString(), eq("creation-proof"))).thenReturn(true);
 	}
 
 	@Test
 	void creatingAnOfferStoresTheConfirmedTwentyFourHourProposalWithoutTransferringAnyRights() {
 		SuccessionPreview preview = preview(Set.of(firstStructure));
 
-		SuccessionOffer offer = service.createSuccessionOffer(preview);
+		SuccessionOffer offer = service.createSuccessionOffer(preview, "creation-proof");
 
 		ArgumentCaptor<SuccessionOffer> stored = ArgumentCaptor.forClass(SuccessionOffer.class);
 		verify(offerStore).create(stored.capture());
@@ -133,7 +139,7 @@ class SuperAdminSuccessionServiceTest {
 	void onlyTheOutgoingSuperAdminCanCreateAnOffer() {
 		SuccessionPreview preview = preview(Set.of(firstStructure));
 		when(authenticated.getCurrentAccount()).thenReturn(successor);
-		assertThrows(AccessDeniedException.class, () -> service.createSuccessionOffer(preview));
+		assertThrows(AccessDeniedException.class, () -> service.createSuccessionOffer(preview, "creation-proof"));
 		verifyNoInteractions(offerStore, lifecycle);
 	}
 
@@ -142,7 +148,7 @@ class SuperAdminSuccessionServiceTest {
 		SuccessionPreview preview = preview(Set.of(firstStructure));
 		when(transfers.lockAccounts(outgoingID, successorID)).thenReturn(Map.of(outgoingID,
 				account(outgoingID, UserAccountStatus.ACTIVE, 3), successorID, successor));
-		assertThrows(AccessDeniedException.class, () -> service.createSuccessionOffer(preview));
+		assertThrows(AccessDeniedException.class, () -> service.createSuccessionOffer(preview, "creation-proof"));
 		verifyNoInteractions(offerStore, lifecycle);
 	}
 
@@ -151,7 +157,7 @@ class SuperAdminSuccessionServiceTest {
 		SuccessionPreview preview = preview(Set.of(firstStructure));
 		when(transfers.lockAccounts(outgoingID, successorID)).thenReturn(Map.of(outgoingID, outgoing,
 				successorID, account(successorID, UserAccountStatus.DISABLED, 7)));
-		assertThrows(AccessDeniedException.class, () -> service.createSuccessionOffer(preview));
+		assertThrows(AccessDeniedException.class, () -> service.createSuccessionOffer(preview, "creation-proof"));
 		verifyNoInteractions(offerStore, lifecycle);
 	}
 
@@ -161,41 +167,67 @@ class SuperAdminSuccessionServiceTest {
 		when(transfers.snapshot(outgoing, tenantID)).thenReturn(PrivilegedAccountSnapshot.capture(outgoing,
 				List.of(new StructureMembership(outgoingID, firstStructure, Set.of(UserRole.ADMIN, UserRole.EMPLOYEE)),
 						new StructureMembership(outgoingID, secondStructure, Set.of(UserRole.ADMIN)))));
-		assertThrows(AccessDeniedException.class, () -> service.createSuccessionOffer(preview));
+		assertThrows(AccessDeniedException.class, () -> service.createSuccessionOffer(preview, "creation-proof"));
 		verifyNoInteractions(offerStore, lifecycle);
 	}
 
 	@Test
-	void onlyTheSuccessorCanAcceptTheConfirmedSuccession() {
-		SuccessionPreview preview = preview(Set.of(firstStructure));
-		assertThrows(AccessDeniedException.class,
-				() -> service.acceptSuccession(preview, "offer-proof", "accept-proof"));
+	void onlyTheSuccessorCanFinalizeTheConfirmedOffer() {
+		UUID offerID = prepareFinalization(preview(Set.of(firstStructure)));
+		when(authenticated.getCurrentAccount()).thenReturn(outgoing);
+		assertThrows(AccessDeniedException.class, () -> service.finalizeSuccession(offerID));
 		assertNoChanges();
 	}
 
 	@Test
-	void requiresBothRecentProofsForTheExactPreview() {
-		SuccessionPreview preview = preview(Set.of(firstStructure));
-		when(authenticated.getCurrentAccount()).thenReturn(successor);
+	void refusesAFinalizationFromAnotherSessionOfTheSameSuccessor() {
+		UUID offerID = prepareFinalization(preview(Set.of(firstStructure)));
+		when(sessionProvider.getCurrentSessionIDHash()).thenReturn("3".repeat(64));
+		assertThrows(AccessDeniedException.class, () -> service.finalizeSuccession(offerID));
+		assertNoChanges();
+		verifyNoInteractions(sessionValidityVerifier);
+	}
 
-		assertThrows(AccessDeniedException.class, () -> service.acceptSuccession(preview, null, "accept-proof"));
-		assertThrows(AccessDeniedException.class,
-				() -> service.acceptSuccession(preview, "offer-proof", "wrong-proof"));
+	@Test
+	void refusesAConfirmationBelongingToAnotherOffer() {
+		SuccessionPreview preview = preview(Set.of(firstStructure));
+		UUID offerID = prepareFinalization(preview);
+		when(confirmationStore.findByOfferIDAndUserID(offerID, outgoingID)).thenReturn(Optional.of(
+				confirmation(UUID.randomUUID(), outgoing, outgoingSession, preview, clock.instant().plusSeconds(300))));
+		assertThrows(AccessDeniedException.class, () -> service.finalizeSuccession(offerID));
+		assertNoChanges();
+	}
+
+	@Test
+	void expiresTheConfirmationAtTheExactSharedAuthorizationInstant() {
+		SuccessionPreview preview = preview(Set.of(firstStructure));
+		UUID offerID = prepareFinalization(preview);
+		when(sessionValidityVerifier.validateTogether(outgoingID, 2L, outgoingSession, successorID, 7L,
+				successorSession)).thenReturn(Optional.of(clock.instant().plusSeconds(300)));
+		assertThrows(AccessDeniedException.class, () -> service.finalizeSuccession(offerID));
+		assertNoChanges();
+	}
+
+	@Test
+	void neverTransfersWhenTheJointSessionCheckIsUnavailable() {
+		UUID offerID = prepareFinalization(preview(Set.of(firstStructure)));
+		when(sessionValidityVerifier.validateTogether(outgoingID, 2L, outgoingSession, successorID, 7L,
+				successorSession)).thenThrow(new fr.gestionplus.server.auth.DistributedSecurityUnavailableException());
+		assertThrows(fr.gestionplus.server.auth.DistributedSecurityUnavailableException.class,
+				() -> service.finalizeSuccession(offerID));
 		assertNoChanges();
 	}
 
 	@Test
 	void transfersOnlyTheExplicitlyChosenLocalRolesAndRevokesBothSessions() {
 		SuccessionPreview preview = preview(Set.of(firstStructure));
-		when(authenticated.getCurrentAccount()).thenReturn(successor);
+		UUID offerID = prepareFinalization(preview);
 
-		service.acceptSuccession(preview, "offer-proof", "accept-proof");
+		service.finalizeSuccession(offerID);
 
 		assertFalse(preview.outgoingWillBeDisabled());
-		verify(verifier).consumeRecentProof(outgoingID, 2L, Action.SUPER_ADMIN_SUCCESSION_OFFER,
-				preview.confirmationDigest(), "offer-proof");
-		verify(verifier).consumeRecentProof(successorID, 7L, Action.SUPER_ADMIN_SUCCESSION_ACCEPTANCE,
-				preview.confirmationDigest(), "accept-proof");
+		verify(offerStore).complete(offerID, clock.instant());
+		verify(confirmationStore).deleteByOfferID(offerID);
 		verify(tenants).replaceSuperAdmin(tenantID, outgoingID, successorID);
 		verify(transfers).moveAdminRole(successorID, firstStructure, outgoingID, Set.of(), successorID, Set.of(UserRole.EMPLOYEE));
 		verify(transfers, never()).moveAdminRole(any(), eq(secondStructure), any(), any(), any(), any());
@@ -208,9 +240,9 @@ class SuperAdminSuccessionServiceTest {
 	@Test
 	void transferringEveryRemainingLocalRoleDisablesOnlyTheOutgoingAccount() {
 		SuccessionPreview preview = preview(Set.of(firstStructure, secondStructure));
-		when(authenticated.getCurrentAccount()).thenReturn(successor);
+		UUID offerID = prepareFinalization(preview);
 
-		service.acceptSuccession(preview, "offer-proof", "accept-proof");
+		service.finalizeSuccession(offerID);
 
 		assertTrue(preview.outgoingWillBeDisabled());
 		verify(lifecycle).disable(outgoing, preview.adminRolesToTransfer().getFirst());
@@ -221,27 +253,27 @@ class SuperAdminSuccessionServiceTest {
 	@Test
 	void aFailedConditionalReplacementCannotChangeLocalRoles() {
 		SuccessionPreview preview = preview(Set.of(firstStructure));
-		when(authenticated.getCurrentAccount()).thenReturn(successor);
+		UUID offerID = prepareFinalization(preview);
 		when(tenants.replaceSuperAdmin(tenantID, outgoingID, successorID)).thenReturn(false);
 
 		assertThrows(AccessDeniedException.class,
-				() -> service.acceptSuccession(preview, "offer-proof", "accept-proof"));
+				() -> service.finalizeSuccession(offerID));
 		verify(transfers, never()).moveAdminRole(any(), any(), any(), any(), any(), any());
 		verifyNoInteractions(lifecycle, audit);
 	}
 
 	@Test
 	void refusesAStaleSuccessorSessionAndAChangedRoleSnapshot() {
-		SuccessionPreview preview = preview(Set.of(firstStructure));
+		UUID offerID = prepareFinalization(preview(Set.of(firstStructure)));
 		when(authenticated.getCurrentAccount()).thenReturn(account(successorID, UserAccountStatus.ACTIVE, 8));
 		assertThrows(AccessDeniedException.class,
-				() -> service.acceptSuccession(preview, "offer-proof", "accept-proof"));
+				() -> service.finalizeSuccession(offerID));
 		when(authenticated.getCurrentAccount()).thenReturn(successor);
 		when(transfers.snapshot(outgoing, tenantID)).thenReturn(PrivilegedAccountSnapshot.capture(outgoing, List.of(
 				new StructureMembership(outgoingID, firstStructure, Set.of(UserRole.ADMIN, UserRole.EMPLOYEE)),
 				new StructureMembership(outgoingID, secondStructure, Set.of(UserRole.ADMIN)))));
 		assertThrows(AccessDeniedException.class,
-				() -> service.acceptSuccession(preview, "offer-proof", "accept-proof"));
+				() -> service.finalizeSuccession(offerID));
 		assertNoChanges();
 		verifyNoInteractions(verifier);
 	}
@@ -302,6 +334,31 @@ class SuperAdminSuccessionServiceTest {
 		assertNoChanges();
 	}
 
+	private UUID prepareFinalization(SuccessionPreview preview) {
+		UUID offerID = UUID.randomUUID();
+		SuccessionOffer offer = new SuccessionOffer(offerID, outgoingID, successorID, tenantID,
+				preview.adminRolesToTransfer(), preview.confirmationDigest(), SuccessionOffer.OfferStatus.ACCEPTED,
+				clock.instant(), clock.instant().plusSeconds(86400));
+		when(offerStore.findById(offerID)).thenReturn(Optional.of(offer));
+		when(offerStore.findByIdForUpdate(offerID)).thenReturn(Optional.of(offer));
+		when(authenticated.getCurrentAccount()).thenReturn(successor);
+		when(sessionProvider.getCurrentSessionIDHash()).thenReturn(successorSession);
+		when(confirmationStore.findByOfferIDAndUserID(offerID, outgoingID)).thenReturn(Optional.of(
+				confirmation(offerID, outgoing, outgoingSession, preview, clock.instant().plusSeconds(300))));
+		when(confirmationStore.findByOfferIDAndUserID(offerID, successorID)).thenReturn(Optional.of(
+				confirmation(offerID, successor, successorSession, preview, clock.instant().plusSeconds(300))));
+		when(sessionValidityVerifier.validateTogether(outgoingID, 2L, outgoingSession, successorID, 7L,
+				successorSession)).thenReturn(Optional.of(clock.instant()));
+		when(offerStore.complete(offerID, clock.instant())).thenReturn(true);
+		return offerID;
+	}
+
+	private SuccessionConfirmation confirmation(UUID offerID, UserAccount user, String sessionHash,
+			SuccessionPreview preview, Instant expiresAt) {
+		return new SuccessionConfirmation(offerID, user.getUserID(), user.getSessionVersion(), sessionHash,
+				preview.confirmationDigest(), clock.instant(), expiresAt);
+	}
+
 	private SuccessionPreview preview(Set<UUID> transferred) {
 		return service.previewSuccession(tenantID, successorID, transferred);
 	}
@@ -322,9 +379,9 @@ class SuperAdminSuccessionServiceTest {
 		when(memberships.findStructureIDsByUser(outgoingID)).thenReturn(List.of());
 		when(transfers.snapshot(outgoing, tenantID)).thenReturn(PrivilegedAccountSnapshot.capture(outgoing, List.of()));
 		SuccessionPreview preview = preview(Set.of());
-		when(authenticated.getCurrentAccount()).thenReturn(successor);
+		UUID offerID = prepareFinalization(preview);
 
-		service.acceptSuccession(preview, "offer-proof", "accept-proof");
+		service.finalizeSuccession(offerID);
 
 		assertTrue(preview.outgoingWillBeDisabled());
 		verify(lifecycle).disable(outgoing, null);

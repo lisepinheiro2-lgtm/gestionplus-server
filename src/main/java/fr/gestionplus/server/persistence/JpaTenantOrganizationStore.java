@@ -4,7 +4,10 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import fr.gestionplus.server.organization.TenantOrganization;
 import fr.gestionplus.server.organization.TenantOrganizationStore;
@@ -13,9 +16,11 @@ import fr.gestionplus.server.organization.TenantOrganizationStore;
 public class JpaTenantOrganizationStore implements TenantOrganizationStore {
 
 	private final TenantOrganizationJpaRepository repository;
+	private final JdbcTemplate jdbcTemplate;
 
-	public JpaTenantOrganizationStore(TenantOrganizationJpaRepository repository) {
+	public JpaTenantOrganizationStore(TenantOrganizationJpaRepository repository, JdbcTemplate jdbcTemplate) {
 		this.repository = Objects.requireNonNull(repository);
+		this.jdbcTemplate = Objects.requireNonNull(jdbcTemplate);
 	}
 
 	@Override
@@ -34,7 +39,13 @@ public class JpaTenantOrganizationStore implements TenantOrganizationStore {
 	}
 
 	@Override
+	@Transactional(propagation = Propagation.MANDATORY)
 	public Optional<TenantOrganization> findByIdForUpdate(UUID tenantID) {
-		return repository.findByIdForUpdate(tenantID).map(TenantOrganizationEntity::toDomain);
+		return jdbcTemplate.query("""
+				SELECT tenant_id, tenant_name, super_admin_user_id
+				FROM tenant_organizations WHERE tenant_id = ? FOR UPDATE
+				""", (row, number) -> new TenantOrganization(row.getObject("tenant_id", UUID.class),
+				row.getString("tenant_name"), row.getObject("super_admin_user_id", UUID.class)), tenantID)
+				.stream().findFirst();
 	}
 }

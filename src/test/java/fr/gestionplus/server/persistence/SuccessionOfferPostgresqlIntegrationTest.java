@@ -162,10 +162,28 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		SuccessionOffer first = offer(participants);
 		create(first);
 		assertTrue(change(first.offerID(), OfferStatus.PENDING, OfferStatus.ACCEPTED));
-		boolean completed = transaction.execute(status -> offerStore.complete(first.offerID(), OfferStatus.ACCEPTED, OfferStatus.COMPLETED));
+		boolean completed = transaction.execute(status -> offerStore.complete(first.offerID(), NOW));
 		assertTrue(completed);
 		create(offer(participants));
 		assertEquals(2, count(participants.tenant()));
+	}
+
+	@Test
+	void completionRequiresAnAuthorizationStrictlyInsideTheOfferLifetime() {
+		Participants participants = participants();
+		SuccessionOffer offer = offer(participants);
+		create(offer);
+		assertTrue(change(offer.offerID(), OfferStatus.PENDING, OfferStatus.ACCEPTED));
+		assertFalse(change(offer.offerID(), OfferStatus.ACCEPTED, OfferStatus.COMPLETED));
+		assertFalse(complete(offer, offer.createdAt().minusSeconds(1)));
+		assertFalse(complete(offer, offer.expiresAt()));
+		TIME.set(offer.expiresAt().plusSeconds(1));
+		assertTrue(complete(offer, offer.expiresAt().minusMillis(1)));
+		assertFalse(complete(offer, offer.expiresAt().minusMillis(1)));
+	}
+
+	private boolean complete(SuccessionOffer offer, Instant authorizedAt) {
+		return transaction.execute(status -> offerStore.complete(offer.offerID(), authorizedAt));
 	}
 
 	@Test

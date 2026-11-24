@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Properties;
+import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -12,12 +13,14 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.web.server.context.WebServerApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import fr.gestionplus.server.GestionplusServerApplication;
 import fr.gestionplus.server.account.ActivationMessageSender;
+import fr.gestionplus.server.account.SuperAdminSuccessionService;
 import fr.gestionplus.server.auth.CompromisedPasswordChecker;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -61,7 +64,9 @@ public final class IsolatedClusterApplication {
 		}
 
 		@Bean
-		WebMvcConfigurer delayedRead(@Value("${cluster.test.control-directory}") String directory) {
+		WebMvcConfigurer delayedRead(@Value("${cluster.test.control-directory}") String directory,
+				@Value("${cluster.test.node}") String node,
+				SuperAdminSuccessionService succession) {
 			return new WebMvcConfigurer() {
 				@Override
 				public void addInterceptors(InterceptorRegistry registry) {
@@ -70,6 +75,30 @@ public final class IsolatedClusterApplication {
 						public boolean preHandle(HttpServletRequest request, HttpServletResponse response,
 								Object handler)
 								throws Exception {
+
+							String offerID = request.getHeader("X-Cluster-Test-Finalize-Offer");
+							if (offerID != null) {
+								UUID target = UUID.fromString(offerID);
+								Path root = Path.of(directory);
+								Files.writeString(root.resolve("succession-" + target + "-" + node + ".marker"), "ready");
+								String other = "first".equals(node) ? "second" : "first";
+								Path otherMarker = root.resolve("succession-" + target + "-" + other + ".marker");
+								long deadline = System.nanoTime() + Duration.ofSeconds(12).toNanos();
+								while (!Files.exists(otherMarker)) {
+									if (System.nanoTime() >= deadline) {
+										response.setStatus(503);
+										return false;
+									}
+									Thread.sleep(20);
+								}
+								try {
+									succession.finalizeSuccession(target);
+									response.setStatus(204);
+								} catch (AccessDeniedException denied) {
+									response.setStatus(403);
+								}
+								return false;
+							}
 
 							if (!"true".equals(request.getHeader("X-Cluster-Test-Delay"))) {
 								return true;

@@ -55,7 +55,7 @@ public class SuperAdminSuccessionService {
 			CurrentSessionProvider sessionProvider, SessionValidityVerifier sessionValidityVerifier,
 			AuthorizationService authorizationService, TenantOrganizationStore tenantStore,
 			OrganizationalStructureStore structureStore, StructureMembershipStore membershipStore,
-			SuccessionOfferStore offerStore, AccountStore accountStore, SuccessionConfirmationStore confirmationStrore,
+			SuccessionOfferStore offerStore, AccountStore accountStore, SuccessionConfirmationStore confirmationStore,
 			StructureAdminTransferService adminTransfer, AccountAccessLifecycle lifecycle,
 			PrivilegedConfirmationService confirmations, AuditService auditService, Clock clock) {
 
@@ -68,7 +68,7 @@ public class SuperAdminSuccessionService {
 		this.membershipStore = membershipStore;
 		this.offerStore = offerStore;
 		this.accountStore = accountStore;
-		this.confirmationStore = confirmationStrore;
+		this.confirmationStore = confirmationStore;
 		this.adminTransfer = adminTransfer;
 		this.lifecycle = lifecycle;
 		this.confirmations = confirmations;
@@ -112,17 +112,7 @@ public class SuperAdminSuccessionService {
 			throw denied();
 		}
 
-		TenantOrganization organization = tenantStore.findByIdForUpdate(offer.tenantID())
-				.filter(found -> found.getSuperAdminUserID().equals(state.outgoing().getUserID()))
-				.orElseThrow(SuperAdminSuccessionService::denied);
-
-		offerStore.findByIdForUpdate(offerID).filter(valid -> valid.status() == OfferStatus.PENDING)
-				.filter(valid -> valid.expiresAt().isAfter(clock.instant()))
-				.filter(valid -> valid.successorUserID().equals(state.successor().getUserID()))
-				.filter(valid -> valid.tenantID().equals(organization.getTenantID()))
-				.filter(valid -> valid.outgoingUserID().equals(organization.getSuperAdminUserID()))
-				.filter(valid -> valid.previewDigest().equals(previewDigest))
-				.orElseThrow(SuperAdminSuccessionService::denied);
+		lockCurrentOffer(offerID, state, OfferStatus.PENDING);
 
 		if (!offerStore.updateStatus(offerID, OfferStatus.PENDING, OfferStatus.ACCEPTED)) {
 			throw denied();
@@ -183,18 +173,7 @@ public class SuperAdminSuccessionService {
 			throw denied();
 		}
 
-		TenantOrganization organization = tenantStore.findByIdForUpdate(offer.tenantID())
-				.filter(found -> found.getSuperAdminUserID().equals(state.outgoing().getUserID()))
-				.orElseThrow(SuperAdminSuccessionService::denied);
-
-		SuccessionOffer currentOffer = offerStore.findByIdForUpdate(offerID)
-				.filter(valid -> valid.status() == OfferStatus.ACCEPTED)
-				.filter(valid -> valid.expiresAt().isAfter(clock.instant()))
-				.filter(valid -> valid.successorUserID().equals(state.successor().getUserID()))
-				.filter(valid -> valid.tenantID().equals(organization.getTenantID()))
-				.filter(valid -> valid.outgoingUserID().equals(organization.getSuperAdminUserID()))
-				.filter(valid -> valid.previewDigest().equals(state.preview().confirmationDigest()))
-				.orElseThrow(SuperAdminSuccessionService::denied);
+		SuccessionOffer currentOffer = lockCurrentOffer(offerID, state, OfferStatus.ACCEPTED);
 
 		SuccessionConfirmation confirmation = confirmations.createSuccessionConfirmation(current, offerID,
 				currentOffer.previewDigest(), rawPassword, totpCode);
@@ -232,18 +211,7 @@ public class SuperAdminSuccessionService {
 			throw denied();
 		}
 
-		TenantOrganization organization = tenantStore.findByIdForUpdate(offer.tenantID())
-				.filter(found -> found.getSuperAdminUserID().equals(state.outgoing().getUserID()))
-				.orElseThrow(SuperAdminSuccessionService::denied);
-
-		SuccessionOffer currentOffer = offerStore.findByIdForUpdate(offerID)
-				.filter(valid -> valid.status() == OfferStatus.ACCEPTED)
-				.filter(valid -> valid.expiresAt().isAfter(clock.instant()))
-				.filter(valid -> valid.successorUserID().equals(state.successor().getUserID()))
-				.filter(valid -> valid.tenantID().equals(organization.getTenantID()))
-				.filter(valid -> valid.outgoingUserID().equals(organization.getSuperAdminUserID()))
-				.filter(valid -> valid.previewDigest().equals(state.preview().confirmationDigest()))
-				.orElseThrow(SuperAdminSuccessionService::denied);
+		SuccessionOffer currentOffer = lockCurrentOffer(offerID, state, OfferStatus.ACCEPTED);
 
 		SuccessionConfirmation outgoingConfirmation = confirmationStore
 				.findByOfferIDAndUserID(offerID, currentOffer.outgoingUserID())
@@ -396,6 +364,21 @@ public class SuperAdminSuccessionService {
 
 		confirmationStore.deleteByOfferID(offerID);
 
+	}
+
+	private SuccessionOffer lockCurrentOffer(UUID offerID, SuccessionState state, OfferStatus expectedStatus) {
+		SuccessionPreview preview = state.preview();
+		TenantOrganization organization = tenantStore.findByIdForUpdate(preview.tenantID())
+				.filter(found -> found.getSuperAdminUserID().equals(preview.outgoing().userID()))
+				.orElseThrow(SuperAdminSuccessionService::denied);
+
+		return offerStore.findByIdForUpdate(offerID)
+				.filter(offer -> offer.status() == expectedStatus && offer.expiresAt().isAfter(clock.instant()))
+				.filter(offer -> offer.tenantID().equals(organization.getTenantID()))
+				.filter(offer -> offer.outgoingUserID().equals(organization.getSuperAdminUserID()))
+				.filter(offer -> offer.successorUserID().equals(preview.successor().userID()))
+				.filter(offer -> offer.previewDigest().equals(preview.confirmationDigest()))
+				.orElseThrow(SuperAdminSuccessionService::denied);
 	}
 
 	private SuccessionState load(UUID tenantID, UUID outgoingID, UUID successorID, Set<UUID> adminRolesToTransfer) {

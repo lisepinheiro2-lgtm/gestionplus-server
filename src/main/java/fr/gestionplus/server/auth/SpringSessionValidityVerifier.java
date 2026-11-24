@@ -52,9 +52,7 @@ public class SpringSessionValidityVerifier implements SessionValidityVerifier {
 
 			if (sessionIDHash.equals(currentSessionIDHash)) {
 
-				SessionActivityStore.State state = activity.find(session.getId());
-
-				if (state == null || !state.mfaVerified() || session.isExpired()) {
+				if (session.isExpired()) {
 					return Optional.empty();
 				}
 

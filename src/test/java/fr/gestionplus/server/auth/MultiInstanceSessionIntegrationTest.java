@@ -23,6 +23,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.Map;
+import java.util.List;
 import java.util.HexFormat;
 import java.util.Properties;
 import java.util.UUID;
@@ -51,6 +52,9 @@ import com.github.dockerjava.api.model.Ports;
 
 import fr.gestionplus.server.support.IsolatedClusterApplication;
 import fr.gestionplus.server.support.SecurityTestRedis;
+import fr.gestionplus.server.account.PrivilegedAccountSnapshot;
+import fr.gestionplus.server.account.SuperAdminSuccessionService.SuccessionPreview;
+import fr.gestionplus.server.persistence.RedisSecuritySupport;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -186,6 +190,70 @@ class MultiInstanceSessionIntegrationTest {
 			assertEquals(401, get(client, secondUrl, "/api/auth/me").statusCode());
 		}
 
+	}
+
+	@Test
+	@Order(31)
+	void onlyOneJvmCanFinalizeTheSameSuccessionAndBothSessionsAreRevoked() throws Exception {
+		var outgoing = account();
+		var successor = account();
+		CookieManager outgoingCookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+		CookieManager successorCookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+		try (var outgoingClient = client(outgoingCookies); var successorClient = client(successorCookies)) {
+			assertEquals(200, login(outgoingClient, firstUrl, firstUrl, outgoing.name(), PASSWORD).statusCode());
+			assertEquals(200, login(successorClient, secondUrl, secondUrl, successor.name(), PASSWORD).statusCode());
+			String outgoingSession = sessionID(outgoingCookies);
+			String successorSession = sessionID(successorCookies);
+			redis.opsForHash().put(activityKey(outgoingSession), "mfa", "1");
+			redis.opsForHash().put(activityKey(successorSession), "mfa", "1");
+			UUID tenant = UUID.randomUUID();
+			UUID offer = UUID.randomUUID();
+			jdbc.update("INSERT INTO tenant_organizations (tenant_id, tenant_name, super_admin_user_id) VALUES (?, ?, ?)",
+					tenant, "Fictitious succession organization", outgoing.id());
+			for (UUID participant : List.of(outgoing.id(), successor.id())) {
+				jdbc.update("INSERT INTO tenant_memberships (user_id, tenant_id) VALUES (?, ?)", participant, tenant);
+			}
+			String digest = new SuccessionPreview(tenant, List.of(),
+					new PrivilegedAccountSnapshot(outgoing.id(), UserAccountStatus.ACTIVE, 0, List.of()),
+					new PrivilegedAccountSnapshot(successor.id(), UserAccountStatus.ACTIVE, 0, List.of()),
+					List.of(), true).confirmationDigest();
+			OffsetDateTime now = new RedisSecuritySupport(redis, NAMESPACE, SecurityTestRedis.rateKey())
+					.now().atOffset(ZoneOffset.UTC);
+			jdbc.update("""
+					INSERT INTO succession_offers
+					    (offer_id, tenant_id, outgoing_user_id, successor_user_id, admin_roles_to_transfer,
+					     preview_digest, status, created_at, expires_at)
+					VALUES (?, ?, ?, ?, '{}'::uuid[], ?, 'ACCEPTED', ?, ?)
+					""", offer, tenant, outgoing.id(), successor.id(), digest, now, now.plusHours(24));
+			Map<UUID, String> sessions = Map.of(outgoing.id(), outgoingSession, successor.id(), successorSession);
+			for (var session : sessions.entrySet()) {
+				jdbc.update("""
+						INSERT INTO succession_confirmations
+						    (offer_id, user_id, session_version, session_id_hash, preview_digest, confirmed_at, expires_at)
+						VALUES (?, ?, 0, ?, ?, ?, ?)
+						""", offer, session.getKey(), SessionIDHasher.hash(session.getValue()), digest, now, now.plusMinutes(5));
+			}
+
+			var firstResult = successorClient.sendAsync(finalization(firstUrl, offer), HttpResponse.BodyHandlers.discarding());
+			var secondResult = successorClient.sendAsync(finalization(secondUrl, offer), HttpResponse.BodyHandlers.discarding());
+			assertEquals(List.of(204, 403), List.of(firstResult.get(25, TimeUnit.SECONDS).statusCode(),
+					secondResult.get(25, TimeUnit.SECONDS).statusCode()).stream().sorted().toList());
+			assertEquals(successor.id(), jdbc.queryForObject(
+					"SELECT super_admin_user_id FROM tenant_organizations WHERE tenant_id = ?", UUID.class, tenant));
+			assertEquals("COMPLETED", jdbc.queryForObject(
+					"SELECT status FROM succession_offers WHERE offer_id = ?", String.class, offer));
+			assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM succession_confirmations WHERE offer_id = ?",
+					Integer.class, offer));
+			assertEquals(false, redis.hasKey(activityKey(outgoingSession)));
+			assertEquals(false, redis.hasKey(activityKey(successorSession)));
+			assertEquals(401, get(outgoingClient, secondUrl, "/api/auth/me").statusCode());
+			assertEquals(401, get(successorClient, firstUrl, "/api/auth/me").statusCode());
+		}
+	}
+
+	private static HttpRequest finalization(URI base, UUID offerID) {
+		return HttpRequest.newBuilder(base.resolve("/api/auth/me")).timeout(Duration.ofSeconds(22))
+				.header("X-Cluster-Test-Finalize-Offer", offerID.toString()).GET().build();
 	}
 
 	@Test

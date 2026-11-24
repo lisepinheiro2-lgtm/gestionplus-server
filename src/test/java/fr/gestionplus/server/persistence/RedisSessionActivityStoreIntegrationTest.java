@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
 
 import org.junit.jupiter.api.AfterAll;
@@ -84,5 +85,45 @@ class RedisSessionActivityStoreIntegrationTest {
 				support.prefix("session-activity") + sessionID, "activity", Long.toString(old));
 		first.touch(sessionID, support.now());
 		assertNull(second.find(sessionID));
+	}
+
+	@Test
+	void validatesTwoSessionsWithTheRedisInstantWithoutRefreshingTheirActivity() {
+		String other = UUID.randomUUID().toString();
+		first.start(sessionID, true);
+		second.start(other, true);
+		var initialFirst = first.find(sessionID);
+		var initialSecond = second.find(other);
+		Instant before = support.now();
+		Instant authorizedAt = second.validateTogether(sessionID, other).orElseThrow();
+		assertTrue(!authorizedAt.isBefore(before) && !authorizedAt.isAfter(support.now()));
+		assertEquals(initialFirst, first.find(sessionID));
+		assertEquals(initialSecond, second.find(other));
+	}
+
+	@Test
+	void refusesAnUnverifiedSessionOrOneEndedByAnotherInstance() {
+		String other = UUID.randomUUID().toString();
+		first.start(sessionID, true);
+		second.start(other, false);
+		assertTrue(first.validateTogether(sessionID, other).isEmpty());
+		second.start(other, true);
+		first.end(other);
+		assertTrue(second.validateTogether(sessionID, other).isEmpty());
+	}
+
+	@Test
+	void enforcesBothDeadlinesEvenWhenActivityKeysRemainInRedis() {
+		String other = UUID.randomUUID().toString();
+		first.start(sessionID, true);
+		second.start(other, true);
+		var hashes = SecurityTestRedis.template(CONNECTION).opsForHash();
+		String key = support.prefix("session-activity") + other;
+		Instant now = support.now();
+		hashes.put(key, "started", Long.toString(now.minus(Duration.ofHours(8)).toEpochMilli()));
+		assertTrue(first.validateTogether(sessionID, other).isEmpty());
+		hashes.put(key, "started", Long.toString(now.minus(Duration.ofHours(1)).toEpochMilli()));
+		hashes.put(key, "activity", Long.toString(now.minus(Duration.ofMinutes(30)).toEpochMilli()));
+		assertTrue(first.validateTogether(sessionID, other).isEmpty());
 	}
 }

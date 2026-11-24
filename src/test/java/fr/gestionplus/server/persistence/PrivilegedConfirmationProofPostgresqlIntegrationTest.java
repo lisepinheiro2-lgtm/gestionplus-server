@@ -51,6 +51,7 @@ class PrivilegedConfirmationProofPostgresqlIntegrationTest {
 
 	private static final Instant NOW = Instant.parse("2026-11-23T12:00:00Z");
 	private static final long VERSION = 7;
+	private static final String SESSION = "9".repeat(64);
 	private static final String PREVIEW = "a".repeat(64);
 	private static final String HASH = "b".repeat(64);
 	private static final String OTHER_HASH = "c".repeat(64);
@@ -87,7 +88,15 @@ class PrivilegedConfirmationProofPostgresqlIntegrationTest {
 				    (notification_id, actor_user_id, target_id, recipient_user_id, kind)
 				VALUES (?, ?, ?, ?, 'MFA_ENROLLED')
 				""", existingNotification, existingAccount, existingAccount, existingAccount);
+		Flyway.configure().dataSource(source).locations("classpath:db/migration").target("33").load().migrate();
+		jdbcTemplate.update("""
+				INSERT INTO privileged_confirmation_proofs
+				    (user_id, action, session_version, preview_digest, proof_hash, created_at, expires_at)
+				VALUES (?, 'SUPER_ADMIN_SUCCESSION_OFFER', ?, ?, ?, ?, ?)
+				""", existingAccount, VERSION, PREVIEW, HASH, NOW.atOffset(ZoneOffset.UTC),
+				NOW.plusSeconds(300).atOffset(ZoneOffset.UTC));
 		Flyway.configure().dataSource(source).locations("classpath:db/migration").load().migrate();
+		assertEquals(0, count(existingAccount));
 		var transactionManager = new DataSourceTransactionManager(source);
 		transaction = new TransactionTemplate(transactionManager);
 		ProxyFactory proxy = new ProxyFactory(new PostgresqlPrivilegedConfirmationProofStore(jdbcTemplate, CLOCK));
@@ -121,17 +130,17 @@ class PrivilegedConfirmationProofPostgresqlIntegrationTest {
 	}
 
 	@Test
-	void offerAndAcceptanceRemainIndependentEvenForTheSameUserAndPreview() {
+	void creationAndAdminTransferRemainIndependentEvenForTheSameUserAndPreview() {
 		UUID userID = account();
-		replace(userID, Action.SUPER_ADMIN_SUCCESSION_OFFER, HASH);
-		replace(userID, Action.SUPER_ADMIN_SUCCESSION_ACCEPTANCE, OTHER_HASH);
-		replace(userID, Action.SUPER_ADMIN_SUCCESSION_OFFER, "d".repeat(64));
+		replace(userID, Action.SUPER_ADMIN_SUCCESSION_CREATE, HASH);
+		replace(userID, Action.STRUCTURE_ADMIN_TRANSFER, OTHER_HASH);
+		replace(userID, Action.SUPER_ADMIN_SUCCESSION_CREATE, "d".repeat(64));
 		assertEquals(2, count(userID));
-		assertFalse(consume(userID, Action.SUPER_ADMIN_SUCCESSION_ACCEPTANCE, "d".repeat(64), NOW));
-		assertFalse(consume(userID, Action.SUPER_ADMIN_SUCCESSION_OFFER, HASH, NOW));
-		assertTrue(consume(userID, Action.SUPER_ADMIN_SUCCESSION_OFFER, "d".repeat(64), NOW));
+		assertFalse(consume(userID, Action.STRUCTURE_ADMIN_TRANSFER, "d".repeat(64), NOW));
+		assertFalse(consume(userID, Action.SUPER_ADMIN_SUCCESSION_CREATE, HASH, NOW));
+		assertTrue(consume(userID, Action.SUPER_ADMIN_SUCCESSION_CREATE, "d".repeat(64), NOW));
 		assertEquals(1, count(userID));
-		assertTrue(consume(userID, Action.SUPER_ADMIN_SUCCESSION_ACCEPTANCE, OTHER_HASH, NOW));
+		assertTrue(consume(userID, Action.STRUCTURE_ADMIN_TRANSFER, OTHER_HASH, NOW));
 	}
 
 	@Test
@@ -164,13 +173,13 @@ class PrivilegedConfirmationProofPostgresqlIntegrationTest {
 	void aChangedVersionOrPreviewOrActionIsRefusedWithoutConsumingTheValidProof() {
 		UUID userID = account();
 		replace(userID, Action.STRUCTURE_ADMIN_TRANSFER, HASH);
-		boolean versionAccepted = transaction.execute(status -> proofStore.consumeIfValid(userID, VERSION + 1,
+		boolean versionAccepted = transaction.execute(status -> proofStore.consumeIfValid(userID, SESSION, VERSION + 1,
 				Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, HASH, NOW));
-		boolean previewAccepted = transaction.execute(status -> proofStore.consumeIfValid(userID, VERSION,
+		boolean previewAccepted = transaction.execute(status -> proofStore.consumeIfValid(userID, SESSION, VERSION,
 				Action.STRUCTURE_ADMIN_TRANSFER, "f".repeat(64), HASH, NOW));
 		assertFalse(versionAccepted);
 		assertFalse(previewAccepted);
-		assertFalse(consume(userID, Action.SUPER_ADMIN_SUCCESSION_OFFER, HASH, NOW));
+		assertFalse(consume(userID, Action.SUPER_ADMIN_SUCCESSION_CREATE, HASH, NOW));
 		assertTrue(consume(userID, Action.STRUCTURE_ADMIN_TRANSFER, HASH, NOW));
 	}
 
@@ -198,10 +207,10 @@ class PrivilegedConfirmationProofPostgresqlIntegrationTest {
 		assertThrows(IllegalArgumentException.class, () -> replace(userID, Action.STRUCTURE_ADMIN_TRANSFER, "r".repeat(43)));
 		assertEquals(0, count(userID));
 		assertThrows(IllegalArgumentException.class, () -> transaction.executeWithoutResult(status -> proofStore.replaceCurrent(
-				new Proof(userID, VERSION, Action.STRUCTURE_ADMIN_TRANSFER, "not-a-digest", HASH, NOW.plusSeconds(300)))));
+				new Proof(userID, SESSION, VERSION, Action.STRUCTURE_ADMIN_TRANSFER, "not-a-digest", HASH, NOW.plusSeconds(300)))));
 		replace(userID, Action.STRUCTURE_ADMIN_TRANSFER, HASH);
 		assertEquals(HASH, jdbcTemplate.queryForObject("SELECT proof_hash FROM privileged_confirmation_proofs WHERE user_id = ?", String.class, userID));
-		assertEquals(Set.of("user_id", "action", "session_version", "preview_digest", "proof_hash", "created_at", "expires_at"),
+		assertEquals(Set.of("user_id", "action", "session_id_hash", "session_version", "preview_digest", "proof_hash", "created_at", "expires_at"),
 				Set.copyOf(jdbcTemplate.queryForList("SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'privileged_confirmation_proofs'", String.class)));
 	}
 
@@ -211,7 +220,7 @@ class PrivilegedConfirmationProofPostgresqlIntegrationTest {
 		replace(userID, Action.STRUCTURE_ADMIN_TRANSFER, HASH);
 		for (Instant expiresAt : new Instant[] { NOW, NOW.minusSeconds(1), NOW.plusSeconds(301) }) {
 			assertThrows(IllegalArgumentException.class, () -> transaction.executeWithoutResult(status -> proofStore.replaceCurrent(
-					new Proof(userID, VERSION, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, OTHER_HASH, expiresAt))));
+					new Proof(userID, SESSION, VERSION, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, OTHER_HASH, expiresAt))));
 		}
 		assertTrue(consume(userID, Action.STRUCTURE_ADMIN_TRANSFER, HASH, NOW));
 	}
@@ -227,17 +236,17 @@ class PrivilegedConfirmationProofPostgresqlIntegrationTest {
 	@Test
 	void theSameHashCannotBeAssignedToTwoDifferentActions() {
 		UUID userID = account();
-		replace(userID, Action.SUPER_ADMIN_SUCCESSION_OFFER, HASH);
-		assertThrows(DataIntegrityViolationException.class, () -> replace(userID, Action.SUPER_ADMIN_SUCCESSION_ACCEPTANCE, HASH));
-		assertTrue(consume(userID, Action.SUPER_ADMIN_SUCCESSION_OFFER, HASH, NOW));
+		replace(userID, Action.SUPER_ADMIN_SUCCESSION_CREATE, HASH);
+		assertThrows(DataIntegrityViolationException.class, () -> replace(userID, Action.STRUCTURE_ADMIN_TRANSFER, HASH));
+		assertTrue(consume(userID, Action.SUPER_ADMIN_SUCCESSION_CREATE, HASH, NOW));
 	}
 
 	@Test
 	void bothWritingAndConsumptionRequireTheBusinessTransaction() {
 		UUID userID = account();
 		assertThrows(IllegalTransactionStateException.class, () -> proofStore.replaceCurrent(
-				new Proof(userID, VERSION, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, HASH, NOW.plusSeconds(300))));
-		assertThrows(IllegalTransactionStateException.class, () -> proofStore.consumeIfValid(userID, VERSION,
+				new Proof(userID, SESSION, VERSION, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, HASH, NOW.plusSeconds(300))));
+		assertThrows(IllegalTransactionStateException.class, () -> proofStore.consumeIfValid(userID, SESSION, VERSION,
 				Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, HASH, NOW));
 	}
 
@@ -276,7 +285,7 @@ class PrivilegedConfirmationProofPostgresqlIntegrationTest {
 		replace(userID, Action.STRUCTURE_ADMIN_TRANSFER, HASH);
 		String name = jdbcTemplate.queryForObject("SELECT user_name FROM user_accounts WHERE user_id = ?", String.class, userID);
 		assertThrows(IllegalStateException.class, () -> transaction.executeWithoutResult(status -> {
-			assertTrue(proofStore.consumeIfValid(userID, VERSION, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, HASH, NOW));
+			assertTrue(proofStore.consumeIfValid(userID, SESSION, VERSION, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, HASH, NOW));
 			jdbcTemplate.update("UPDATE user_accounts SET user_name = ? WHERE user_id = ?", "fictitious_rolled_back", userID);
 			throw new IllegalStateException("Échec métier fictif après consommation.");
 		}));
@@ -289,7 +298,7 @@ class PrivilegedConfirmationProofPostgresqlIntegrationTest {
 		UUID userID = account();
 		replace(userID, Action.STRUCTURE_ADMIN_TRANSFER, HASH);
 		assertThrows(IllegalStateException.class, () -> transaction.executeWithoutResult(status -> {
-			proofStore.replaceCurrent(new Proof(userID, VERSION, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, OTHER_HASH, NOW.plusSeconds(300)));
+			proofStore.replaceCurrent(new Proof(userID, SESSION, VERSION, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, OTHER_HASH, NOW.plusSeconds(300)));
 			throw new IllegalStateException("Échec fictif après remplacement.");
 		}));
 		assertFalse(consume(userID, Action.STRUCTURE_ADMIN_TRANSFER, OTHER_HASH, NOW));
@@ -307,7 +316,7 @@ class PrivilegedConfirmationProofPostgresqlIntegrationTest {
 				int holdingPid = jdbcTemplate.queryForObject("SELECT pg_backend_pid()", Integer.class);
 				var pending = workers.submit(() -> transaction.execute(other -> {
 					waitingPid.complete(jdbcTemplate.queryForObject("SELECT pg_backend_pid()", Integer.class));
-					return proofStore.consumeIfValid(userID, VERSION, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, HASH, NOW);
+					return proofStore.consumeIfValid(userID, SESSION, VERSION, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, HASH, NOW);
 				}));
 				try {
 					int pid = waitingPid.get(5, TimeUnit.SECONDS);
@@ -326,12 +335,23 @@ class PrivilegedConfirmationProofPostgresqlIntegrationTest {
 		}
 	}
 
+	@Test
+	void onlyTheSessionThatIssuedTheProofCanConsumeIt() {
+		UUID userID = account();
+		replace(userID, Action.STRUCTURE_ADMIN_TRANSFER, HASH);
+		boolean accepted = transaction.execute(status -> proofStore.consumeIfValid(userID, "8".repeat(64), VERSION,
+				Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, HASH, NOW));
+		assertFalse(accepted);
+		assertTrue(consume(userID, Action.STRUCTURE_ADMIN_TRANSFER, HASH, NOW));
+		assertFalse(consume(userID, Action.STRUCTURE_ADMIN_TRANSFER, HASH, NOW));
+	}
+
 	private static void replace(UUID userID, Action action, String hash) {
-		transaction.executeWithoutResult(status -> proofStore.replaceCurrent(new Proof(userID, VERSION, action, PREVIEW, hash, NOW.plusSeconds(300))));
+		transaction.executeWithoutResult(status -> proofStore.replaceCurrent(new Proof(userID, SESSION, VERSION, action, PREVIEW, hash, NOW.plusSeconds(300))));
 	}
 
 	private static boolean consume(UUID userID, Action action, String hash, Instant now) {
-		return transaction.execute(status -> proofStore.consumeIfValid(userID, VERSION, action, PREVIEW, hash, now));
+		return transaction.execute(status -> proofStore.consumeIfValid(userID, SESSION, VERSION, action, PREVIEW, hash, now));
 	}
 
 	private static UUID account() {
@@ -350,8 +370,8 @@ class PrivilegedConfirmationProofPostgresqlIntegrationTest {
 
 	private static void insert(UUID userID, String action, String hash, Instant expiresAt) {
 		jdbcTemplate.update("""
-				INSERT INTO privileged_confirmation_proofs (user_id, action, session_version, preview_digest, proof_hash, created_at, expires_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?)
-				""", userID, action, VERSION, PREVIEW, hash, OffsetDateTime.ofInstant(NOW, ZoneOffset.UTC), OffsetDateTime.ofInstant(expiresAt, ZoneOffset.UTC));
+				INSERT INTO privileged_confirmation_proofs (user_id, action, session_id_hash, session_version, preview_digest, proof_hash, created_at, expires_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+				""", userID, action, SESSION, VERSION, PREVIEW, hash, OffsetDateTime.ofInstant(NOW, ZoneOffset.UTC), OffsetDateTime.ofInstant(expiresAt, ZoneOffset.UTC));
 	}
 }

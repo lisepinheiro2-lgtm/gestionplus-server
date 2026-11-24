@@ -23,6 +23,7 @@ class StoredPrivilegedConfirmationVerifierTest {
 
 	private static final UUID USER_ID = UUID.randomUUID();
 	private static final Instant NOW = Instant.parse("2026-11-23T12:00:00Z");
+	private static final String SESSION = "9".repeat(64);
 	private static final String PREVIEW = "a".repeat(64);
 	private static final String TOKEN = "fictitious-privileged-proof-" + "x".repeat(15);
 	private final PrivilegedConfirmationProofStore proofStore = mock(PrivilegedConfirmationProofStore.class);
@@ -32,23 +33,23 @@ class StoredPrivilegedConfirmationVerifierTest {
 	@Test
 	void suppliesOnlyTheHashAndTheExactBindingToTheTransactionalStore() {
 		String hash = PrivilegedConfirmationService.digest(TOKEN);
-		when(proofStore.consumeIfValid(USER_ID, 7, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, hash, NOW)).thenReturn(true);
+		when(proofStore.consumeIfValid(USER_ID, SESSION, 7, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, hash, NOW)).thenReturn(true);
 
-		assertTrue(verifier.consumeRecentProof(USER_ID, 7, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, TOKEN));
+		assertTrue(verifier.consumeRecentProof(USER_ID, SESSION, 7, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, TOKEN));
 
-		verify(proofStore).consumeIfValid(USER_ID, 7, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, hash, NOW);
+		verify(proofStore).consumeIfValid(USER_ID, SESSION, 7, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, hash, NOW);
 	}
 
 	@Test
 	void preservesAStoreRefusalInsteadOfAcceptingAMereTokenFormat() {
-		assertFalse(verifier.consumeRecentProof(USER_ID, 7, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, TOKEN));
+		assertFalse(verifier.consumeRecentProof(USER_ID, SESSION, 7, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, TOKEN));
 	}
 
 	@ParameterizedTest
 	@NullSource
 	@ValueSource(strings = { "", " ", "malformed", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "ééééééééééééééééééééééééééééééééééééééééééé" })
 	void refusesMalformedTokensAndAlreadyHashedValuesWithoutCallingTheStore(String token) {
-		assertFalse(verifier.consumeRecentProof(USER_ID, 7, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, token));
+		assertFalse(verifier.consumeRecentProof(USER_ID, SESSION, 7, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, token));
 		verifyNoInteractions(proofStore);
 	}
 }

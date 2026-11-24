@@ -36,7 +36,10 @@ import fr.gestionplus.server.auth.UserCredentialLookup;
 
 class PrivilegedConfirmationServiceTest {
 
+	private final CurrentSessionProvider sessionProvider = mock(CurrentSessionProvider.class);
+
 	private static final Instant NOW = Instant.parse("2026-11-23T12:00:00Z");
+	private static final String SESSION = "9".repeat(64);
 	private static final String PREVIEW = "a".repeat(64);
 	private static final String PASSWORD = "Fictitious-Privileged-Password-2026!";
 	private final PrivilegedConfirmationProofStore proofStore = mock(PrivilegedConfirmationProofStore.class);
@@ -49,11 +52,12 @@ class PrivilegedConfirmationServiceTest {
 	private final UserCredential credential = mock(UserCredential.class);
 	private final UUID userID = UUID.randomUUID();
 	private final PrivilegedConfirmationService service = new PrivilegedConfirmationService(
-			new StaticListableBeanFactory().getBeanProvider(PrivilegedConfirmationVerifier.class), proofStore,
+			new StaticListableBeanFactory().getBeanProvider(PrivilegedConfirmationVerifier.class), sessionProvider, proofStore,
 			accountStore, authenticated, credentials, passwords, mfa, Clock.fixed(NOW, ZoneOffset.UTC));
 
 	@BeforeEach
 	void prepareCurrentAccountWithSuccessfulPasswordAndMfaVerification() {
+		when(sessionProvider.getCurrentSessionIDHash()).thenReturn(SESSION);
 		when(account.getUserID()).thenReturn(userID);
 		when(account.getSessionVersion()).thenReturn(7L);
 		when(account.getStatu()).thenReturn(UserAccountStatus.ACTIVE);
@@ -75,6 +79,7 @@ class PrivilegedConfirmationServiceTest {
 		assertEquals(PrivilegedConfirmationService.digest(token), proof.getValue().proofHash());
 		assertFalse(token.equals(proof.getValue().proofHash()));
 		assertEquals(userID, proof.getValue().userID());
+		assertEquals(SESSION, proof.getValue().sessionIDHash());
 		assertEquals(7, proof.getValue().sessionVersion());
 		assertEquals(action, proof.getValue().action());
 		assertEquals(PREVIEW, proof.getValue().previewDigest());
@@ -111,5 +116,16 @@ class PrivilegedConfirmationServiceTest {
 		when(authenticated.getCurrentAccount()).thenReturn(stale);
 		assertThrows(AccessDeniedException.class, () -> service.issueProof(Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, PASSWORD, "000042"));
 		verifyNoInteractions(passwords, proofStore);
+	}
+
+	@Test
+	void preparesAConfirmationForOnlyTheCurrentSessionAndOfferAfterFreshMfa() {
+		UUID offerID = UUID.randomUUID();
+		assertEquals(new SuccessionConfirmation(offerID, userID, 7, SESSION, PREVIEW, NOW, NOW.plusSeconds(300)),
+				service.createSuccessionConfirmation(account, offerID, PREVIEW, PASSWORD, "000042"));
+		when(mfa.verifyForLogin(account, "000042")).thenReturn(Verification.DENIED);
+		assertThrows(AccessDeniedException.class,
+				() -> service.createSuccessionConfirmation(account, offerID, PREVIEW, PASSWORD, "000042"));
+		verifyNoInteractions(proofStore);
 	}
 }
