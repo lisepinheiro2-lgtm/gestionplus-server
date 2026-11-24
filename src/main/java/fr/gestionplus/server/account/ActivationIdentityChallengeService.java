@@ -1,18 +1,18 @@
 package fr.gestionplus.server.account;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -105,9 +105,11 @@ public class ActivationIdentityChallengeService {
 					.orElseThrow(AccountActivationConflictException::new);
 			Instant lockedNow = clock.instant();
 			requireMatchingToken(lockedInvitation, expectedTokenDigest);
+
 			if (!lockedNow.isBefore(lockedInvitation.expiresAt())) {
 				throw new AccountActivationConflictException();
 			}
+
 			refuseIfResendBlocked(invitationID, userID, lockedNow);
 			ActivationIdentityChallenge challenge = new ActivationIdentityChallenge(challengeID, userID,
 					lockedAccount.getPhoneNumber(), invitationID, codeDigest, 0, lockedNow,
@@ -119,28 +121,35 @@ public class ActivationIdentityChallengeService {
 		try {
 
 			messageSender.send(newChallenge.phoneNumber(), code);
+
 			if (!challengeStore.confirmSend(challengeID, clock.instant())) {
 				throw new ActivationMessageDeliveryException();
 			}
 
 		} catch (RuntimeException e) {
+
 			try {
 				challengeStore.revokeCurrent(challengeID, clock.instant());
 			} catch (RuntimeException compensationFailure) {
+
 				if (compensationFailure != e) {
 					e.addSuppressed(compensationFailure);
 				}
+
 			}
+
 			throw e;
 		}
 
 	}
 
 	private void requireMatchingToken(Invitation invitation, String expectedTokenDigest) {
+
 		if (invitation.tokenDigest() == null || expectedTokenDigest == null
 				|| !MessageDigest.isEqual(invitation.tokenDigest().getBytes(StandardCharsets.US_ASCII),
 						expectedTokenDigest.getBytes(StandardCharsets.US_ASCII))) {
 			throw AccountInvitationScope.activationDenied();
 		}
+
 	}
 }

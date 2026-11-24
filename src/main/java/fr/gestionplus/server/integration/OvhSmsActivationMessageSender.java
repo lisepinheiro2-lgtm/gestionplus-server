@@ -37,14 +37,17 @@ public final class OvhSmsActivationMessageSender implements ActivationMessageSen
 	OvhSmsActivationMessageSender(HttpClient client, String applicationKey, String applicationSecret,
 			String consumerKey, String serviceName, String sender) {
 		this.client = Objects.requireNonNull(client);
+
 		if (!validKey(applicationKey) || !validKey(applicationSecret) || !validKey(consumerKey)
 				|| serviceName == null || !serviceName.matches("sms-[A-Za-z0-9-]{1,64}")
 				|| sender == null || !sender.matches("[A-Za-z0-9]{1,11}")) {
 			throw new IllegalArgumentException("La configuration de l’expéditeur SMS OVHcloud est invalide.");
 		}
+
 		if (client.followRedirects() != HttpClient.Redirect.NEVER) {
 			throw new IllegalArgumentException("L’expéditeur SMS OVHcloud doit refuser les redirections HTTP.");
 		}
+
 		this.applicationKey = applicationKey;
 		this.applicationSecret = applicationSecret;
 		this.consumerKey = consumerKey;
@@ -54,17 +57,21 @@ public final class OvhSmsActivationMessageSender implements ActivationMessageSen
 
 	@Override
 	public void send(String phoneNumber, String code) {
+
 		if (phoneNumber == null || !phoneNumber.matches("\\+[1-9][0-9]{1,14}")
 				|| code == null || !code.matches("[0-9]{6}")) {
 			throw new IllegalArgumentException("Le numéro ou le code d’activation est invalide.");
 		}
+
 		try {
 			HttpResponse<String> time = exchange(HttpRequest.newBuilder(TIME_ENDPOINT)
 					.timeout(Duration.ofSeconds(5)).GET().build());
 			String timestamp = time.body().strip();
+
 			if (time.statusCode() != 200 || !timestamp.matches("[0-9]{10,12}")) {
 				throw new ActivationMessageDeliveryException();
 			}
+
 			String body = JSON.writeValueAsString(Map.of("sender", sender, "receivers", List.of(phoneNumber),
 					"message", "Gestion+ - Code d'activation : " + code + ". Ne le communiquez a personne.",
 					"noStopClause", true, "validityPeriod", 5, "priority", "high"));
@@ -78,17 +85,21 @@ public final class OvhSmsActivationMessageSender implements ActivationMessageSen
 					.header("X-Ovh-Timestamp", timestamp).header("X-Ovh-Signature", signature)
 					.POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build();
 			HttpResponse<String> response = exchange(request);
+
 			if (response.statusCode() != 200 || !accepted(JSON.readTree(response.body()), phoneNumber)) {
 				throw new ActivationMessageDeliveryException();
 			}
+
 		} catch (NoSuchAlgorithmException | RuntimeException failure) {
 			throw new ActivationMessageDeliveryException();
 		}
+
 	}
 
 	private HttpResponse<String> exchange(HttpRequest request) {
 		var pending = client.sendAsync(request,
 				HttpResponse.BodyHandlers.limiting(HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8), 16384));
+
 		try {
 			return pending.get(5, TimeUnit.SECONDS);
 		} catch (InterruptedException failure) {
@@ -99,12 +110,15 @@ public final class OvhSmsActivationMessageSender implements ActivationMessageSen
 			pending.cancel(true);
 			throw new ActivationMessageDeliveryException();
 		}
+
 	}
 
 	private boolean accepted(JsonNode report, String phoneNumber) {
+
 		if (report == null || !report.isObject()) {
 			return false;
 		}
+
 		JsonNode valid = report.get("validReceivers");
 		JsonNode invalid = report.get("invalidReceivers");
 		JsonNode ids = report.get("ids");

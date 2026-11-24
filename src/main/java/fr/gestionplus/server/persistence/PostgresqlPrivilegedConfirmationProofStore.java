@@ -47,18 +47,21 @@ public class PostgresqlPrivilegedConfirmationProofStore implements PrivilegedCon
 			throw new IllegalArgumentException("La preuve doit expirer dans les cinq minutes.");
 		}
 
-		jdbcTemplate.update("""
-				INSERT INTO privileged_confirmation_proofs
-				    (user_id, action, session_id_hash, session_version, preview_digest, proof_hash, created_at, expires_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-				ON CONFLICT (user_id, action) DO UPDATE
-				SET session_id_hash = EXCLUDED.session_id_hash,
-				    session_version = EXCLUDED.session_version,
-				    preview_digest = EXCLUDED.preview_digest,
-				    proof_hash = EXCLUDED.proof_hash,
-				    created_at = EXCLUDED.created_at,
-				    expires_at = EXCLUDED.expires_at
-				""", proof.userID(), proof.action().name(), proof.sessionIDHash(), proof.sessionVersion(), proof.previewDigest(),
+		jdbcTemplate.update(
+				"""
+						INSERT INTO privileged_confirmation_proofs
+						    (user_id, action, session_id_hash, session_version, preview_digest, proof_hash, created_at, expires_at)
+						VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+						ON CONFLICT (user_id, action) DO UPDATE
+						SET session_id_hash = EXCLUDED.session_id_hash,
+						    session_version = EXCLUDED.session_version,
+						    preview_digest = EXCLUDED.preview_digest,
+						    proof_hash = EXCLUDED.proof_hash,
+						    created_at = EXCLUDED.created_at,
+						    expires_at = EXCLUDED.expires_at
+						""",
+				proof.userID(), proof.action().name(), proof.sessionIDHash(), proof.sessionVersion(),
+				proof.previewDigest(),
 				proof.proofHash(), atUtc(createdAt), atUtc(proof.expiresAt()));
 	}
 

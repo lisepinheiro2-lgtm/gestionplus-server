@@ -19,9 +19,9 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.data.redis.serializer.SerializationException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextImpl;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.DefaultCsrfToken;
 
@@ -31,7 +31,8 @@ class SessionValueSerializerTest {
 
 	@Test
 	void preservesOnlyTheRestrictedIdentityVersionAndAbsoluteDeadline() {
-		EnrollmentPrincipal principal = new EnrollmentPrincipal(UUID.randomUUID(), 7, Instant.parse("2026-11-22T12:10:00Z"));
+		EnrollmentPrincipal principal = new EnrollmentPrincipal(UUID.randomUUID(), 7,
+				Instant.parse("2026-11-22T12:10:00Z"));
 		var authentication = UsernamePasswordAuthenticationToken.authenticated(principal, null,
 				List.of(new SimpleGrantedAuthority(EnrollmentPrincipal.AUTHORITY)));
 		byte[] encoded = serializer.serialize(new SecurityContextImpl(authentication));
@@ -63,7 +64,8 @@ class SessionValueSerializerTest {
 			"{\"type\":\"enrollment-context\",\"userID\":\"00000000-0000-0000-0000-000000000001\",\"version\":0,\"expiresAt\":\"invalid\"}",
 			"{\"type\":\"enrollment-context\",\"userID\":\"00000000-0000-0000-0000-000000000001\",\"version\":0,\"expiresAt\":\"2026-11-22T12:10:00Z\",\"mfaVerified\":true}" })
 	void rejectsMalformedOrPrivilegeExpandingEnrollmentPayloads(String value) {
-		assertThrows(SerializationException.class, () -> serializer.deserialize(value.getBytes(StandardCharsets.UTF_8)));
+		assertThrows(SerializationException.class,
+				() -> serializer.deserialize(value.getBytes(StandardCharsets.UTF_8)));
 	}
 
 	@Test

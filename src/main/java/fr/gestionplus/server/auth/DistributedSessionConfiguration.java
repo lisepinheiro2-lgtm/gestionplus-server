@@ -63,6 +63,7 @@ public class DistributedSessionConfiguration {
 				return Map.of(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME,
 						account.getUserID().toString());
 			}
+
 			if (value instanceof SecurityContext context && context.getAuthentication() != null
 					&& context.getAuthentication().getPrincipal() instanceof EnrollmentPrincipal principal) {
 				return Map.of(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME,

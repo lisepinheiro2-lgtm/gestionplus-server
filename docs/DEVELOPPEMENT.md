@@ -1,11 +1,45 @@
 ---
-summary: "23 novembre : V31 à V33, mise à niveau coordonnée, confirmations et verrous PostgreSQL ; cycle métier de succession à raccorder."
+summary: "24 novembre : cycle lié aux sessions, V34/V35, verrous SQL et autorisation Redis ; déploiement coordonné et limites après commit."
 read_when:
   - "explorer les couches Java JPA PostgreSQL et les migrations sans lancer le serveur"
   - "préparer ultérieurement un lancement ou des tests expressément autorisés"
 ---
 
 # Explorer et lancer le serveur localement
+
+<a id="succession-cycle-2026-11-24"></a>
+
+## Cycle de succession, sessions et migrations V34/V35 — 24 novembre 2026
+
+Code relu sur **`908c24d`**, publié après `77ec48e` et concordant avec `main` distant. Voir [le cycle et ses validations](AVANCEMENT.md#succession-cycle-2026-11-24) et [les précautions de publication](PUBLICATION.md#succession-cycle-2026-11-24). Les notes du 23 novembre décrivent l’ancien état ; elles restent conservées.
+
+| Étape métier | Méthodes et stockage | Durée et liaison |
+| --- | --- | --- |
+| Préparer/créer | `previewSuccession`, `issueSuccessionCreationProof`, `createSuccessionOffer(preview, proof)` ; `PrivilegedConfirmationService`, `PostgresqlPrivilegedConfirmationProofStore` | Mot de passe + TOTP frais, preuve de création à usage unique de **cinq minutes maximum**, liée au compte/version/action, à la session HTTP par SHA-256 et au récapitulatif. Empreinte du jeton seule stockée, une preuve courante par compte/action ; consommation dans la transaction de création, restaurée par rollback. |
+| Attendre/accepter/annuler | `SuccessionOfferStore`, `acceptSuccessionOffer`, `cancelSuccessionOffer` | Offre **24 heures**, PENDING puis ACCEPTED par le successeur, sans transfert ni changement de sessions. Sortant autorisé à annuler PENDING/ACCEPTED non expirée ; confirmations supprimées avec l’annulation. Historique conservé. |
+| Confirmer séparément | `confirmSuccession`, `SuccessionConfirmation`, `PostgresqlSuccessionConfirmationStore` | Mot de passe + TOTP frais de chaque participant ; une confirmation de **cinq minutes maximum par offre/participant**, liée à offre, compte/version, empreinte de session et digest du récapitulatif. Renouveler l’une ne renouvelle ni l’autre ni l’offre. |
+| Finaliser | `finalizeSuccession`, `SpringSessionValidityVerifier`, `RedisSessionActivityStore.validateTogether` | Seul le successeur, depuis **sa session confirmée** ; deux confirmations et sessions valides conjointement à `authorizedAt`. Transfert, COMPLETED et suppression des confirmations dans la transaction PostgreSQL. |
+
+**V34** commence par supprimer les preuves antérieures incompatibles, ajoute `session_id_hash` obligatoire dans `privileged_confirmation_proofs` et remplace les anciennes actions OFFER/ACCEPTANCE par `SUPER_ADMIN_SUCCESSION_CREATE` (avec `STRUCTURE_ADMIN_TRANSFER` conservée). Réémettre les preuves après migration et **coordonner l’arrêt/basculement des anciennes instances** qui utilisent l’ancien schéma/actions ; aucun mélange ancien/nouveau validé.
+
+**V35** crée `succession_confirmations`, clé `(offer_id, user_id)`, version de sécurité, empreinte de session, digest et dates, validité positive limitée à cinq minutes par contrainte SQL. L’adaptateur exige la transaction métier pour remplacer/supprimer et vérifie à l’insertion l’offre ACCEPTED, le participant, le digest et l’échéance. **V1 à V33 inchangées.** Aucun déploiement ou migration de production exécuté/validé ici.
+
+La liaison HTTP est désormais individuelle, à la différence du jalon V32 du 23 novembre. `SpringCurrentSessionProvider` utilise la session existante ; `SessionIDHasher` calcule SHA-256 de son identifiant. Les **tables métier V34/V35 ne stockent que cette empreinte**, pas l’identifiant brut. Cela ne modifie pas le stockage interne de Spring Session ni les clés d’activité Redis existantes, qui utilisent encore l’identifiant de session dans leurs clés.
+
+**Verrous :** structures triées → comptes triés → organisation → offre, puis confirmations protégées par ces verrous. La recherche d’anciennes offres à la création ne verrouille pas leurs lignes. Annulation : sous-ensemble compte sortant → organisation → offre ; ne pas remonter ensuite vers les verrous précédents. `JpaTenantOrganizationStore.findByIdForUpdate` effectue une **relecture JDBC `SELECT ... FOR UPDATE`** du titulaire courant, sans dépendre du cache d’une entité JPA déjà chargée. Préserver cet ordre lors des évolutions pour éviter les interblocages.
+
+Le vérificateur retrouve chaque session Spring Session par son empreinte, contrôle identité, version et expiration, puis un script Lua Redis vérifie **les deux activités ensemble**, MFA et échéances inclus, sans renouveler leur activité. **Redis TIME** fournit `authorizedAt` ; offre et confirmations doivent être strictement valides à cet instant. **Logout avant ce contrôle conjoint : refus ; logout après ce contrôle : une finalisation déjà autorisée peut se terminer.** Redis indisponible au contrôle : refus sans transfert, aucun repli local.
+
+Le transfert PostgreSQL, les rôles ADMIN sélectionnés, les statuts/versions des comptes, la clôture COMPLETED et la suppression des confirmations sont atomiques ; un rollback les conserve dans leur état précédent. L’audit métier existant et les avis de transferts ADMIN participent à la transaction. La révocation Redis intervient **après commit** : si elle échoue, PostgreSQL peut déjà être committé et la réponse en erreur, sans révocation immédiate garantie. Les statuts/versions SQL restent autoritaires ; aucune transaction distribuée ni rollback après commit promis. Reprise de révocation à concevoir.
+
+Le **digest du récapitulatif**, calculé par SHA-256 sur le `toString()` Java, dépend encore de cette représentation ; prévoir un format canonique/versionné avant d’en promettre la stabilité. L’empreinte de session, elle, porte directement sur l’identifiant HTTP.
+
+Codex : **1 302/1 302 serveur** en copie isolée avec PostgreSQL/Redis jetables, zéro échec/erreur/ignoré ; 19 empreintes conformes. Concurrence de finalisation sur deux JVM, expiration/session différente, course avec annulation, panne Redis et rollback couverts. Le point d’entrée de `IsolatedClusterApplication` appartient aux **sources de test**, pas à l’API de production. Aucun nouveau test exécuté pendant cette actualisation ; aucun nouveau résultat client, e-mail/SMS réel, livraison réelle ou déploiement validé.
+
+**Restent ouverts :** HTTP de production et Swing ; audit spécifique des nouvelles opérations/refus ; limitation distribuée dédiée ; notifications propres au cycle, distinctes des avis ADMIN existants ; reprise de révocation après commit et représentation canonique du récapitulatif. Limites MFA de contexte perdu/expiré et codes non récupérables après réponse perdue préservées.
+
+**Historique conservé : la reprise du 24 novembre 2026 ci-dessus actualise le cycle ; les jalons du 23 novembre et antérieurs restent datés.**
+
 
 <a id="notifications-confirmations-succession-2026-11-23"></a>
 

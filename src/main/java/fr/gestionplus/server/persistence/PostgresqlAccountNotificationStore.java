@@ -1,7 +1,7 @@
 package fr.gestionplus.server.persistence;
 
-import java.util.Optional;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.jdbc.core.JdbcTemplate;

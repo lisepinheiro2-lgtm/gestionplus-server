@@ -110,7 +110,8 @@ public class AccountNotificationDelivery {
 
 	private void deliver(Notification notification) {
 
-		String recipient = accountStore.findById(notification.recipientUserID()).map(UserAccount::getEmail).orElse(null);
+		String recipient = accountStore.findById(notification.recipientUserID()).map(UserAccount::getEmail)
+				.orElse(null);
 
 		if (recipient == null || recipient.isBlank()) {
 			LOGGER.warn("Destinataire introuvable pour la notification {}", notification.notificationID());

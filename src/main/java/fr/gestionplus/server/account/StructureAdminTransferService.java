@@ -12,7 +12,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import fr.gestionplus.server.account.PrivilegedConfirmationVerifier.Action;
-import fr.gestionplus.server.account.StructureAdminTransferService.TransferPreview;
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditResult;
 import fr.gestionplus.server.audit.AuditService;
@@ -191,7 +190,8 @@ public class StructureAdminTransferService {
 					"Les conditions du transfert ont changé. Une nouvelle confirmation est requise.");
 		}
 
-		return confirmations.issueProof(Action.STRUCTURE_ADMIN_TRANSFER,  state.preview().confirmationDigest(), rawPassword,
+		return confirmations.issueProof(Action.STRUCTURE_ADMIN_TRANSFER, state.preview().confirmationDigest(),
+				rawPassword,
 				totpCode);
 	}
 

@@ -46,20 +46,25 @@ class AccountInvitationActivationPostgresqlIntegrationTest extends AbstractAccou
 
 	@ParameterizedTest
 	@ValueSource(booleans = { false, true })
-	void activationOnlyPersistsAndReturnsAProofWhenInitialMfaEnrollmentIsRequired(boolean mfaRequired) throws Exception {
+	void activationOnlyPersistsAndReturnsAProofWhenInitialMfaEnrollmentIsRequired(boolean mfaRequired)
+			throws Exception {
 		UUID userID = preparePendingAccount();
+
 		if (mfaRequired) {
 			addMfaRequiredRole(userID);
 		}
+
 		SentInvitation message = sendInitial(userID);
 		allowActivation(userID, message);
 
-		Optional<String> proof = activation.completeActivation(message.invitationID(), message.token(), "verified-proof",
+		Optional<String> proof = activation.completeActivation(message.invitationID(), message.token(),
+				"verified-proof",
 				"activated_" + userID, "valid-test-password");
 
 		assertEquals(UserAccountStatus.ACTIVE, account(userID).getStatu());
 		assertEquals(mfaRequired, proof.isPresent());
 		assertEquals(mfaRequired ? 1 : 0, enrollmentProofCount(userID));
+
 		if (mfaRequired) {
 			String supplied = proof.orElseThrow();
 			assertTrue(supplied.matches("[A-Za-z0-9_-]{22}"));
@@ -71,6 +76,7 @@ class AccountInvitationActivationPostgresqlIntegrationTest extends AbstractAccou
 			assertTrue(enrollmentVerifier.consumeVerifiedIdentity(userID, version, supplied));
 			assertFalse(enrollmentVerifier.consumeVerifiedIdentity(userID, version, supplied));
 		}
+
 	}
 
 	@Test

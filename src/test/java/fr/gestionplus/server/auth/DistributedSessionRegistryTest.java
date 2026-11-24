@@ -39,12 +39,14 @@ class DistributedSessionRegistryTest {
 		MapSession restricted = new MapSession();
 		restricted.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,
 				new SecurityContextImpl(UsernamePasswordAuthenticationToken.authenticated(principal, null,
-						List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority(EnrollmentPrincipal.AUTHORITY)))));
+						List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority(
+								EnrollmentPrincipal.AUTHORITY)))));
 		var index = new DistributedSessionConfiguration().sessionIndexResolver().resolveIndexesFor(restricted);
 		assertEquals(userID.toString(), index.get(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME));
 		when(sessions.findByPrincipalName(userID.toString())).thenReturn(Map.of(restricted.getId(), restricted));
 		assertEquals(principal, registry.getAllSessions(account(userID, 3), false).getFirst().getPrincipal());
 		TransactionSynchronizationManager.initSynchronization();
+
 		try {
 			new SessionRevocationService(registry).revokeAllSessionsAfterCommit(account(userID, 3));
 			TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
@@ -52,6 +54,7 @@ class DistributedSessionRegistryTest {
 		} finally {
 			TransactionSynchronizationManager.clearSynchronization();
 		}
+
 	}
 
 	@Test

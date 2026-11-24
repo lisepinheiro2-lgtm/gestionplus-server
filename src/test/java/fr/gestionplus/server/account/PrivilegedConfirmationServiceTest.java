@@ -52,7 +52,8 @@ class PrivilegedConfirmationServiceTest {
 	private final UserCredential credential = mock(UserCredential.class);
 	private final UUID userID = UUID.randomUUID();
 	private final PrivilegedConfirmationService service = new PrivilegedConfirmationService(
-			new StaticListableBeanFactory().getBeanProvider(PrivilegedConfirmationVerifier.class), sessionProvider, proofStore,
+			new StaticListableBeanFactory().getBeanProvider(PrivilegedConfirmationVerifier.class), sessionProvider,
+			proofStore,
 			accountStore, authenticated, credentials, passwords, mfa, Clock.fixed(NOW, ZoneOffset.UTC));
 
 	@BeforeEach
@@ -89,7 +90,8 @@ class PrivilegedConfirmationServiceTest {
 	@Test
 	void aWrongPasswordNeverRequestsMfaOrCreatesAProof() {
 		when(passwords.verifyPassword(credential, PASSWORD)).thenReturn(false);
-		assertThrows(AccessDeniedException.class, () -> service.issueProof(Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, PASSWORD, "000042"));
+		assertThrows(AccessDeniedException.class,
+				() -> service.issueProof(Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, PASSWORD, "000042"));
 		verifyNoInteractions(proofStore, mfa);
 	}
 
@@ -97,14 +99,16 @@ class PrivilegedConfirmationServiceTest {
 	@EnumSource(value = Verification.class, names = { "NOT_REQUIRED", "DENIED" })
 	void onlyAnActuallyVerifiedTotpCanProduceAProof(Verification result) {
 		when(mfa.verifyForLogin(account, "000042")).thenReturn(result);
-		assertThrows(AccessDeniedException.class, () -> service.issueProof(Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, PASSWORD, "000042"));
+		assertThrows(AccessDeniedException.class,
+				() -> service.issueProof(Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, PASSWORD, "000042"));
 		verifyNoInteractions(proofStore);
 	}
 
 	@Test
 	void malformedActionsAndSummariesAreRefusedBeforeAccountOrPasswordLookup() {
 		assertThrows(AccessDeniedException.class, () -> service.issueProof(null, PREVIEW, PASSWORD, "000042"));
-		assertThrows(AccessDeniedException.class, () -> service.issueProof(Action.STRUCTURE_ADMIN_TRANSFER, "invalid", PASSWORD, "000042"));
+		assertThrows(AccessDeniedException.class,
+				() -> service.issueProof(Action.STRUCTURE_ADMIN_TRANSFER, "invalid", PASSWORD, "000042"));
 		verifyNoInteractions(accountStore, passwords, proofStore);
 	}
 
@@ -114,7 +118,8 @@ class PrivilegedConfirmationServiceTest {
 		when(stale.getUserID()).thenReturn(userID);
 		when(stale.getSessionVersion()).thenReturn(6L);
 		when(authenticated.getCurrentAccount()).thenReturn(stale);
-		assertThrows(AccessDeniedException.class, () -> service.issueProof(Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, PASSWORD, "000042"));
+		assertThrows(AccessDeniedException.class,
+				() -> service.issueProof(Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, PASSWORD, "000042"));
 		verifyNoInteractions(passwords, proofStore);
 	}
 

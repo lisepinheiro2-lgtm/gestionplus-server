@@ -1,12 +1,12 @@
 package fr.gestionplus.server.account;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -89,16 +89,19 @@ class AccountDeactivationNotificationDeliveryTest {
 		assertEquals("recipient@example.invalid", message.getValue().getTo()[0]);
 		assertEquals("gestionplus@example.invalid", message.getValue().getFrom());
 		assertFalse(message.getValue().getText().isBlank());
+
 		if (kind != Kind.MFA_ENROLLED) {
 			verify(accountStore, never()).findById(actorID);
 			assertFalse(message.getValue().getText().contains(actorID.toString()));
 		}
+
 		if (kind == Kind.MFA_ENROLLED || kind == Kind.ACCOUNT_DEACTIVATION_TARGET) {
 			assertFalse(message.getValue().getText().contains(targetID.toString()));
 			assertFalse(message.getValue().getText().contains("000042"));
 			assertFalse(message.getValue().getText().contains("fictitious-recovery-code"));
 			assertFalse(message.getValue().getText().contains("A".repeat(32)));
 		}
+
 		verify(notifications).remove(notification.notificationID());
 	}
 
@@ -118,7 +121,8 @@ class AccountDeactivationNotificationDeliveryTest {
 	@Test
 	void aFailedReservationNeverSendsAnEmail() {
 		Notification notification = prepareNotification(0);
-		doThrow(new IllegalStateException("Réservation fictive refusée.")).when(notifications).reserve(notification.notificationID());
+		doThrow(new IllegalStateException("Réservation fictive refusée.")).when(notifications)
+				.reserve(notification.notificationID());
 
 		delivery.deliverNext();
 
@@ -201,7 +205,8 @@ class AccountDeactivationNotificationDeliveryTest {
 	private Notification prepareNotification(int attempts) {
 		Notification notification = new Notification(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
 				UUID.randomUUID(), UUID.randomUUID(), Kind.ACCOUNT_DEACTIVATION, attempts);
-		UserAccount actor = UserAccount.pending(notification.recipientUserID(), "Exemple", "Test", "actor@example.invalid",
+		UserAccount actor = UserAccount.pending(notification.recipientUserID(), "Exemple", "Test",
+				"actor@example.invalid",
 				"+12025550100");
 		when(notifications.lockNext()).thenReturn(Optional.of(notification));
 		when(accountStore.findById(notification.recipientUserID())).thenReturn(Optional.of(actor));

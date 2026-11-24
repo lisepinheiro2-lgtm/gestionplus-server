@@ -25,8 +25,8 @@ import fr.gestionplus.server.account.InvitationDeliveryPendingException;
 import fr.gestionplus.server.audit.AuditReason;
 import fr.gestionplus.server.audit.AuditService;
 import fr.gestionplus.server.audit.AuditedAccessDeniedException;
-import fr.gestionplus.server.auth.HttpSecurityAudit;
 import fr.gestionplus.server.auth.DistributedSecurityUnavailableException;
+import fr.gestionplus.server.auth.HttpSecurityAudit;
 import jakarta.servlet.http.HttpServletRequest;
 
 @RestControllerAdvice

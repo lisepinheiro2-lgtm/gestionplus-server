@@ -33,7 +33,8 @@ class StoredPrivilegedConfirmationVerifierTest {
 	@Test
 	void suppliesOnlyTheHashAndTheExactBindingToTheTransactionalStore() {
 		String hash = PrivilegedConfirmationService.digest(TOKEN);
-		when(proofStore.consumeIfValid(USER_ID, SESSION, 7, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, hash, NOW)).thenReturn(true);
+		when(proofStore.consumeIfValid(USER_ID, SESSION, 7, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, hash, NOW))
+				.thenReturn(true);
 
 		assertTrue(verifier.consumeRecentProof(USER_ID, SESSION, 7, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, TOKEN));
 
@@ -47,7 +48,8 @@ class StoredPrivilegedConfirmationVerifierTest {
 
 	@ParameterizedTest
 	@NullSource
-	@ValueSource(strings = { "", " ", "malformed", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "ééééééééééééééééééééééééééééééééééééééééééé" })
+	@ValueSource(strings = { "", " ", "malformed", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"ééééééééééééééééééééééééééééééééééééééééééé" })
 	void refusesMalformedTokensAndAlreadyHashedValuesWithoutCallingTheStore(String token) {
 		assertFalse(verifier.consumeRecentProof(USER_ID, SESSION, 7, Action.STRUCTURE_ADMIN_TRANSFER, PREVIEW, token));
 		verifyNoInteractions(proofStore);

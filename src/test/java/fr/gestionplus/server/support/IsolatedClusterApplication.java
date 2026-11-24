@@ -77,26 +77,33 @@ public final class IsolatedClusterApplication {
 								throws Exception {
 
 							String offerID = request.getHeader("X-Cluster-Test-Finalize-Offer");
+
 							if (offerID != null) {
 								UUID target = UUID.fromString(offerID);
 								Path root = Path.of(directory);
-								Files.writeString(root.resolve("succession-" + target + "-" + node + ".marker"), "ready");
+								Files.writeString(root.resolve("succession-" + target + "-" + node + ".marker"),
+										"ready");
 								String other = "first".equals(node) ? "second" : "first";
 								Path otherMarker = root.resolve("succession-" + target + "-" + other + ".marker");
 								long deadline = System.nanoTime() + Duration.ofSeconds(12).toNanos();
+
 								while (!Files.exists(otherMarker)) {
+
 									if (System.nanoTime() >= deadline) {
 										response.setStatus(503);
 										return false;
 									}
+
 									Thread.sleep(20);
 								}
+
 								try {
 									succession.finalizeSuccession(target);
 									response.setStatus(204);
 								} catch (AccessDeniedException denied) {
 									response.setStatus(403);
 								}
+
 								return false;
 							}
 

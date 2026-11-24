@@ -61,18 +61,21 @@ class ActivationChallengeRecoveryPostgresqlIntegrationTest extends AbstractAccou
 		assertEquals(0, challengeStore.revokeUnconfirmedSends(NOW.plusSeconds(121)));
 		assertTrue(challengeStore.findCurrentByInvitationAndUser(pending.invitationID(), pending.userID()).isEmpty());
 		assertEquals(1, challengeStore.countByInvitationAndUser(pending.invitationID(), pending.userID()));
-		assertTrue(challengeStore.findCurrentByInvitationAndUser(confirmed.invitationID(), confirmed.userID()).isPresent());
+		assertTrue(challengeStore.findCurrentByInvitationAndUser(confirmed.invitationID(), confirmed.userID())
+				.isPresent());
 		assertFalse(challengeStore.confirmSend(pending.challengeID(), NOW.plusSeconds(121)));
 	}
 
 	@Test
 	void twoRecoveryWorkersRevokeEachDueChallengeOnlyOnce() throws Exception {
 		pendingChallenge();
+
 		try (var workers = Executors.newFixedThreadPool(2)) {
 			var first = workers.submit(() -> challengeStore.revokeUnconfirmedSends(NOW.plusSeconds(120)));
 			var second = workers.submit(() -> challengeStore.revokeUnconfirmedSends(NOW.plusSeconds(120)));
 			assertEquals(1, first.get() + second.get());
 		}
+
 	}
 
 	@Test

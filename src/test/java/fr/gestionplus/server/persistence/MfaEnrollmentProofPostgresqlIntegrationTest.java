@@ -98,6 +98,7 @@ class MfaEnrollmentProofPostgresqlIntegrationTest {
 
 	@Test
 	void aProofIsRejectedAtAndAfterItsExpiry() {
+
 		for (Instant attemptedAt : new Instant[] { NOW.plusSeconds(300), NOW.plusSeconds(301) }) {
 			UUID userID = account();
 			store.saveEnrollmentProof(new EnrollmentProof(userID, HASH, 7, NOW.plusSeconds(300)));
@@ -105,6 +106,7 @@ class MfaEnrollmentProofPostgresqlIntegrationTest {
 			assertEquals(1, count(userID));
 			jdbc.update("DELETE FROM account_mfa_enrollment_proofs WHERE user_id = ?", userID);
 		}
+
 	}
 
 	@Test
@@ -112,6 +114,7 @@ class MfaEnrollmentProofPostgresqlIntegrationTest {
 		UUID userID = account();
 		store.saveEnrollmentProof(new EnrollmentProof(userID, HASH, 7, NOW.plusSeconds(300)));
 		CyclicBarrier start = new CyclicBarrier(2);
+
 		try (var workers = Executors.newFixedThreadPool(2)) {
 			var first = workers.submit(() -> {
 				start.await(5, TimeUnit.SECONDS);
@@ -123,6 +126,7 @@ class MfaEnrollmentProofPostgresqlIntegrationTest {
 			});
 			assertTrue(first.get(10, TimeUnit.SECONDS) ^ second.get(10, TimeUnit.SECONDS));
 		}
+
 		assertEquals(0, count(userID));
 	}
 
@@ -152,10 +156,12 @@ class MfaEnrollmentProofPostgresqlIntegrationTest {
 		assertThrows(DataIntegrityViolationException.class, () -> store.saveEnrollmentProof(
 				new EnrollmentProof(UUID.randomUUID(), HASH, 7, NOW.plusSeconds(300))));
 		UUID userID = account();
+
 		for (String invalidHash : new String[] { "a".repeat(63), "g".repeat(64), "A".repeat(64) }) {
 			assertThrows(DataIntegrityViolationException.class, () -> store.saveEnrollmentProof(
 					new EnrollmentProof(userID, invalidHash, 7, NOW.plusSeconds(300))));
 		}
+
 		assertThrows(DataIntegrityViolationException.class, () -> store.saveEnrollmentProof(
 				new EnrollmentProof(userID, HASH, -1, NOW.plusSeconds(300))));
 	}

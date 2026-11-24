@@ -1,11 +1,11 @@
 package fr.gestionplus.server.account;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -115,7 +115,8 @@ class ActivationIdentityChallengeServiceTest {
 	void rejectsAnUnknownInvitationBeforeGeneratingOrSendingACode() {
 		when(invitations.findByID(INVITATION_ID)).thenReturn(Optional.empty());
 
-		assertThrows(AccountActivationConflictException.class, () -> service.createChallenge(INVITATION_ID, "invitation-digest"));
+		assertThrows(AccountActivationConflictException.class,
+				() -> service.createChallenge(INVITATION_ID, "invitation-digest"));
 		verifyNoInteractions(accounts, challenges, generator, digester, sender, transactions);
 	}
 
@@ -124,7 +125,8 @@ class ActivationIdentityChallengeServiceTest {
 	void rejectsUnusableInvitationsBeforeLookingUpTheAccount(Invitation invitation) {
 		when(invitations.findByID(INVITATION_ID)).thenReturn(Optional.of(invitation));
 
-		assertThrows(AccountActivationConflictException.class, () -> service.createChallenge(INVITATION_ID, "invitation-digest"));
+		assertThrows(AccountActivationConflictException.class,
+				() -> service.createChallenge(INVITATION_ID, "invitation-digest"));
 		verifyNoInteractions(accounts, challenges, generator, digester, sender, transactions);
 	}
 
@@ -132,7 +134,8 @@ class ActivationIdentityChallengeServiceTest {
 	void rejectsAMissingAccountBeforeGeneratingOrSendingACode() {
 		when(accounts.findById(USER_ID)).thenReturn(Optional.empty());
 
-		assertThrows(AccountActivationConflictException.class, () -> service.createChallenge(INVITATION_ID, "invitation-digest"));
+		assertThrows(AccountActivationConflictException.class,
+				() -> service.createChallenge(INVITATION_ID, "invitation-digest"));
 		verifyNoInteractions(challenges, generator, digester, sender, transactions);
 	}
 
@@ -143,7 +146,8 @@ class ActivationIdentityChallengeServiceTest {
 				"Exemple", "Test", "sms@example.invalid", PHONE);
 		when(accounts.findById(USER_ID)).thenReturn(Optional.of(account));
 
-		assertThrows(AccountActivationConflictException.class, () -> service.createChallenge(INVITATION_ID, "invitation-digest"));
+		assertThrows(AccountActivationConflictException.class,
+				() -> service.createChallenge(INVITATION_ID, "invitation-digest"));
 		verifyNoInteractions(challenges, generator, digester, sender, transactions);
 	}
 
@@ -151,7 +155,8 @@ class ActivationIdentityChallengeServiceTest {
 	void rejectsAnAccountThatDisappearsBeforeTheLockedRead() {
 		when(accounts.findByIdForUpdate(USER_ID)).thenReturn(Optional.empty());
 
-		assertThrows(AccountActivationConflictException.class, () -> service.createChallenge(INVITATION_ID, "invitation-digest"));
+		assertThrows(AccountActivationConflictException.class,
+				() -> service.createChallenge(INVITATION_ID, "invitation-digest"));
 
 		verify(accounts).findByIdForUpdate(USER_ID);
 		verify(challenges, never()).replaceCurrent(any(), any());
@@ -167,7 +172,8 @@ class ActivationIdentityChallengeServiceTest {
 				"Exemple", "Test", "sms@example.invalid", PHONE);
 		when(accounts.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(account));
 
-		assertThrows(AccountActivationConflictException.class, () -> service.createChallenge(INVITATION_ID, "invitation-digest"));
+		assertThrows(AccountActivationConflictException.class,
+				() -> service.createChallenge(INVITATION_ID, "invitation-digest"));
 
 		verify(accounts).findByIdForUpdate(USER_ID);
 		verify(challenges, never()).replaceCurrent(any(), any());
@@ -182,7 +188,8 @@ class ActivationIdentityChallengeServiceTest {
 		when(challenges.findCurrentByInvitationAndUser(INVITATION_ID, USER_ID))
 				.thenReturn(Optional.of(currentChallenge(NOW.minusSeconds(ageInSeconds), NOW.plusSeconds(300))));
 
-		assertThrows(AccountActivationConflictException.class, () -> service.createChallenge(INVITATION_ID, "invitation-digest"));
+		assertThrows(AccountActivationConflictException.class,
+				() -> service.createChallenge(INVITATION_ID, "invitation-digest"));
 		verify(challenges, never()).countByInvitationAndUser(any(), any());
 		verifyNoInteractions(generator, digester, sender, transactions);
 	}
@@ -193,7 +200,8 @@ class ActivationIdentityChallengeServiceTest {
 				.thenReturn(Optional.empty())
 				.thenReturn(Optional.of(currentChallenge(NOW, NOW.plusSeconds(300))));
 
-		assertThrows(AccountActivationConflictException.class, () -> service.createChallenge(INVITATION_ID, "invitation-digest"));
+		assertThrows(AccountActivationConflictException.class,
+				() -> service.createChallenge(INVITATION_ID, "invitation-digest"));
 
 		var order = inOrder(accounts, challenges, transactions);
 		order.verify(transactions).getTransaction(any());
@@ -233,7 +241,8 @@ class ActivationIdentityChallengeServiceTest {
 	void rejectsCreationOnceTheAttemptLimitIsReached(int count) {
 		when(challenges.countByInvitationAndUser(INVITATION_ID, USER_ID)).thenReturn(count);
 
-		assertThrows(AccountActivationConflictException.class, () -> service.createChallenge(INVITATION_ID, "invitation-digest"));
+		assertThrows(AccountActivationConflictException.class,
+				() -> service.createChallenge(INVITATION_ID, "invitation-digest"));
 		verify(challenges, never()).replaceCurrent(any(), any());
 		verifyNoInteractions(generator, digester, sender, transactions);
 	}
@@ -243,7 +252,8 @@ class ActivationIdentityChallengeServiceTest {
 	void rejectsCreationWhenTheAttemptLimitIsReachedAfterTheInitialCheck(int count) {
 		when(challenges.countByInvitationAndUser(INVITATION_ID, USER_ID)).thenReturn(2, count);
 
-		assertThrows(AccountActivationConflictException.class, () -> service.createChallenge(INVITATION_ID, "invitation-digest"));
+		assertThrows(AccountActivationConflictException.class,
+				() -> service.createChallenge(INVITATION_ID, "invitation-digest"));
 
 		var order = inOrder(accounts, challenges, transactions);
 		order.verify(transactions).getTransaction(any());
@@ -270,7 +280,8 @@ class ActivationIdentityChallengeServiceTest {
 		IllegalStateException failure = new IllegalStateException("Clé de défi indisponible.");
 		when(digester.digest(any(), eq(CODE))).thenThrow(failure);
 
-		assertSame(failure, assertThrows(IllegalStateException.class, () -> service.createChallenge(INVITATION_ID, "invitation-digest")));
+		assertSame(failure, assertThrows(IllegalStateException.class,
+				() -> service.createChallenge(INVITATION_ID, "invitation-digest")));
 		verify(challenges, never()).replaceCurrent(any(), any());
 		verifyNoInteractions(sender, transactions);
 	}
@@ -280,7 +291,8 @@ class ActivationIdentityChallengeServiceTest {
 		IllegalStateException failure = new IllegalStateException("Stockage indisponible.");
 		doThrow(failure).when(challenges).replaceCurrent(any(), any());
 
-		assertSame(failure, assertThrows(IllegalStateException.class, () -> service.createChallenge(INVITATION_ID, "invitation-digest")));
+		assertSame(failure, assertThrows(IllegalStateException.class,
+				() -> service.createChallenge(INVITATION_ID, "invitation-digest")));
 		verify(transactions).rollback(any());
 		verify(transactions, never()).commit(any());
 		verifyNoInteractions(sender);
@@ -291,7 +303,8 @@ class ActivationIdentityChallengeServiceTest {
 		IllegalStateException failure = new IllegalStateException("Validation de transaction impossible.");
 		doThrow(failure).when(transactions).commit(any());
 
-		assertSame(failure, assertThrows(IllegalStateException.class, () -> service.createChallenge(INVITATION_ID, "invitation-digest")));
+		assertSame(failure, assertThrows(IllegalStateException.class,
+				() -> service.createChallenge(INVITATION_ID, "invitation-digest")));
 		verifyNoInteractions(sender);
 	}
 
@@ -300,7 +313,8 @@ class ActivationIdentityChallengeServiceTest {
 		IllegalStateException failure = new IllegalStateException("Envoi SMS indisponible.");
 		doThrow(failure).when(sender).send(PHONE, CODE);
 
-		assertSame(failure, assertThrows(IllegalStateException.class, () -> service.createChallenge(INVITATION_ID, "invitation-digest")));
+		assertSame(failure, assertThrows(IllegalStateException.class,
+				() -> service.createChallenge(INVITATION_ID, "invitation-digest")));
 
 		ArgumentCaptor<ActivationIdentityChallenge> saved = ArgumentCaptor.forClass(ActivationIdentityChallenge.class);
 		var order = inOrder(challenges, transactions, sender);
@@ -389,12 +403,14 @@ class ActivationIdentityChallengeServiceTest {
 	@Test
 	void refusesAnEnclosingTransactionBeforeReadingOrSendingAnything() {
 		org.springframework.transaction.support.TransactionSynchronizationManager.setActualTransactionActive(true);
+
 		try {
 			assertThrows(org.springframework.transaction.IllegalTransactionStateException.class,
 					() -> service.createChallenge(INVITATION_ID, "invitation-digest"));
 		} finally {
 			org.springframework.transaction.support.TransactionSynchronizationManager.clear();
 		}
+
 		verifyNoInteractions(invitations, accounts, challenges, sender);
 	}
 

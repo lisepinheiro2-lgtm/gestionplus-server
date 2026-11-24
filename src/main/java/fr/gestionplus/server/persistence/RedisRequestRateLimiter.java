@@ -2,8 +2,8 @@ package fr.gestionplus.server.persistence;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.UUID;
 import java.util.Objects;
+import java.util.UUID;
 
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;

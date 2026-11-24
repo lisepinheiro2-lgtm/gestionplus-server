@@ -55,27 +55,34 @@ final class CurrentAccountSessionFilter extends OncePerRequestFilter {
 		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 		Instant requestStarted = null;
 		HttpSession session = request.getSession(false);
+
 		if (authentication != null && authentication.getPrincipal() instanceof EnrollmentPrincipal principal) {
 			boolean current = accountStore.findById(principal.userID())
 					.filter(account -> principal.userID().equals(account.getUserID())
 							&& account.getStatu() == UserAccountStatus.ACTIVE
-							&& account.getSessionVersion() == principal.sessionVersion()).isPresent();
+							&& account.getSessionVersion() == principal.sessionVersion())
+					.isPresent();
 			Instant now = lifetime.now();
+
 			if (!current || principal.isExpired(now) || session == null) {
 				logoutHandler.logout(request, response, authentication);
 				audit.refused(request, principal, !current ? AuditReason.STALE_SESSION : AuditReason.SESSION_EXPIRED);
 				HttpApiError.AUTHENTICATION_REQUIRED.write(response);
 				return;
 			}
+
 			if (!CSRF_GET.matches(request) && !ENROLLMENT_POST.matches(request)
 					&& !COMPLETE_POST.matches(request) && !LOGOUT_POST.matches(request)) {
 				audit.refused(request, principal, AuditReason.ACCESS_NOT_AUTHORIZED);
 				HttpApiError.FORBIDDEN.write(response);
 				return;
 			}
+
 			if (COMPLETE_POST.matches(request)) {
-				RequestRateLimiter.Decision decision = rateLimiter.acquireForAccount("mfa-enrollment", principal.userID(),
+				RequestRateLimiter.Decision decision = rateLimiter.acquireForAccount("mfa-enrollment",
+						principal.userID(),
 						MAX_ENROLLMENT_SUBMISSIONS, EnrollmentPrincipal.VALIDITY);
+
 				if (!decision.allowed()) {
 					audit.refused(request, principal, AuditReason.RATE_LIMITED);
 					Duration delay = decision.retryAfter();
@@ -84,7 +91,9 @@ final class CurrentAccountSessionFilter extends OncePerRequestFilter {
 					HttpApiError.TOO_MANY_REQUESTS.write(response);
 					return;
 				}
+
 			}
+
 			chain.doFilter(request, response);
 			return;
 		}

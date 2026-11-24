@@ -71,6 +71,7 @@ class ActivationHttpPostgresqlIntegrationTest extends AuditStorageIntegrationTes
 	@Test
 	void completesActivationOverHttpThenAllowsANormalLoginWithoutCreatingAnActivationSession() throws Exception {
 		Fixture fixture = fixture();
+
 		try (var client = client()) {
 			JsonNode csrf = csrf(client);
 			assertEquals(200, post(client, path(fixture, "/sms-challenge"), body(fixture, null), csrf).statusCode());
@@ -91,39 +92,49 @@ class ActivationHttpPostgresqlIntegrationTest extends AuditStorageIntegrationTes
 					.header("Content-Type", "application/x-www-form-urlencoded")
 					.header(loginCsrf.get("headerName").asString(), loginCsrf.get("token").asString())
 					.POST(HttpRequest.BodyPublishers.ofString("username=" + fixture.userName() + "&password="
-							+ URLEncoder.encode(PASSWORD, StandardCharsets.UTF_8))).build();
+							+ URLEncoder.encode(PASSWORD, StandardCharsets.UTF_8)))
+					.build();
 			assertEquals(200, client.send(login, HttpResponse.BodyHandlers.ofString()).statusCode());
-			assertEquals(fixture.userName(), JSON.readTree(get(client, "/api/auth/me").body()).get("userName").asString());
+			assertEquals(fixture.userName(),
+					JSON.readTree(get(client, "/api/auth/me").body()).get("userName").asString());
 		}
+
 	}
 
 	@Test
 	void threeWrongCodesRevokeTheChallengeAndKeepTheSmsAttemptInHistory() throws Exception {
 		Fixture fixture = fixture();
+
 		try (var client = client()) {
 			JsonNode csrf = csrf(client);
 			assertEquals(200, post(client, path(fixture, "/sms-challenge"), body(fixture, null), csrf).statusCode());
 			String wrongCode = "000000".equals(sentCode.get()) ? "000001" : "000000";
+
 			for (int attempt = 0; attempt < 3; attempt++) {
-				HttpResponse<String> rejected = post(client, path(fixture, "/activation"), body(fixture, wrongCode), csrf);
+				HttpResponse<String> rejected = post(client, path(fixture, "/activation"), body(fixture, wrongCode),
+						csrf);
 				assertEquals(403, rejected.statusCode());
 				assertEquals("ACTIVATION_DENIED", JSON.readTree(rejected.body()).get("code").asString());
 			}
+
 			assertTrue(challenges.findCurrentByInvitationAndUser(fixture.invitationID(), fixture.userID()).isEmpty());
 			assertEquals(1, challenges.countByInvitationAndUser(fixture.invitationID(), fixture.userID()));
 			assertEquals("PENDING_ACTIVATION", jdbc.queryForObject("SELECT status FROM user_accounts WHERE user_id = ?",
 					String.class, fixture.userID()));
 		}
+
 	}
 
 	private Fixture fixture() {
 		UUID ownerID = account(false, null);
 		UUID tenantID = UUID.randomUUID();
 		UUID structureID = UUID.randomUUID();
-		jdbc.update("INSERT INTO tenant_organizations (tenant_id, tenant_name, super_admin_user_id) VALUES (?, 'Fictitious HTTP activation', ?)",
+		jdbc.update(
+				"INSERT INTO tenant_organizations (tenant_id, tenant_name, super_admin_user_id) VALUES (?, 'Fictitious HTTP activation', ?)",
 				tenantID, ownerID);
 		jdbc.update("INSERT INTO tenant_memberships (user_id, tenant_id) VALUES (?, ?)", ownerID, tenantID);
-		jdbc.update("INSERT INTO organizational_structures (structure_id, structure_name, tenant_id) VALUES (?, 'Fictitious structure', ?)",
+		jdbc.update(
+				"INSERT INTO organizational_structures (structure_id, structure_name, tenant_id) VALUES (?, 'Fictitious structure', ?)",
 				structureID, tenantID);
 		UUID userID = account(true, structureID);
 		jdbc.update("INSERT INTO tenant_memberships (user_id, tenant_id) VALUES (?, ?)", userID, tenantID);
@@ -136,22 +147,26 @@ class ActivationHttpPostgresqlIntegrationTest extends AuditStorageIntegrationTes
 		String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
 		UUID invitationID = UUID.randomUUID();
 		String digest = java.util.HexFormat.of().formatHex(sha256(token));
-		invitations.save(new Invitation(invitationID, userID, structureID, digest, Instant.now().plusSeconds(3600), null));
+		invitations
+				.save(new Invitation(invitationID, userID, structureID, digest, Instant.now().plusSeconds(3600), null));
 		return new Fixture(invitationID, userID, "fictitious_" + userID, token);
 	}
 
 	private byte[] sha256(String value) {
+
 		try {
 			return java.security.MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.US_ASCII));
 		} catch (java.security.NoSuchAlgorithmException failure) {
 			throw new IllegalStateException(failure);
 		}
+
 	}
 
 	private UUID account(boolean pending, UUID structureID) {
 		UUID userID = UUID.randomUUID();
 		UUID employeeID = UUID.randomUUID();
-		jdbc.update("INSERT INTO employees (employee_id, first_name, last_name, contract_hours, structure_id) VALUES (?, 'Fictitious', 'Activation', 35, ?)",
+		jdbc.update(
+				"INSERT INTO employees (employee_id, first_name, last_name, contract_hours, structure_id) VALUES (?, 'Fictitious', 'Activation', 35, ?)",
 				employeeID, structureID);
 		jdbc.update("""
 				INSERT INTO user_accounts (user_id, employee_id, user_name, status, user_first_name, user_last_name,
@@ -164,9 +179,11 @@ class ActivationHttpPostgresqlIntegrationTest extends AuditStorageIntegrationTes
 
 	private String body(Fixture fixture, String proof) {
 		var body = JSON.createObjectNode().put("token", fixture.token());
+
 		if (proof != null) {
 			body.put("proof", proof).put("userName", fixture.userName()).put("password", PASSWORD);
 		}
+
 		return body.toString();
 	}
 

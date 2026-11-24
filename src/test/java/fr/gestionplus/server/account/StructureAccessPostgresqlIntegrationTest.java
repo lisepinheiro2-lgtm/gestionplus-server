@@ -178,7 +178,8 @@ class StructureAccessPostgresqlIntegrationTest extends AuditStorageIntegrationTe
 		assertTrue(sessionRegistry.getSessionInformation(sessionID).isExpired());
 		assertEquals(UserAccountStatus.ACTIVE, accountStore.findById(targetId).orElseThrow().getStatu());
 		assertEquals(0, jdbcTemplate.queryForObject(
-				"SELECT COUNT(*) FROM account_deactivation_notifications WHERE target_id = ?", Integer.class, targetId));
+				"SELECT COUNT(*) FROM account_deactivation_notifications WHERE target_id = ?", Integer.class,
+				targetId));
 	}
 
 	@Test
@@ -258,10 +259,13 @@ class StructureAccessPostgresqlIntegrationTest extends AuditStorageIntegrationTe
 		UserAccount before = accountStore.findById(targetId).orElseThrow();
 		String sessionID = UUID.randomUUID().toString();
 		sessionRegistry.registerNewSession(sessionID, before);
-		jdbcTemplate.execute("ALTER TABLE account_deactivation_notifications ADD CONSTRAINT fictitious_reject_target_notification "
-				+ "CHECK (kind <> 'ACCOUNT_DEACTIVATION_TARGET' OR target_id <> '" + targetId + "'::uuid)");
+		jdbcTemplate.execute(
+				"ALTER TABLE account_deactivation_notifications ADD CONSTRAINT fictitious_reject_target_notification "
+						+ "CHECK (kind <> 'ACCOUNT_DEACTIVATION_TARGET' OR target_id <> '" + targetId + "'::uuid)");
+
 		try {
-			assertThrows(DataIntegrityViolationException.class, () -> service.revokeStructureAccess(targetId, structureId));
+			assertThrows(DataIntegrityViolationException.class,
+					() -> service.revokeStructureAccess(targetId, structureId));
 
 			UserAccount after = accountStore.findById(targetId).orElseThrow();
 			assertEquals(UserAccountStatus.ACTIVE, after.getStatu());
@@ -269,16 +273,20 @@ class StructureAccessPostgresqlIntegrationTest extends AuditStorageIntegrationTe
 			assertEquals(1L, membershipCount(targetId, structureId));
 			assertFalse(sessionRegistry.getSessionInformation(sessionID).isExpired());
 			assertEquals(0, jdbcTemplate.queryForObject(
-					"SELECT COUNT(*) FROM account_deactivation_notifications WHERE target_id = ?", Integer.class, targetId));
+					"SELECT COUNT(*) FROM account_deactivation_notifications WHERE target_id = ?", Integer.class,
+					targetId));
 		} finally {
-			jdbcTemplate.execute("ALTER TABLE account_deactivation_notifications DROP CONSTRAINT fictitious_reject_target_notification");
+			jdbcTemplate.execute(
+					"ALTER TABLE account_deactivation_notifications DROP CONSTRAINT fictitious_reject_target_notification");
 		}
+
 	}
 
 	@Test
 	void retainingAnotherPreparedAccessDoesNotDisableOrNotifyThePendingAccount() {
 		UUID pendingID = UUID.randomUUID();
-		accountStore.createAccount(UserAccount.pending(pendingID, "Fictitious", "Pending", "pending@example.invalid", "+12025550100"));
+		accountStore.createAccount(
+				UserAccount.pending(pendingID, "Fictitious", "Pending", "pending@example.invalid", "+12025550100"));
 		joinTenant(pendingID);
 		UUID otherStructureID = createStructure("Fictitious other structure");
 		service.addStructureAccess(pendingID, structureId, Set.of(UserRole.EMPLOYEE));
@@ -289,7 +297,8 @@ class StructureAccessPostgresqlIntegrationTest extends AuditStorageIntegrationTe
 		assertEquals(UserAccountStatus.PENDING_ACTIVATION, accountStore.findById(pendingID).orElseThrow().getStatu());
 		assertEquals(1L, membershipCount(pendingID, otherStructureID));
 		assertEquals(0, jdbcTemplate.queryForObject(
-				"SELECT COUNT(*) FROM account_deactivation_notifications WHERE target_id = ?", Integer.class, pendingID));
+				"SELECT COUNT(*) FROM account_deactivation_notifications WHERE target_id = ?", Integer.class,
+				pendingID));
 	}
 
 	@Test

@@ -48,9 +48,11 @@ public class PostgresqlSuccessionConfirmationStore implements SuccessionConfirma
 				""", confirmation.userID(), confirmation.sessionVersion(), confirmation.sessionIDHash(),
 				confirmedAt, confirmation.expiresAt().atOffset(ZoneOffset.UTC), confirmation.offerID(),
 				confirmation.userID(), confirmation.previewDigest(), confirmedAt, confirmedAt);
+
 		if (changed != 1) {
 			throw new AccessDeniedException("La confirmation ne correspond pas à une offre de succession valable.");
 		}
+
 	}
 
 	@Override

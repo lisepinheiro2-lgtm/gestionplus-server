@@ -79,9 +79,11 @@ public final class HttpSecurityAudit {
 	}
 
 	private UUID actor(Object principal) {
+
 		if (principal instanceof EnrollmentPrincipal enrollment) {
 			return enrollment.userID();
 		}
+
 		return principal instanceof UserAccount account ? account.getUserID() : null;
 	}
 

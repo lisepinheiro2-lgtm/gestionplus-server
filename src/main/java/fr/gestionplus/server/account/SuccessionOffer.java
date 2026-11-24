@@ -6,7 +6,8 @@ import java.util.Objects;
 import java.util.UUID;
 
 public record SuccessionOffer(UUID offerID, UUID outgoingUserID, UUID successorUserID, UUID tenantID,
-		List<UUID> adminRolesToTransfer, String previewDigest, OfferStatus status, Instant createdAt, Instant expiresAt) {
+		List<UUID> adminRolesToTransfer, String previewDigest, OfferStatus status, Instant createdAt,
+		Instant expiresAt) {
 
 	public SuccessionOffer {
 		Objects.requireNonNull(offerID);

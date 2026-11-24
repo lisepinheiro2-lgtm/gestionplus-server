@@ -62,7 +62,9 @@ public final class DistributedSessionRegistry implements SessionRegistry {
 		if (!(value instanceof SecurityContext context) || context.getAuthentication() == null) {
 			return null;
 		}
+
 		Object principal = context.getAuthentication().getPrincipal();
+
 		if (!(principal instanceof UserAccount) && !(principal instanceof EnrollmentPrincipal)) {
 			return null;
 		}

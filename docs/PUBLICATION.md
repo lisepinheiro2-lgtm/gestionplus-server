@@ -1,11 +1,34 @@
 ---
-summary: "23 novembre : publications jusqu’à aa9eff7, V31 à coordonner, validations isolées et limites de déploiement conservées."
+summary: "24 novembre : lot publié 908c24d et coordination V34 ; limites de révocation Redis après commit et raccordements ouverts."
 read_when:
   - "préparer une revue avant commit ou publication GitHub"
   - "retrouver les limites du transfert Git et de la synchronisation des notes privées"
 ---
 
 # Publier les sources et travailler sur deux ordinateurs
+
+<a id="succession-cycle-2026-11-24"></a>
+
+## Publication du cycle et coordination V34 — 24 novembre 2026
+
+Deux commits du 24 novembre sont présents sur GitHub : **`77ec48e`** (15:50:43 Paris) puis **`908c24d`** (16:12:15 Paris). Le dernier reprend le lot Codex validé sur le socle `77ec48e` avec modifications locales. Le HEAD du checkout et `main` distant correspondent à `908c24d`. Les traces locales de push sont 15:50:49 et 16:12:19 (UTC+01) ; ce sont des entrées « update by push » du reflog local, pas des heures d’audit GitHub. Voir [le cycle, l’inventaire et les validations](AVANCEMENT.md#succession-cycle-2026-11-24).
+
+Arbres propres avant la mission : serveur `908c24d`, client `48d8f94` et privé `6fc734c`. Aucun changement de code encore local ; les ajouts de cette mission sont uniquement documentaires et non committés. Les publications client/privées ne sont pas déduites de leur seul historique local.
+
+**Préparer une mise à niveau coordonnée pour V34 :** elle supprime les anciennes preuves incompatibles de `privileged_confirmation_proofs`, ajoute `session_id_hash` obligatoire et remplace les actions de succession antérieures par `SUPER_ADMIN_SUCCESSION_CREATE` (transfert ADMIN conservé). Les anciennes instances qui utilisent le schéma/actions précédents ne doivent pas être supposées compatibles ; coordonner leur arrêt/basculement et réémettre les preuves. Aucun basculement réel ou déploiement mixte validé.
+
+**V35** ajoute les confirmations par offre/participant, liées au compte/version, à l’empreinte de sa session et au récapitulatif, cinq minutes maximum. **V1 à V33 inchangées** par ces deux commits. Ces stockages métier ne conservent que des empreintes de session ; Spring Session et les clés d’activité Redis existantes ne sont pas rendus anonymes ou globalement hachés par cette évolution.
+
+Le cycle métier est présent jusqu’à COMPLETED : création avec preuve unique de cinq minutes, offre annulable de 24 heures, acceptation sans transfert, puis deux confirmations indépendantes de cinq minutes ; finalisation réservée au successeur depuis sa session confirmée. Verrous structures triées → comptes triés → organisation → offre, relecture SQL de l’organisation sous verrou ; préserver l’ordre lors des évolutions.
+
+Le contrôle conjoint Redis à `authorizedAt` fixe la règle : logout avant, refus ; logout après, finalisation déjà autorisée possible. Transfert/clôture/suppression des confirmations sont atomiques dans PostgreSQL. **La révocation Redis après commit n’est pas atomique avec PostgreSQL** : en cas de panne, le transfert peut être committé malgré une erreur et sans révocation immédiate garantie. Prévoir une reprise ; ne pas annoncer de rollback après commit. Le digest du récapitulatif repose encore sur `toString()` Java et devra être stabilisé.
+
+Codex : **1 302/1 302 tests serveur**, zéro échec/erreur/ignoré, copie isolée PostgreSQL/Redis jetables, 19 empreintes conformes. Le test concurrent à deux JVM utilise un point d’entrée de **`src/test/.../IsolatedClusterApplication`**, pas une route HTTP de production. Aucune validation relancée pendant cette mission ; aucun nouveau résultat client, envoi réel d’e-mail/SMS ou déploiement validé.
+
+**À poursuivre :** HTTP de production et Swing ; audit spécifique des nouvelles opérations/refus, limitation distribuée et notifications du cycle. Les avis de transferts ADMIN, la limite SMTP de trois tentatives puis abandon audité et les limites MFA de reprise restent ceux des jalons antérieurs. Les documents et preuves du 23 novembre sont conservés.
+
+**Historique conservé : la reprise du 24 novembre 2026 ci-dessus actualise le cycle ; les jalons du 23 novembre et antérieurs restent datés.**
+
 
 <a id="notifications-confirmations-succession-2026-11-23"></a>
 

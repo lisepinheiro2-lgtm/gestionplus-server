@@ -14,8 +14,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 @EnableScheduling
-@ConditionalOnProperty(name = "gestionplus.activation.challenge-recovery.enabled", havingValue = "true",
-		matchIfMissing = true)
+@ConditionalOnProperty(name = "gestionplus.activation.challenge-recovery.enabled", havingValue = "true", matchIfMissing = true)
 public final class ActivationChallengeRecovery {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger(ActivationChallengeRecovery.class);
@@ -30,10 +29,12 @@ public final class ActivationChallengeRecovery {
 	@Scheduled(fixedDelay = 30000, initialDelay = 30000)
 	@EventListener(ApplicationReadyEvent.class)
 	public void recoverUnconfirmedSends() {
+
 		try {
 			store.revokeUnconfirmedSends(clock.instant());
 		} catch (RuntimeException failure) {
 			LOGGER.warn("Récupération des envois SMS indisponible ({}).", failure.getClass().getSimpleName());
 		}
+
 	}
 }

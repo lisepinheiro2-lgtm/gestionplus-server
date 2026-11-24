@@ -258,7 +258,8 @@ class AccountActivationServiceTest {
 	}
 
 	private void assertNoActivationWork() {
-		verifyNoInteractions(accounts, challenges, scope, audit, credentials, verifiers, transactions, authorization, mfa);
+		verifyNoInteractions(accounts, challenges, scope, audit, credentials, verifiers, transactions, authorization,
+				mfa);
 	}
 
 	private void preparePendingDelivery(boolean invitationExists, String token) {

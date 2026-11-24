@@ -159,12 +159,14 @@ class CsrfHttpTest {
 				.header("X-CSRF-TOKEN", getToken(csrf))).andExpect(status().isOk());
 
 		verify(rateLimiter).acquire("invitation-activation", "127.0.0.1", 30, Duration.ofMinutes(15));
+
 		if ("sms-challenge".equals(suffix)) {
 			verify(activationService).requestActivationChallenge(INVITATION_ID, INVITATION_TOKEN);
 		} else {
 			verify(activationService).completeActivation(INVITATION_ID, INVITATION_TOKEN, "012345",
 					"fictitious_activation", "Fictitious-Activation-Password-2026!");
 		}
+
 	}
 
 	@ParameterizedTest

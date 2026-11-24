@@ -144,17 +144,23 @@ public final class SessionValueSerializer implements RedisSerializer<Object> {
 				|| authentication.getCredentials() != null) {
 			throw invalid();
 		}
+
 		if (authentication.getPrincipal() instanceof EnrollmentPrincipal principal) {
+
 			if (authentication.getDetails() != null || authentication.getAuthorities().size() != 1
-					|| !EnrollmentPrincipal.AUTHORITY.equals(authentication.getAuthorities().iterator().next().getAuthority())) {
+					|| !EnrollmentPrincipal.AUTHORITY
+							.equals(authentication.getAuthorities().iterator().next().getAuthority())) {
 				throw invalid();
 			}
+
 			node.put("type", "enrollment-context").put("userID", principal.userID().toString())
 					.put("version", principal.sessionVersion()).put("expiresAt", principal.expiresAt().toString());
 			return;
 		}
+
 		if (!(authentication.getPrincipal() instanceof UserAccount account)
-				|| authentication.getAuthorities().stream().anyMatch(value -> EnrollmentPrincipal.AUTHORITY.equals(value.getAuthority()))) {
+				|| authentication.getAuthorities().stream()
+						.anyMatch(value -> EnrollmentPrincipal.AUTHORITY.equals(value.getAuthority()))) {
 			throw invalid();
 		}
 
@@ -189,9 +195,11 @@ public final class SessionValueSerializer implements RedisSerializer<Object> {
 				text(node, "lastName"), text(node, "firstName"), text(node, "email"), text(node, "phone"),
 				number(node, "version"));
 		var authorities = strings(node, "authorities").stream().map(SimpleGrantedAuthority::new).toList();
+
 		if (authorities.stream().anyMatch(value -> EnrollmentPrincipal.AUTHORITY.equals(value.getAuthority()))) {
 			throw invalid();
 		}
+
 		var authentication = UsernamePasswordAuthenticationToken.authenticated(account, null, authorities);
 
 		if (node.has("mfaVerified")) {
@@ -202,9 +210,11 @@ public final class SessionValueSerializer implements RedisSerializer<Object> {
 	}
 
 	private SecurityContext decodeEnrollmentContext(JsonNode node) {
+
 		if (node.size() != 4) {
 			throw invalid();
 		}
+
 		EnrollmentPrincipal principal = new EnrollmentPrincipal(UUID.fromString(text(node, "userID")),
 				number(node, "version"), Instant.parse(text(node, "expiresAt")));
 		return new SecurityContextImpl(UsernamePasswordAuthenticationToken.authenticated(principal, null,

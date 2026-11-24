@@ -53,7 +53,8 @@ class OvhSmsActivationMessageSenderTest {
 		responses(200, REPORT);
 		sender.send(PHONE, "000042");
 		ArgumentCaptor<HttpRequest> requests = ArgumentCaptor.forClass(HttpRequest.class);
-		verify(client, times(2)).sendAsync(requests.capture(), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any());
+		verify(client, times(2)).sendAsync(requests.capture(),
+				ArgumentMatchers.<HttpResponse.BodyHandler<String>>any());
 		assertEquals("https://api.eu.ovhcloud.com/1.0/auth/time", requests.getAllValues().getFirst().uri().toString());
 		HttpRequest post = requests.getAllValues().getLast();
 		assertEquals("https://api.eu.ovhcloud.com/1.0/sms/sms-fictitious-1/jobs", post.uri().toString());
@@ -99,6 +100,7 @@ class OvhSmsActivationMessageSenderTest {
 		var pending = new CompletableFuture<HttpResponse<String>>();
 		when(client.sendAsync(any(), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any())).thenReturn(pending);
 		Thread.currentThread().interrupt();
+
 		try {
 			ActivationMessageDeliveryException failure = assertThrows(ActivationMessageDeliveryException.class,
 					() -> sender.send(PHONE, "000042"));
@@ -108,6 +110,7 @@ class OvhSmsActivationMessageSenderTest {
 		} finally {
 			Thread.interrupted();
 		}
+
 	}
 
 	@Test
@@ -126,7 +129,8 @@ class OvhSmsActivationMessageSenderTest {
 	@Test
 	void cancelsTheRequestWhenItsOverallDeadlineIsReached() throws Exception {
 		CompletableFuture<HttpResponse<String>> pending = mock();
-		when(pending.get(5, TimeUnit.SECONDS)).thenThrow(new java.util.concurrent.TimeoutException("private-test-value"));
+		when(pending.get(5, TimeUnit.SECONDS))
+				.thenThrow(new java.util.concurrent.TimeoutException("private-test-value"));
 		when(client.sendAsync(any(), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any())).thenReturn(pending);
 		ActivationMessageDeliveryException failure = assertThrows(ActivationMessageDeliveryException.class,
 				() -> sender.send(PHONE, "000042"));

@@ -9,8 +9,8 @@ import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
-import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.EnrollmentPrincipal;
+import fr.gestionplus.server.auth.UserAccount;
 
 @Component
 public class SpringAuditContextProvider implements AuditContextProvider {

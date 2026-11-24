@@ -14,9 +14,11 @@ public record EnrollmentPrincipal(UUID userID, long sessionVersion, Instant expi
 	public EnrollmentPrincipal {
 		Objects.requireNonNull(userID);
 		Objects.requireNonNull(expiresAt);
+
 		if (sessionVersion < 0) {
 			throw new IllegalArgumentException("La version de sécurité est invalide.");
 		}
+
 	}
 
 	public boolean isExpired(Instant now) {

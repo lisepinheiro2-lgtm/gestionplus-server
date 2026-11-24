@@ -28,7 +28,7 @@ public class SessionRevocationService {
 					if (session.getPrincipal() instanceof UserAccount principal
 							&& principal.getSessionVersion() <= account.getSessionVersion()
 							|| session.getPrincipal() instanceof EnrollmentPrincipal enrollmentPrincipal
-							&& enrollmentPrincipal.sessionVersion() <= account.getSessionVersion()) {
+									&& enrollmentPrincipal.sessionVersion() <= account.getSessionVersion()) {
 						session.expireNow();
 					}
 

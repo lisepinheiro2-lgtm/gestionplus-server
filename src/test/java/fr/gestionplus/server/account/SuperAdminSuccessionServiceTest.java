@@ -1,9 +1,9 @@
 package fr.gestionplus.server.account;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -13,14 +13,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.time.Clock;
-import java.time.Instant;
-import java.time.ZoneOffset;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,14 +33,14 @@ import fr.gestionplus.server.account.SuperAdminSuccessionService.SuccessionPrevi
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditResult;
 import fr.gestionplus.server.audit.AuditService;
+import fr.gestionplus.server.auth.AccountMfaService;
 import fr.gestionplus.server.auth.AuthenticatedUserProvider;
 import fr.gestionplus.server.auth.AuthorizationService;
+import fr.gestionplus.server.auth.CredentialService;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
-import fr.gestionplus.server.auth.UserRole;
-import fr.gestionplus.server.auth.CredentialService;
 import fr.gestionplus.server.auth.UserCredentialLookup;
-import fr.gestionplus.server.auth.AccountMfaService;
+import fr.gestionplus.server.auth.UserRole;
 import fr.gestionplus.server.organization.OrganizationalStructure;
 import fr.gestionplus.server.organization.OrganizationalStructureStore;
 import fr.gestionplus.server.organization.StructureMembership;
@@ -80,12 +80,15 @@ class SuperAdminSuccessionServiceTest {
 	void prepare() {
 		StaticListableBeanFactory beans = new StaticListableBeanFactory();
 		beans.addBean("verifier", verifier);
-		service = new SuperAdminSuccessionService(authenticated, sessionProvider, sessionValidityVerifier, authorization, tenants, structures, memberships,
+		service = new SuperAdminSuccessionService(authenticated, sessionProvider, sessionValidityVerifier,
+				authorization, tenants, structures, memberships,
 				offerStore, accountStore, confirmationStore, transfers, lifecycle,
 				new PrivilegedConfirmationService(beans.getBeanProvider(PrivilegedConfirmationVerifier.class),
-						sessionProvider, mock(PrivilegedConfirmationProofStore.class), mock(AccountStore.class), authenticated,
+						sessionProvider, mock(PrivilegedConfirmationProofStore.class), mock(AccountStore.class),
+						authenticated,
 						mock(UserCredentialLookup.class), mock(CredentialService.class), mock(AccountMfaService.class),
-						Clock.systemUTC()), audit, clock);
+						Clock.systemUTC()),
+				audit, clock);
 		when(authenticated.getCurrentAccount()).thenReturn(outgoing);
 		when(tenants.findById(tenantID)).thenReturn(Optional.of(
 				new TenantOrganization(tenantID, "Entreprise test", outgoingID)));
@@ -229,7 +232,8 @@ class SuperAdminSuccessionServiceTest {
 		verify(offerStore).complete(offerID, clock.instant());
 		verify(confirmationStore).deleteByOfferID(offerID);
 		verify(tenants).replaceSuperAdmin(tenantID, outgoingID, successorID);
-		verify(transfers).moveAdminRole(successorID, firstStructure, outgoingID, Set.of(), successorID, Set.of(UserRole.EMPLOYEE));
+		verify(transfers).moveAdminRole(successorID, firstStructure, outgoingID, Set.of(), successorID,
+				Set.of(UserRole.EMPLOYEE));
 		verify(transfers, never()).moveAdminRole(any(), eq(secondStructure), any(), any(), any(), any());
 		verify(lifecycle).invalidateSessions(eq(outgoing), any());
 		verify(lifecycle).invalidateSessions(eq(successor), any());

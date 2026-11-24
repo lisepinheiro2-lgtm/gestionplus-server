@@ -67,7 +67,8 @@ class EnrollmentSessionFilterTest {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = { "/api/auth/mfa/enrollment", "/api/auth/mfa/enrollment/complete", "/api/auth/mfa/%65nrollment", "/logout" })
+	@ValueSource(strings = { "/api/auth/mfa/enrollment", "/api/auth/mfa/enrollment/complete",
+			"/api/auth/mfa/%65nrollment", "/logout" })
 	void onlyAllowsEnrollmentPostsAndLogout(String path) throws Exception {
 		MockFilterChain chain = new MockFilterChain();
 		filter.doFilter(request("POST", path), new MockHttpServletResponse(), chain);

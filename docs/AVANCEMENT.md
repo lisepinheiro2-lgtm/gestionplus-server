@@ -1,5 +1,5 @@
 ---
-summary: "23 novembre : notifications V31, confirmations V32, offres V33 sur aa9eff7 ; 1 284/1 284 Codex, cycle de succession encore à raccorder."
+summary: "24 novembre : cycle de succession lié aux sessions, V34/V35, lot publié 908c24d ; 1 302/1 302 Codex, HTTP de production et Swing ouverts."
 read_when:
   - "reprendre les 900/900 tests, la chaîne HTTP réelle, les sessions et le simulateur SMS du 19 novembre"
   - "reprendre le contrôleur de demande de code SMS et son contrat HTTP"
@@ -32,6 +32,70 @@ read_when:
 ---
 
 # Avancement et feuille de route
+
+<a id="succession-cycle-2026-11-24"></a>
+
+## Cycle de succession lié aux sessions HTTP — 24 novembre 2026
+
+### Commits et périmètre vérifiés
+
+Deux commits serveur du 24 novembre sont présents sur GitHub et dans l’historique local :
+
+| Commit | Objet | Heure du commit, Paris | Trace locale de push, Paris |
+| --- | --- | --- | --- |
+| [77ec48e](https://github.com/lisepinheiro2-lgtm/gestionplus-server/commit/77ec48e713c6a1f0d9d1e62f68129df341fcec1e) | Cycle de succession et liaison des preuves aux sessions HTTP | 15:50:43 | 15:50:49 |
+| [908c24d](https://github.com/lisepinheiro2-lgtm/gestionplus-server/commit/908c24d4d104d9b7cb96ca3b13195858800917ae) | Persistance et contrôle des sessions du lot Codex | 16:12:15 | 16:12:19 |
+
+Heures **Europe/Paris (UTC+01)** ; les traces « update by push » viennent du reflog local, pas d’un audit GitHub. Le HEAD local et `main` distant concordent sur **`908c24d`**. Le rapport Codex a pour socle **`77ec48e` avec modifications locales** ; ces modifications sont désormais publiées dans `908c24d`. Avant cette actualisation, les arbres serveur, client et privé étaient propres, respectivement sur `908c24d`, `48d8f94` et `6fc734c`. Aucun changement de code encore local constaté ; aucune publication client/privée déduite du seul historique local. Le client n’a reçu aucun nouveau résultat de validation pendant cette mission.
+
+Les originaux serveur et leurs synthèses ont été comparés avant report ; leurs historiques et compléments propres sont conservés. Les **1 284/1 284 du 23 novembre** restent leur jalon, distinct du résultat Codex du 24 novembre. Le constat d’un ancien `acceptSuccession()` ignorant l’offre et les preuves non liées à une session décrivait ce jalon ; le cycle courant utilise les méthodes ci-dessous.
+
+### Création, acceptation et confirmations : trois durées distinctes
+
+1. **Préparer et confirmer la création.** Le SUPER_ADMIN sortant obtient un récapitulatif avec `previewSuccession`, puis `issueSuccessionCreationProof` vérifie à nouveau compte, droits et récapitulatif, mot de passe et TOTP frais. La preuve `SUPER_ADMIN_SUCCESSION_CREATE`, valable **cinq minutes maximum**, est unique à l’usage et liée au **compte, à sa version de sécurité, à l’action, à l’empreinte SHA-256 de sa session HTTP et au digest du récapitulatif**. Une seule preuve courante par compte/action ; le stockage ne conserve que l’empreinte du jeton. `createSuccessionOffer(preview, proof)` la consomme dans la transaction de création ; une autre session ou une réutilisation sont refusées, et un rollback restaure la preuve.
+2. **Offre annulable de 24 heures.** La création produit une offre PENDING sans transfert de droits ni changement de session. Une seule PENDING/ACCEPTED non expirée par organisation ; expiration ou annulation permettent une nouvelle offre sans effacer l’historique. Le sortant peut annuler une PENDING ou ACCEPTED non expirée ; l’annulation supprime aussi ses confirmations dans la transaction.
+3. **Accepter sans transférer.** `acceptSuccessionOffer` est réservé au successeur et fait passer PENDING à ACCEPTED après revalidation. Cette acceptation ne transfère aucun droit et ne remplace pas les deux confirmations renforcées.
+4. **Deux confirmations indépendantes de cinq minutes.** Chaque participant appelle `confirmSuccession` pour une offre ACCEPTED non expirée et vérifie son propre mot de passe/TOTP frais. Chaque confirmation est liée à **l’offre, au compte du participant, à sa version de sécurité, à l’empreinte de sa session HTTP et au récapitulatif de l’offre**, avec `confirmedAt` et `expiresAt`. Une ligne courante par **offre/participant** ; renouveler celle d’un participant ne remplace pas celle de l’autre. Il s’agit de confirmations persistées, pas de deux anciens jetons OFFER/ACCEPTANCE à transmettre.
+5. **Finaliser depuis la session confirmée du successeur.** Seul le successeur appelle `finalizeSuccession`. Sa session HTTP doit être celle dont l’empreinte figure dans sa confirmation ; une autre session du même compte est refusée. La confirmation du sortant doit elle aussi correspondre à une session encore valide lors du contrôle conjoint.
+
+### V34 et V35 : empreintes et mise à niveau
+
+**V34** vide `privileged_confirmation_proofs` pour invalider les anciennes preuves incompatibles, ajoute `session_id_hash` obligatoire et restreint les actions à `STRUCTURE_ADMIN_TRANSFER` et `SUPER_ADMIN_SUCCESSION_CREATE`. Les preuves doivent donc être réémises après migration. **Coordonner V34 avec l’arrêt/basculement des instances utilisant l’ancien schéma et les anciennes actions** ; aucun fonctionnement mixte ancien/nouveau ni déploiement réel validé.
+
+**V35** crée `succession_confirmations` : clé primaire `(offer_id, user_id)`, version de sécurité, `session_id_hash`, digest du récapitulatif et dates ; validité positive de cinq minutes maximum contrainte en base. `PostgresqlSuccessionConfirmationStore` exige la transaction métier pour remplacer/supprimer. L’insertion vérifie une offre ACCEPTED, son participant, son digest et sa validité à la confirmation.
+
+**V1 à V33 sont inchangées** par ces deux commits. Pour la liaison de session, ces stockages métier conservent uniquement des **empreintes SHA-256**, jamais l’identifiant HTTP brut. Cela ne décrit pas tout Redis : Spring Session conserve ses propres sessions et index, et les **clés d’activité Redis existantes restent construites avec l’identifiant de session**. Ne pas annoncer un hachage global du stockage Spring Session/Redis. `SpringCurrentSessionProvider` calcule l’empreinte de la session existante, sans en créer une.
+
+### Verrous, relecture SQL et instant d’autorisation partagé
+
+Le parcours complet conserve l’ordre **structures triées → comptes triés → organisation → offre**, puis lit/écrit les confirmations sous ces verrous. La création ne verrouille pas les anciennes offres lors de leur recherche. L’annulation prend le sous-ensemble **compte sortant → organisation → offre**, sans acquérir ensuite les verrous précédents ; préserver cet ordre lors des évolutions pour éviter un interblocage.
+
+`JpaTenantOrganizationStore.findByIdForUpdate` relit directement l’organisation par **SQL `SELECT ... FOR UPDATE`** : le titulaire sortant est revérifié sous verrou, sans réutiliser une entité JPA déjà chargée et potentiellement périmée. Les statuts de l’offre, versions des comptes et récapitulatifs sont également revalidés ; une finalisation concurrente ou une annulation concurrente ne doivent pas produire deux gagnants.
+
+`SpringSessionValidityVerifier` retrouve les deux sessions dans Spring Session à partir des empreintes et vérifie expiration, identité authentifiée et version de sécurité. Puis `SessionActivityStore.validateTogether` exécute **un seul script Lua Redis** pour les deux activités : sessions distinctes, activité présente, MFA vérifié, échéances d’inactivité (30 minutes) et absolue (8 heures) strictes. Le script utilise **Redis TIME**, ne renouvelle pas l’activité et renvoie l’instant partagé **`authorizedAt`**. Offre et deux confirmations doivent être valides strictement après cet instant, et leurs confirmations ne doivent pas être futures.
+
+**Déconnexion avant ce contrôle conjoint : refus sans transfert. Déconnexion après `authorizedAt` : le transfert déjà autorisé peut aller au bout.** Ce point d’autorisation évite de promettre une annulation rétroactive par une déconnexion tardive. Redis indisponible pendant le contrôle : refus, pas de repli local ni de transfert.
+
+### Atomicité PostgreSQL et limite Redis après commit
+
+Dans la transaction PostgreSQL, `finalizeSuccession` remplace le SUPER_ADMIN, transfère seulement les rôles ADMIN choisis, désactive le sortant s’il n’a plus d’accès ou invalide ses sessions, invalide celles du successeur, marque l’offre **COMPLETED** avec contrôle à `authorizedAt` et supprime les deux confirmations. L’audit métier existant `SUPER_ADMIN_SUCCESSION` reste enregistré. Un échec provoque le rollback des changements PostgreSQL, de la clôture et de la suppression des confirmations, y compris des notifications ADMIN éventuelles.
+
+La révocation effective des sessions Redis est programmée **après commit**. Une panne Redis à ce stade peut laisser l’opération PostgreSQL committée, tout en empêchant la révocation immédiate et en remontant une erreur au demandeur. Les statuts/versions SQL restent autoritaires ; ne pas promettre une transaction atomique entre PostgreSQL et Redis, un rollback après commit ou un résultat réseau certain. Une reprise fiable de cette révocation reste à concevoir.
+
+Autre limite : le **digest du récapitulatif** utilise actuellement SHA-256 sur le **`toString()` Java** de l’objet. Une évolution de sa représentation peut invalider une confirmation ; ce n’est pas un format canonique versionné. Cette dépendance ne concerne pas le calcul SHA-256 direct de l’identifiant de session.
+
+### Validation Codex recoupée, sans nouvelle exécution
+
+**1 302/1 302 tests serveur**, zéro échec, erreur ou test ignoré, ont été exécutés **par Codex dans une copie isolée**, avec PostgreSQL/Redis jetables et utilisateurs synthétiques. Les **19 empreintes du rapport correspondent au code courant** ; les 19 contenus sont aussi conformes au commit final `908c24d` après seule normalisation CRLF/LF. Aucun résultat attribué à Lise ni réévaluation pédagogique.
+
+Les preuves couvrent notamment la finalisation concurrente sur **deux JVM distinctes**, les refus à expiration ou depuis une session différente, les confirmations d’une autre offre, les versions/récapitulatifs modifiés, la course annulation/finalisation, la déconnexion avant/après contrôle conjoint, la panne Redis au contrôle et le rollback. Le point d’entrée HTTP appelant la finalisation sur deux JVM se trouve dans **`src/test/.../support/IsolatedClusterApplication`**, dispositif d’essai : **ce n’est pas une route HTTP de production**. La suite `MultiInstanceSessionIntegrationTest` du rapport comporte désormais 15 cas, dont cette finalisation ; les nombres du 23 novembre restent datés.
+
+Les rapports indiquent les conteneurs d’essai supprimés et JVM enfants arrêtées. Aucun e-mail ou SMS réel envoyé ; aucune livraison réelle ou mise en production validée. **Aucun test, build, serveur ou migration exécuté pendant cette actualisation documentaire ; aucun nouveau résultat client.**
+
+**Ouverts :** raccordement HTTP de production et Swing ; audit spécifique des nouvelles opérations de création/acceptation/confirmation/annulation et de leurs refus, au-delà des audits métier existants ; limitation distribuée dédiée ; notifications du cycle (offre, acceptation, confirmations, annulation, clôture), distinctes des avis de transferts ADMIN déjà présents ; reprise de révocation après panne Redis ; format canonique du récapitulatif. Les limites MFA antérieures (contexte perdu/expiré sans reprise autonome, codes non récupérables après réponse perdue) restent à traiter ou à accepter explicitement.
+
+**Historique conservé : la reprise du 24 novembre 2026 ci-dessus actualise le cycle ; les jalons du 23 novembre et antérieurs restent datés.**
+
 
 <a id="notifications-confirmations-succession-2026-11-23"></a>
 

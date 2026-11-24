@@ -1,5 +1,27 @@
 # Gestion+ · Serveur
 
+<a id="succession-cycle-2026-11-24"></a>
+
+## Reprise du 24 novembre 2026 — cycle de succession et sessions
+
+**Serveur publié `908c24d`**, après `77ec48e` : le lot Codex de persistance et contrôle des sessions est retrouvé, avec HEAD local/`main` distant concordants. Trois arbres propres avant cette actualisation : serveur `908c24d`, client `48d8f94`, privé `6fc734c`. Le rapport de validation porte sur **`77ec48e` avec modifications**, publiées ensuite dans `908c24d`.
+
+Le service possède désormais le cycle : **preuve de création unique de cinq minutes → offre PENDING annulable de 24 heures → acceptation sans transfert → deux confirmations indépendantes de cinq minutes → finalisation par le successeur depuis sa session confirmée**. La preuve lie compte, version, action, empreinte de session HTTP et récapitulatif ; chaque confirmation lie aussi l’offre et son participant. Une autre session du même successeur ne peut pas finaliser. La preuve est consommée dans la transaction de création ; un rollback la restaure. Renouveler une confirmation ne renouvelle ni l’autre ni l’offre.
+
+**V34** invalide les anciennes preuves, impose leur empreinte de session et adapte les actions ; **mise à niveau coordonnée avec les anciennes instances**, sans compatibilité mixte présumée. **V35** conserve une confirmation par offre/participant ; **V1 à V33 inchangées**. Ces tables métier ne stockent que des empreintes de session : cela ne modifie pas les identifiants internes de Spring Session ou les clés d’activité Redis existantes.
+
+Verrous structures triées → comptes triés → organisation → offre ; relecture SQL de l’organisation sous verrou. Le contrôle conjoint des deux activités utilise Redis TIME à **`authorizedAt`**, sans renouveler l’activité. **Déconnexion avant : refus ; après : le transfert déjà autorisé peut se terminer.** PostgreSQL rend atomiques transfert, clôture COMPLETED et suppression des confirmations ; Redis indisponible au contrôle entraîne un refus. Une panne Redis **après commit** peut empêcher la révocation immédiate alors que le transfert est committé. Le digest du récapitulatif dépend encore du `toString()` Java.
+
+**Codex : 1 302/1 302 serveur**, sans échec, erreur ou test ignoré, en copie isolée avec PostgreSQL/Redis jetables ; **19/19 empreintes conformes**. Finalisation concurrente sur deux JVM, expiration/session différente, course avec annulation, panne Redis et rollback couverts. Le point d’entrée HTTP des deux JVM est un **dispositif de test**, pas une route de production.
+
+**Ouverts : HTTP de production, Swing, audit spécifique, limitation distribuée et notifications du cycle**, distinctes des avis ADMIN existants ; reprise de révocation après commit et digest canonique. Aucun nouveau résultat client, e-mail/SMS réel, réception réelle ou déploiement validé ; aucune validation relancée pendant cette mission documentaire. Les limites MFA antérieures restent ouvertes et les jalons du 23 novembre sont préservés.
+
+
+Voir [le suivi détaillé](docs/AVANCEMENT.md#succession-cycle-2026-11-24) et [le guide V34/V35](docs/DEVELOPPEMENT.md#succession-cycle-2026-11-24).
+
+**Historique conservé : la reprise du 24 novembre 2026 ci-dessus actualise le cycle ; les jalons du 23 novembre et antérieurs restent datés.**
+
+
 <a id="notifications-confirmations-succession-2026-11-23"></a>
 
 ## Reprise du 23 novembre 2026 — notifications, confirmations et offres

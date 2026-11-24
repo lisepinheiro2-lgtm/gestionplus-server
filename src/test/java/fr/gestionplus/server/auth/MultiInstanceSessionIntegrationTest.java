@@ -6,8 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.CookieManager;
 import java.net.CookiePolicy;
-import java.net.URI;
 import java.net.InetAddress;
+import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -15,16 +15,16 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.SecureRandom;
 import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Base64;
-import java.util.Map;
-import java.util.List;
 import java.util.HexFormat;
+import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -50,11 +50,11 @@ import com.github.dockerjava.api.model.ExposedPort;
 import com.github.dockerjava.api.model.PortBinding;
 import com.github.dockerjava.api.model.Ports;
 
-import fr.gestionplus.server.support.IsolatedClusterApplication;
-import fr.gestionplus.server.support.SecurityTestRedis;
 import fr.gestionplus.server.account.PrivilegedAccountSnapshot;
 import fr.gestionplus.server.account.SuperAdminSuccessionService.SuccessionPreview;
 import fr.gestionplus.server.persistence.RedisSecuritySupport;
+import fr.gestionplus.server.support.IsolatedClusterApplication;
+import fr.gestionplus.server.support.SecurityTestRedis;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -199,6 +199,7 @@ class MultiInstanceSessionIntegrationTest {
 		var successor = account();
 		CookieManager outgoingCookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
 		CookieManager successorCookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+
 		try (var outgoingClient = client(outgoingCookies); var successorClient = client(successorCookies)) {
 			assertEquals(200, login(outgoingClient, firstUrl, firstUrl, outgoing.name(), PASSWORD).statusCode());
 			assertEquals(200, login(successorClient, secondUrl, secondUrl, successor.name(), PASSWORD).statusCode());
@@ -208,11 +209,14 @@ class MultiInstanceSessionIntegrationTest {
 			redis.opsForHash().put(activityKey(successorSession), "mfa", "1");
 			UUID tenant = UUID.randomUUID();
 			UUID offer = UUID.randomUUID();
-			jdbc.update("INSERT INTO tenant_organizations (tenant_id, tenant_name, super_admin_user_id) VALUES (?, ?, ?)",
+			jdbc.update(
+					"INSERT INTO tenant_organizations (tenant_id, tenant_name, super_admin_user_id) VALUES (?, ?, ?)",
 					tenant, "Fictitious succession organization", outgoing.id());
+
 			for (UUID participant : List.of(outgoing.id(), successor.id())) {
 				jdbc.update("INSERT INTO tenant_memberships (user_id, tenant_id) VALUES (?, ?)", participant, tenant);
 			}
+
 			String digest = new SuccessionPreview(tenant, List.of(),
 					new PrivilegedAccountSnapshot(outgoing.id(), UserAccountStatus.ACTIVE, 0, List.of()),
 					new PrivilegedAccountSnapshot(successor.id(), UserAccountStatus.ACTIVE, 0, List.of()),
@@ -226,16 +230,22 @@ class MultiInstanceSessionIntegrationTest {
 					VALUES (?, ?, ?, ?, '{}'::uuid[], ?, 'ACCEPTED', ?, ?)
 					""", offer, tenant, outgoing.id(), successor.id(), digest, now, now.plusHours(24));
 			Map<UUID, String> sessions = Map.of(outgoing.id(), outgoingSession, successor.id(), successorSession);
+
 			for (var session : sessions.entrySet()) {
-				jdbc.update("""
-						INSERT INTO succession_confirmations
-						    (offer_id, user_id, session_version, session_id_hash, preview_digest, confirmed_at, expires_at)
-						VALUES (?, ?, 0, ?, ?, ?, ?)
-						""", offer, session.getKey(), SessionIDHasher.hash(session.getValue()), digest, now, now.plusMinutes(5));
+				jdbc.update(
+						"""
+								INSERT INTO succession_confirmations
+								    (offer_id, user_id, session_version, session_id_hash, preview_digest, confirmed_at, expires_at)
+								VALUES (?, ?, 0, ?, ?, ?, ?)
+								""",
+						offer, session.getKey(), SessionIDHasher.hash(session.getValue()), digest, now,
+						now.plusMinutes(5));
 			}
 
-			var firstResult = successorClient.sendAsync(finalization(firstUrl, offer), HttpResponse.BodyHandlers.discarding());
-			var secondResult = successorClient.sendAsync(finalization(secondUrl, offer), HttpResponse.BodyHandlers.discarding());
+			var firstResult = successorClient.sendAsync(finalization(firstUrl, offer),
+					HttpResponse.BodyHandlers.discarding());
+			var secondResult = successorClient.sendAsync(finalization(secondUrl, offer),
+					HttpResponse.BodyHandlers.discarding());
 			assertEquals(List.of(204, 403), List.of(firstResult.get(25, TimeUnit.SECONDS).statusCode(),
 					secondResult.get(25, TimeUnit.SECONDS).statusCode()).stream().sorted().toList());
 			assertEquals(successor.id(), jdbc.queryForObject(
@@ -249,6 +259,7 @@ class MultiInstanceSessionIntegrationTest {
 			assertEquals(401, get(outgoingClient, secondUrl, "/api/auth/me").statusCode());
 			assertEquals(401, get(successorClient, firstUrl, "/api/auth/me").statusCode());
 		}
+
 	}
 
 	private static HttpRequest finalization(URI base, UUID offerID) {
@@ -407,6 +418,7 @@ class MultiInstanceSessionIntegrationTest {
 			}
 
 			for (URI server : new URI[] { firstUrl, secondUrl }) {
+
 				for (String suffix : new String[] { "/sms-challenge", "/activation" }) {
 					var response = publicActivationPost(client, server, "/api/%69nvitations/" + invitationID + suffix,
 							token);
@@ -415,10 +427,12 @@ class MultiInstanceSessionIntegrationTest {
 					long retryAfter = Long.parseLong(response.headers().firstValue("Retry-After").orElseThrow());
 					assertTrue(retryAfter >= 1 && retryAfter <= 900);
 				}
+
 			}
 
 			assertEquals(401, get(client, secondUrl, "/api/auth/me").statusCode());
 		}
+
 	}
 
 	@Test
@@ -434,12 +448,14 @@ class MultiInstanceSessionIntegrationTest {
 			try {
 				assertEquals(503, get(client, firstUrl, "/api/auth/me").statusCode());
 				assertEquals(503, get(client, secondUrl, "/api/auth/me").statusCode());
+
 				try (var anonymous = client()) {
 					assertEquals(503, publicActivationPost(anonymous, firstUrl,
 							"/api/invitations/" + UUID.randomUUID() + "/sms-challenge", token).statusCode());
 					assertEquals(503, publicActivationPost(anonymous, secondUrl,
 							"/api/invitations/" + UUID.randomUUID() + "/activation", token).statusCode());
 				}
+
 			} finally {
 				DockerClientFactory.instance().client().unpauseContainerCmd(REDIS.getContainerId()).exec();
 			}
@@ -590,6 +606,7 @@ class MultiInstanceSessionIntegrationTest {
 	void enrollsAcrossBothJvmsAndReturnsToNormalLoginAfterConfirmation() throws Exception {
 		Account account = account();
 		String proof = enrollmentProof(account);
+
 		try (var client = enrollmentClient(); var replay = enrollmentClient()) {
 			assertEquals(204, jsonPost(client, secondUrl, "/api/auth/mfa/enrollment/session",
 					JSON.createObjectNode().put("proof", proof).toString(), csrf(client, firstUrl)).statusCode());
@@ -606,11 +623,13 @@ class MultiInstanceSessionIntegrationTest {
 			assertEquals(enrollment.get("setupKey"), repeated.get("setupKey"));
 			UUID enrollmentID = UUID.fromString(enrollment.get("enrollmentID").asString());
 			byte[] secret = enrollmentSecret(account, enrollmentID);
+
 			try {
 				long step = Instant.now().getEpochSecond() / 30;
 				String code = TotpCodes.atStep(secret, step);
 				var response = jsonPost(client, secondUrl, "/api/auth/mfa/enrollment/complete",
-						JSON.createObjectNode().put("enrollmentID", enrollmentID.toString()).put("code", code).toString(),
+						JSON.createObjectNode().put("enrollmentID", enrollmentID.toString()).put("code", code)
+								.toString(),
 						csrf(client, firstUrl));
 				assertEquals(200, response.statusCode());
 				assertEquals(10, JSON.readTree(response.body()).get("codes").size());
@@ -620,9 +639,11 @@ class MultiInstanceSessionIntegrationTest {
 				assertEquals(401, post(client, firstUrl, "/login", form, csrf(client, secondUrl)).statusCode());
 				Thread.sleep(500);
 				long deadline = System.nanoTime() + Duration.ofSeconds(35).toNanos();
+
 				while (Instant.now().getEpochSecond() / 30 <= step && System.nanoTime() < deadline) {
 					Thread.sleep(50);
 				}
+
 				long nextStep = Instant.now().getEpochSecond() / 30;
 				assertTrue(nextStep > step);
 				String nextForm = "username=" + encode(account.name()) + "&password=" + encode(PASSWORD)
@@ -632,7 +653,9 @@ class MultiInstanceSessionIntegrationTest {
 			} finally {
 				java.util.Arrays.fill(secret, (byte) 0);
 			}
+
 		}
+
 	}
 
 	@Test
@@ -640,6 +663,7 @@ class MultiInstanceSessionIntegrationTest {
 	void sharesTheTotpSubmissionLimitAcrossJvmsDespiteDatabaseRollbacksAndRepeatedBegin() throws Exception {
 		Account account = account();
 		String proof = enrollmentProof(account);
+
 		try (var client = enrollmentClient()) {
 			assertEquals(204, jsonPost(client, firstUrl, "/api/auth/mfa/enrollment/session",
 					JSON.createObjectNode().put("proof", proof).toString(), csrf(client, secondUrl)).statusCode());
@@ -647,23 +671,33 @@ class MultiInstanceSessionIntegrationTest {
 					csrf(client, firstUrl)).body());
 			UUID enrollmentID = UUID.fromString(enrollment.get("enrollmentID").asString());
 			byte[] secret = enrollmentSecret(account, enrollmentID);
+
 			try {
 				java.util.Set<String> possibleCodes = new java.util.HashSet<>();
 				long currentStep = Instant.now().getEpochSecond() / 30;
+
 				for (long step = currentStep - 1; step <= currentStep + 20; step++) {
 					possibleCodes.add(TotpCodes.atStep(secret, step));
 				}
+
 				String wrong = "000000";
+
 				while (possibleCodes.contains(wrong)) {
 					wrong = String.format(java.util.Locale.ROOT, "%06d", Integer.parseInt(wrong) + 1);
 				}
-				String body = JSON.createObjectNode().put("enrollmentID", enrollmentID.toString()).put("code", wrong).toString();
+
+				String body = JSON.createObjectNode().put("enrollmentID", enrollmentID.toString()).put("code", wrong)
+						.toString();
+
 				for (int attempt = 0; attempt < 5; attempt++) {
 					assertEquals(403, jsonPost(client, attempt % 2 == 0 ? firstUrl : secondUrl,
 							"/api/auth/mfa/enrollment/complete", body, csrf(client, secondUrl)).statusCode());
 				}
-				assertEquals(200, jsonPost(client, secondUrl, "/api/auth/mfa/enrollment", "{}", csrf(client, firstUrl)).statusCode());
-				var blocked = jsonPost(client, secondUrl, "/api/auth/mfa/enrollment/complete", body, csrf(client, firstUrl));
+
+				assertEquals(200, jsonPost(client, secondUrl, "/api/auth/mfa/enrollment", "{}", csrf(client, firstUrl))
+						.statusCode());
+				var blocked = jsonPost(client, secondUrl, "/api/auth/mfa/enrollment/complete", body,
+						csrf(client, firstUrl));
 				assertEquals(429, blocked.statusCode());
 				assertTrue(Long.parseLong(blocked.headers().firstValue("Retry-After").orElseThrow()) >= 1);
 				assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM account_mfa_state WHERE user_id = ?",
@@ -671,19 +705,24 @@ class MultiInstanceSessionIntegrationTest {
 			} finally {
 				java.util.Arrays.fill(secret, (byte) 0);
 			}
+
 		}
+
 	}
 
 	private static String enrollmentProof(Account account) throws Exception {
 		UUID tenantID = UUID.randomUUID();
-		jdbc.update("INSERT INTO tenant_organizations (tenant_id, tenant_name, super_admin_user_id) VALUES (?, 'Fictitious enrollment', ?)",
+		jdbc.update(
+				"INSERT INTO tenant_organizations (tenant_id, tenant_name, super_admin_user_id) VALUES (?, 'Fictitious enrollment', ?)",
 				tenantID, account.id());
 		jdbc.update("INSERT INTO tenant_memberships (user_id, tenant_id) VALUES (?, ?)", account.id(), tenantID);
 		byte[] bytes = new byte[16];
 		new SecureRandom().nextBytes(bytes);
 		String proof = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-		String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(proof.getBytes(StandardCharsets.US_ASCII)));
-		jdbc.update("INSERT INTO account_mfa_enrollment_proofs (user_id, proof_hash, session_version, expires_at) VALUES (?, ?, 0, ?)",
+		String hash = HexFormat.of()
+				.formatHex(MessageDigest.getInstance("SHA-256").digest(proof.getBytes(StandardCharsets.US_ASCII)));
+		jdbc.update(
+				"INSERT INTO account_mfa_enrollment_proofs (user_id, proof_hash, session_version, expires_at) VALUES (?, ?, 0, ?)",
 				account.id(), hash, OffsetDateTime.ofInstant(Instant.now().plusSeconds(300), ZoneOffset.UTC));
 		return proof;
 	}
@@ -691,7 +730,8 @@ class MultiInstanceSessionIntegrationTest {
 	private static byte[] enrollmentSecret(Account account, UUID enrollmentID) {
 		byte[] encrypted = jdbc.queryForObject("SELECT encrypted_secret FROM account_mfa_enrollments WHERE user_id = ?",
 				byte[].class, account.id());
-		return new MfaSecretCipher(SETTINGS.getProperty("gestionplus.mfa.key")).decrypt(account.id(), enrollmentID, encrypted);
+		return new MfaSecretCipher(SETTINGS.getProperty("gestionplus.mfa.key")).decrypt(account.id(), enrollmentID,
+				encrypted);
 	}
 
 	private static HttpClient enrollmentClient() throws Exception {
@@ -700,9 +740,11 @@ class MultiInstanceSessionIntegrationTest {
 				.localAddress(InetAddress.getByName("127.0.0.2")).connectTimeout(Duration.ofSeconds(5)).build();
 	}
 
-	private static HttpResponse<String> jsonPost(HttpClient client, URI base, String path, String body, JsonNode csrf) throws Exception {
+	private static HttpResponse<String> jsonPost(HttpClient client, URI base, String path, String body, JsonNode csrf)
+			throws Exception {
 		return client.send(HttpRequest.newBuilder(base.resolve(path)).timeout(Duration.ofSeconds(15))
-				.header("Content-Type", "application/json").header(csrf.get("headerName").asString(), csrf.get("token").asString())
+				.header("Content-Type", "application/json")
+				.header(csrf.get("headerName").asString(), csrf.get("token").asString())
 				.POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
 	}
 

@@ -14,12 +14,15 @@ public class OvhSmsConfiguration {
 
 	@Bean(destroyMethod = "close")
 	public OvhSmsActivationMessageSender ovhSmsActivationMessageSender(Environment environment) {
+
 		if (environment.getProperty("gestionplus.sms.fictif", Boolean.class, false)
 				|| environment.getProperty("gestionplus.sms.free-test.enabled", Boolean.class, false)) {
 			throw new IllegalStateException("Un seul expéditeur SMS peut être activé à la fois.");
 		}
+
 		HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
 				.followRedirects(HttpClient.Redirect.NEVER).proxy(HttpClient.Builder.NO_PROXY).build();
+
 		try {
 			return new OvhSmsActivationMessageSender(client,
 					environment.getProperty("gestionplus.sms.ovh.application-key", ""),
@@ -31,5 +34,6 @@ public class OvhSmsConfiguration {
 			client.shutdownNow();
 			throw failure;
 		}
+
 	}
 }

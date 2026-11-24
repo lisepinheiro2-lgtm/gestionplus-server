@@ -66,7 +66,7 @@ public class HttpSecurityConfig {
 
 		http.securityContext(config -> config.securityContextRepository(securityContextRepository));
 		http.csrf(config -> config.csrfTokenRepository(csrfTokenRepository));
-		
+
 		http.formLogin(form -> form.permitAll()
 				.authenticationDetailsSource(request -> new GestionAuthenticationProvider.LoginDetails(
 						request.getRemoteAddr(), request.getParameter("totp")))

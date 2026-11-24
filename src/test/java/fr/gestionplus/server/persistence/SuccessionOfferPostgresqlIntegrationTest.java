@@ -56,9 +56,20 @@ class SuccessionOfferPostgresqlIntegrationTest {
 	private static final Instant NOW = Instant.parse("2026-11-23T12:00:00Z");
 	private static final AtomicReference<Instant> TIME = new AtomicReference<>(NOW);
 	private static final Clock CLOCK = new Clock() {
-		@Override public ZoneId getZone() { return ZoneOffset.UTC; }
-		@Override public Clock withZone(ZoneId zone) { return this; }
-		@Override public Instant instant() { return TIME.get(); }
+		@Override
+		public ZoneId getZone() {
+			return ZoneOffset.UTC;
+		}
+
+		@Override
+		public Clock withZone(ZoneId zone) {
+			return this;
+		}
+
+		@Override
+		public Instant instant() {
+			return TIME.get();
+		}
 	};
 	@Container
 	private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:16-alpine")
@@ -84,7 +95,8 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		var manager = new DataSourceTransactionManager(source);
 		transaction = new TransactionTemplate(manager);
 		offerStore = store(jdbcTemplate, manager);
-		var secondSource = new DriverManagerDataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+		var secondSource = new DriverManagerDataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(),
+				POSTGRES.getPassword());
 		secondJdbcTemplate = new JdbcTemplate(secondSource);
 		var secondManager = new DataSourceTransactionManager(secondSource);
 		secondTransaction = new TransactionTemplate(secondManager);
@@ -99,7 +111,9 @@ class SuccessionOfferPostgresqlIntegrationTest {
 
 	@Test
 	void upgradingV32PreservesTheOrganizationAndItsCurrentSuperAdmin() {
-		assertEquals(existing.outgoing(), jdbcTemplate.queryForObject("SELECT super_admin_user_id FROM tenant_organizations WHERE tenant_id = ?", UUID.class, existing.tenant()));
+		assertEquals(existing.outgoing(),
+				jdbcTemplate.queryForObject("SELECT super_admin_user_id FROM tenant_organizations WHERE tenant_id = ?",
+						UUID.class, existing.tenant()));
 		SuccessionOffer offer = offer(existing);
 		create(offer);
 		assertEquals(offer, offerStore.findById(offer.offerID()).orElseThrow());
@@ -109,7 +123,8 @@ class SuccessionOfferPostgresqlIntegrationTest {
 	void storesTheExactParticipantsRoleListDigestStatusAndUtcDates() {
 		Participants participants = participants();
 		List<UUID> roles = List.of(UUID.randomUUID(), UUID.randomUUID());
-		SuccessionOffer offer = new SuccessionOffer(UUID.randomUUID(), participants.outgoing(), participants.successor(),
+		SuccessionOffer offer = new SuccessionOffer(UUID.randomUUID(), participants.outgoing(),
+				participants.successor(),
 				participants.tenant(), roles, "a".repeat(64), OfferStatus.PENDING, NOW, NOW.plusSeconds(86400));
 		create(offer);
 		assertEquals(offer, offerStore.findById(offer.offerID()).orElseThrow());
@@ -122,9 +137,11 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		Participants participants = participants();
 		SuccessionOffer first = offer(participants);
 		create(first);
+
 		if (status == OfferStatus.ACCEPTED) {
 			assertTrue(change(first.offerID(), OfferStatus.PENDING, OfferStatus.ACCEPTED));
 		}
+
 		assertThrows(AccessDeniedException.class, () -> create(offer(participants)));
 		assertEquals(1, count(participants.tenant()));
 	}
@@ -135,9 +152,11 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		Participants participants = participants();
 		SuccessionOffer first = offer(participants);
 		create(first);
+
 		if (status == OfferStatus.ACCEPTED) {
 			assertTrue(change(first.offerID(), OfferStatus.PENDING, OfferStatus.ACCEPTED));
 		}
+
 		TIME.set(first.expiresAt());
 		create(offer(participants));
 		assertEquals(2, count(participants.tenant()));
@@ -149,7 +168,8 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		Participants participants = participants();
 		SuccessionOffer first = offer(participants);
 		create(first);
-		boolean cancelled = transaction.execute(status -> offerStore.cancel(first.offerID(), OfferStatus.PENDING, OfferStatus.CANCELLED));
+		boolean cancelled = transaction
+				.execute(status -> offerStore.cancel(first.offerID(), OfferStatus.PENDING, OfferStatus.CANCELLED));
 		assertTrue(cancelled);
 		create(offer(participants));
 		assertFalse(change(first.offerID(), OfferStatus.CANCELLED, OfferStatus.ACCEPTED));
@@ -198,7 +218,8 @@ class SuccessionOfferPostgresqlIntegrationTest {
 	@Test
 	void aFormerSuperAdminCannotCreateAnOffer() {
 		Participants participants = participants();
-		jdbcTemplate.update("UPDATE tenant_organizations SET super_admin_user_id = ? WHERE tenant_id = ?", account(), participants.tenant());
+		jdbcTemplate.update("UPDATE tenant_organizations SET super_admin_user_id = ? WHERE tenant_id = ?", account(),
+				participants.tenant());
 		assertThrows(AccessDeniedException.class, () -> create(offer(participants)));
 		assertEquals(0, count(participants.tenant()));
 	}
@@ -206,10 +227,12 @@ class SuccessionOfferPostgresqlIntegrationTest {
 	@Test
 	void expiryAndInitialStatusAreCheckedBeforeInsertion() {
 		Participants participants = participants();
-		SuccessionOffer expired = new SuccessionOffer(UUID.randomUUID(), participants.outgoing(), participants.successor(), participants.tenant(),
+		SuccessionOffer expired = new SuccessionOffer(UUID.randomUUID(), participants.outgoing(),
+				participants.successor(), participants.tenant(),
 				List.of(), "a".repeat(64), OfferStatus.PENDING, NOW.minusSeconds(86400), NOW);
 		assertThrows(AccessDeniedException.class, () -> create(expired));
-		SuccessionOffer accepted = new SuccessionOffer(UUID.randomUUID(), participants.outgoing(), participants.successor(), participants.tenant(),
+		SuccessionOffer accepted = new SuccessionOffer(UUID.randomUUID(), participants.outgoing(),
+				participants.successor(), participants.tenant(),
 				List.of(), "a".repeat(64), OfferStatus.ACCEPTED, NOW, NOW.plusSeconds(86400));
 		assertThrows(IllegalArgumentException.class, () -> create(accepted));
 		assertEquals(0, count(participants.tenant()));
@@ -220,7 +243,8 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		SuccessionOffer offer = offer(participants());
 		assertThrows(IllegalTransactionStateException.class, () -> offerStore.create(offer));
 		assertThrows(IllegalTransactionStateException.class, () -> offerStore.findByIdForUpdate(offer.offerID()));
-		assertThrows(IllegalTransactionStateException.class, () -> offerStore.updateStatus(offer.offerID(), OfferStatus.PENDING, OfferStatus.CANCELLED));
+		assertThrows(IllegalTransactionStateException.class,
+				() -> offerStore.updateStatus(offer.offerID(), OfferStatus.PENDING, OfferStatus.CANCELLED));
 	}
 
 	@Test
@@ -239,11 +263,19 @@ class SuccessionOfferPostgresqlIntegrationTest {
 	void twoIndependentStoreInstancesCannotBothCreateAnOpenOffer() throws Exception {
 		Participants participants = participants();
 		CyclicBarrier start = new CyclicBarrier(2);
+
 		try (var workers = Executors.newFixedThreadPool(2)) {
-			var first = workers.submit(() -> { start.await(5, TimeUnit.SECONDS); return tryCreate(offerStore, transaction, offer(participants)); });
-			var second = workers.submit(() -> { start.await(5, TimeUnit.SECONDS); return tryCreate(secondOfferStore, secondTransaction, offer(participants)); });
+			var first = workers.submit(() -> {
+				start.await(5, TimeUnit.SECONDS);
+				return tryCreate(offerStore, transaction, offer(participants));
+			});
+			var second = workers.submit(() -> {
+				start.await(5, TimeUnit.SECONDS);
+				return tryCreate(secondOfferStore, secondTransaction, offer(participants));
+			});
 			assertTrue(first.get(10, TimeUnit.SECONDS) ^ second.get(10, TimeUnit.SECONDS));
 		}
+
 		assertEquals(1, count(participants.tenant()));
 	}
 
@@ -252,14 +284,16 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		Participants participants = participants();
 		UUID newHolder = account();
 		assertFalse(createAfterTenantWait(offer(participants), () -> jdbcTemplate.update(
-				"UPDATE tenant_organizations SET super_admin_user_id = ? WHERE tenant_id = ?", newHolder, participants.tenant())));
+				"UPDATE tenant_organizations SET super_admin_user_id = ? WHERE tenant_id = ?", newHolder,
+				participants.tenant())));
 		assertEquals(0, count(participants.tenant()));
 	}
 
 	@Test
 	void anOfferThatExpiresWhileCreationWaitsDoesNotBlockItsSuccessor() throws Exception {
 		Participants participants = participants();
-		create(new SuccessionOffer(UUID.randomUUID(), participants.outgoing(), participants.successor(), participants.tenant(),
+		create(new SuccessionOffer(UUID.randomUUID(), participants.outgoing(), participants.successor(),
+				participants.tenant(),
 				List.of(), "a".repeat(64), OfferStatus.PENDING, NOW, NOW.plusSeconds(1)));
 		assertTrue(createAfterTenantWait(offer(participants), () -> TIME.set(NOW.plusSeconds(1))));
 		assertEquals(2, count(participants.tenant()));
@@ -268,7 +302,8 @@ class SuccessionOfferPostgresqlIntegrationTest {
 	@Test
 	void anIncomingOfferThatExpiresDuringTheLockWaitCannotBeInserted() throws Exception {
 		Participants participants = participants();
-		SuccessionOffer incoming = new SuccessionOffer(UUID.randomUUID(), participants.outgoing(), participants.successor(), participants.tenant(),
+		SuccessionOffer incoming = new SuccessionOffer(UUID.randomUUID(), participants.outgoing(),
+				participants.successor(), participants.tenant(),
 				List.of(), "a".repeat(64), OfferStatus.PENDING, NOW, NOW.plusSeconds(1));
 		assertFalse(createAfterTenantWait(incoming, () -> TIME.set(NOW.plusSeconds(1))));
 		assertEquals(0, count(participants.tenant()));
@@ -280,6 +315,7 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		Path directory = Files.createTempDirectory("gestionplus-succession-offer-jvms-");
 		System.out.println("Preuves des créations sur deux JVM : " + directory);
 		Process first = null, second = null;
+
 		try {
 			first = startNode(directory, "first", participants);
 			second = startNode(directory, "second", participants);
@@ -290,42 +326,63 @@ class SuccessionOfferPostgresqlIntegrationTest {
 			assertTrue(second.waitFor(20, TimeUnit.SECONDS));
 			assertEquals(0, first.exitValue(), "La première JVM de création a échoué.");
 			assertEquals(0, second.exitValue(), "La seconde JVM de création a échoué.");
-			assertEquals(Set.of("CREATED", "REFUSED"), Set.of(Files.readString(directory.resolve("first-result")), Files.readString(directory.resolve("second-result"))));
+			assertEquals(Set.of("CREATED", "REFUSED"), Set.of(Files.readString(directory.resolve("first-result")),
+					Files.readString(directory.resolve("second-result"))));
 			assertEquals(1, count(participants.tenant()));
 		} finally {
 			stop(first);
 			stop(second);
 		}
+
 	}
 
 	private static boolean createAfterTenantWait(SuccessionOffer offer, Runnable whileLocked) throws Exception {
 		CompletableFuture<Integer> waitingPid = new CompletableFuture<>();
+
 		try (var worker = Executors.newSingleThreadExecutor()) {
 			var pending = transaction.execute(status -> {
-				jdbcTemplate.queryForObject("SELECT tenant_id FROM tenant_organizations WHERE tenant_id = ? FOR UPDATE", UUID.class, offer.tenantID());
+				jdbcTemplate.queryForObject("SELECT tenant_id FROM tenant_organizations WHERE tenant_id = ? FOR UPDATE",
+						UUID.class, offer.tenantID());
 				int holdingPid = jdbcTemplate.queryForObject("SELECT pg_backend_pid()", Integer.class);
 				var result = worker.submit(() -> {
+
 					try {
 						return secondTransaction.execute(other -> {
-							waitingPid.complete(secondJdbcTemplate.queryForObject("SELECT pg_backend_pid()", Integer.class));
+							waitingPid.complete(
+									secondJdbcTemplate.queryForObject("SELECT pg_backend_pid()", Integer.class));
 							secondOfferStore.create(offer);
 							return true;
 						});
-					} catch (AccessDeniedException denied) { return false; }
+					} catch (AccessDeniedException denied) {
+						return false;
+					}
+
 				});
+
 				try {
 					int pid = waitingPid.get(5, TimeUnit.SECONDS);
 					long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-					while (!jdbcTemplate.queryForObject("SELECT ? = ANY(pg_blocking_pids(?))", Boolean.class, holdingPid, pid)) {
-						if (System.nanoTime() >= deadline) { throw new AssertionError("Le créateur n’a pas attendu le verrou de l’organisation."); }
+
+					while (!jdbcTemplate.queryForObject("SELECT ? = ANY(pg_blocking_pids(?))", Boolean.class,
+							holdingPid, pid)) {
+
+						if (System.nanoTime() >= deadline) {
+							throw new AssertionError("Le créateur n’a pas attendu le verrou de l’organisation.");
+						}
+
 						Thread.sleep(10);
 					}
+
 					whileLocked.run();
 					return result;
-				} catch (Exception failure) { throw new AssertionError(failure); }
+				} catch (Exception failure) {
+					throw new AssertionError(failure);
+				}
+
 			});
 			return pending.get(10, TimeUnit.SECONDS);
 		}
+
 	}
 
 	private static SuccessionOfferStore store(JdbcTemplate jdbcTemplate, DataSourceTransactionManager manager) {
@@ -338,9 +395,16 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		transaction.executeWithoutResult(status -> offerStore.create(offer));
 	}
 
-	private static boolean tryCreate(SuccessionOfferStore store, TransactionTemplate transaction, SuccessionOffer offer) {
-		try { transaction.executeWithoutResult(status -> store.create(offer)); return true; }
-		catch (AccessDeniedException denied) { return false; }
+	private static boolean tryCreate(SuccessionOfferStore store, TransactionTemplate transaction,
+			SuccessionOffer offer) {
+
+		try {
+			transaction.executeWithoutResult(status -> store.create(offer));
+			return true;
+		} catch (AccessDeniedException denied) {
+			return false;
+		}
+
 	}
 
 	private static boolean change(UUID id, OfferStatus expected, OfferStatus next) {
@@ -348,69 +412,100 @@ class SuccessionOfferPostgresqlIntegrationTest {
 	}
 
 	private static SuccessionOffer offer(Participants participants) {
-		return new SuccessionOffer(UUID.randomUUID(), participants.outgoing(), participants.successor(), participants.tenant(),
+		return new SuccessionOffer(UUID.randomUUID(), participants.outgoing(), participants.successor(),
+				participants.tenant(),
 				List.of(), "a".repeat(64), OfferStatus.PENDING, TIME.get(), TIME.get().plusSeconds(86400));
 	}
 
 	private static Participants participants() {
 		UUID outgoing = account(), successor = account(), tenant = UUID.randomUUID();
-		jdbcTemplate.update("INSERT INTO tenant_organizations (tenant_id, tenant_name, super_admin_user_id) VALUES (?, 'Fictitious succession', ?)", tenant, outgoing);
+		jdbcTemplate.update(
+				"INSERT INTO tenant_organizations (tenant_id, tenant_name, super_admin_user_id) VALUES (?, 'Fictitious succession', ?)",
+				tenant, outgoing);
 		return new Participants(tenant, outgoing, successor);
 	}
 
 	private static UUID account() {
 		UUID userID = UUID.randomUUID();
-		jdbcTemplate.update("""
-				INSERT INTO user_accounts (user_id, user_name, status, user_first_name, user_last_name, user_email, user_phone_number)
-				VALUES (?, ?, 'ACTIVE', 'Fictitious', 'Succession', ?, '+12025550100')
-				""", userID, "fictitious_offer_" + userID, userID + "@example.invalid");
+		jdbcTemplate.update(
+				"""
+						INSERT INTO user_accounts (user_id, user_name, status, user_first_name, user_last_name, user_email, user_phone_number)
+						VALUES (?, ?, 'ACTIVE', 'Fictitious', 'Succession', ?, '+12025550100')
+						""",
+				userID, "fictitious_offer_" + userID, userID + "@example.invalid");
 		return userID;
 	}
 
 	private static int count(UUID tenantID) {
-		return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM succession_offers WHERE tenant_id = ?", Integer.class, tenantID);
+		return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM succession_offers WHERE tenant_id = ?", Integer.class,
+				tenantID);
 	}
 
 	private static Process startNode(Path directory, String node, Participants participants) throws Exception {
 		Properties settings = new Properties();
-		settings.putAll(java.util.Map.of("url", POSTGRES.getJdbcUrl(), "user", POSTGRES.getUsername(), "password", POSTGRES.getPassword(),
-				"tenant", participants.tenant().toString(), "outgoing", participants.outgoing().toString(), "successor", participants.successor().toString(),
+		settings.putAll(java.util.Map.of("url", POSTGRES.getJdbcUrl(), "user", POSTGRES.getUsername(), "password",
+				POSTGRES.getPassword(),
+				"tenant", participants.tenant().toString(), "outgoing", participants.outgoing().toString(), "successor",
+				participants.successor().toString(),
 				"directory", directory.toString(), "node", node, "now", NOW.toString()));
 		Path configuration = directory.resolve(node + ".properties");
-		try (var writer = Files.newBufferedWriter(configuration, StandardCharsets.UTF_8)) { settings.store(writer, null); }
+
+		try (var writer = Files.newBufferedWriter(configuration, StandardCharsets.UTF_8)) {
+			settings.store(writer, null);
+		}
+
 		Path arguments = directory.resolve(node + ".args");
-		Files.writeString(arguments, "-Xmx192m\n-classpath\n\"" + System.getProperty("java.class.path").replace("\\", "/")
-				+ "\"\n" + SuccessionOfferCreationProcess.class.getName() + "\n\"" + configuration.toString().replace("\\", "/") + "\"\n");
+		Files.writeString(arguments,
+				"-Xmx192m\n-classpath\n\"" + System.getProperty("java.class.path").replace("\\", "/")
+						+ "\"\n" + SuccessionOfferCreationProcess.class.getName() + "\n\""
+						+ configuration.toString().replace("\\", "/") + "\"\n");
 		String executable = System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java";
-		ProcessBuilder builder = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", executable).toString(), "@" + arguments);
+		ProcessBuilder builder = new ProcessBuilder(
+				Path.of(System.getProperty("java.home"), "bin", executable).toString(), "@" + arguments);
 		String systemRoot = builder.environment().get("SystemRoot");
 		builder.environment().clear();
-		if (systemRoot != null) { builder.environment().put("SystemRoot", systemRoot); }
+
+		if (systemRoot != null) {
+			builder.environment().put("SystemRoot", systemRoot);
+		}
+
 		builder.environment().put("TEMP", directory.toString());
 		builder.environment().put("TMP", directory.toString());
-		Process process = builder.redirectErrorStream(true).redirectOutput(directory.resolve(node + ".log").toFile()).start();
+		Process process = builder.redirectErrorStream(true).redirectOutput(directory.resolve(node + ".log").toFile())
+				.start();
 		Files.writeString(directory.resolve(node + "-pid"), Long.toString(process.pid()));
 		return process;
 	}
 
 	private static void awaitReady(Path marker, Process process) throws Exception {
 		long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+
 		while (!Files.exists(marker)) {
 			assertTrue(process.isAlive(), "La JVM de création s’est arrêtée avant la barrière.");
-			if (System.nanoTime() >= end) { throw new AssertionError("La JVM de création n’est pas prête."); }
+
+			if (System.nanoTime() >= end) {
+				throw new AssertionError("La JVM de création n’est pas prête.");
+			}
+
 			Thread.sleep(20);
 		}
+
 	}
 
 	private static void stop(Process process) throws Exception {
+
 		if (process != null && process.isAlive()) {
 			process.destroy();
+
 			if (!process.waitFor(3, TimeUnit.SECONDS)) {
 				process.destroyForcibly();
 				assertTrue(process.waitFor(3, TimeUnit.SECONDS));
 			}
+
 		}
+
 	}
 
-	private record Participants(UUID tenant, UUID outgoing, UUID successor) { }
+	private record Participants(UUID tenant, UUID outgoing, UUID successor) {
+	}
 }
