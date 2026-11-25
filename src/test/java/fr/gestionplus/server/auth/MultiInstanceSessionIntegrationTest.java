@@ -45,6 +45,8 @@ import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactor
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.GenericContainer;
@@ -54,8 +56,8 @@ import com.github.dockerjava.api.model.ExposedPort;
 import com.github.dockerjava.api.model.PortBinding;
 import com.github.dockerjava.api.model.Ports;
 
-import fr.gestionplus.server.account.PrivilegedAccountSnapshot;
-import fr.gestionplus.server.account.SuperAdminSuccessionService.SuccessionPreview;
+import fr.gestionplus.server.account.SuccessionOffer;
+import fr.gestionplus.server.support.SuccessionFixtures;
 import fr.gestionplus.server.persistence.RedisSecuritySupport;
 import fr.gestionplus.server.support.IsolatedClusterApplication;
 import fr.gestionplus.server.support.SecurityTestRedis;
@@ -221,30 +223,35 @@ class MultiInstanceSessionIntegrationTest {
 				jdbc.update("INSERT INTO tenant_memberships (user_id, tenant_id) VALUES (?, ?)", participant, tenant);
 			}
 
-			String digest = new SuccessionPreview(tenant, List.of(),
-					new PrivilegedAccountSnapshot(outgoing.id(), UserAccountStatus.ACTIVE, 0, List.of()),
-					new PrivilegedAccountSnapshot(successor.id(), UserAccountStatus.ACTIVE, 0, List.of()),
-					List.of(), true).confirmationDigest();
 			OffsetDateTime now = new RedisSecuritySupport(redis, NAMESPACE, SecurityTestRedis.rateKey())
 					.now().atOffset(ZoneOffset.UTC);
-			jdbc.update("""
-					INSERT INTO succession_offers
-					    (offer_id, tenant_id, outgoing_user_id, successor_user_id, admin_roles_to_transfer,
-					     preview_digest, status, created_at, expires_at)
-					VALUES (?, ?, ?, ?, '{}'::uuid[], ?, 'ACCEPTED', ?, ?)
-					""", offer, tenant, outgoing.id(), successor.id(), digest, now, now.plusHours(24));
+			var pending = new SuccessionOffer(offer, outgoing.id(), successor.id(), tenant, List.of(), 1L,
+					SuccessionOffer.OfferStatus.PENDING, now.toInstant(), now.plusHours(24).toInstant(), null, null);
+			var revision = SuccessionFixtures.revision(pending, 1, List.of(), now.toInstant());
+			String digest = revision.previewDigest();
 			Map<UUID, String> sessions = Map.of(outgoing.id(), outgoingSession, successor.id(), successorSession);
-
-			for (var session : sessions.entrySet()) {
-				jdbc.update(
-						"""
-								INSERT INTO succession_confirmations
-								    (offer_id, user_id, session_version, session_id_hash, preview_digest, confirmed_at, expires_at)
-								VALUES (?, ?, 0, ?, ?, ?, ?)
-								""",
-						offer, session.getKey(), SessionIDHasher.hash(session.getValue()), digest, now,
-						now.plusMinutes(5));
-			}
+			new TransactionTemplate(new DataSourceTransactionManager(jdbc.getDataSource())).executeWithoutResult(status -> {
+				jdbc.update("""
+						INSERT INTO succession_offers
+						    (offer_id, tenant_id, outgoing_user_id, successor_user_id, admin_roles_to_transfer,
+						     current_revision, status, created_at, expires_at)
+						VALUES (?, ?, ?, ?, '{}'::uuid[], 1, 'PENDING', ?, ?)
+						""", offer, tenant, outgoing.id(), successor.id(), now, now.plusHours(24));
+				jdbc.update("""
+						INSERT INTO succession_revisions (offer_id, revision, preview, preview_digest, created_at)
+						VALUES (?, 1, CAST(? AS jsonb), ?, ?)
+						""", offer, JSON.writeValueAsString(revision.preview()), digest, now);
+				for (var session : sessions.entrySet()) {
+					jdbc.update("INSERT INTO succession_consents (offer_id, revision, user_id, accepted_at) VALUES (?, 1, ?, ?)",
+							offer, session.getKey(), now);
+					jdbc.update("""
+							INSERT INTO succession_confirmations
+							    (offer_id, user_id, revision, session_version, session_id_hash, preview_digest, confirmed_at, expires_at)
+							VALUES (?, ?, 1, 0, ?, ?, ?, ?)
+							""", offer, session.getKey(), SessionIDHasher.hash(session.getValue()), digest, now, now.plusMinutes(5));
+				}
+				jdbc.update("UPDATE succession_offers SET status = 'ACCEPTED' WHERE offer_id = ?", offer);
+			});
 
 			var firstResult = successorClient.sendAsync(finalization(firstUrl, offer),
 					HttpResponse.BodyHandlers.discarding());
@@ -264,6 +271,29 @@ class MultiInstanceSessionIntegrationTest {
 			assertEquals(401, get(successorClient, firstUrl, "/api/auth/me").statusCode());
 		}
 
+	}
+
+	@Test
+	@Order(32)
+	void successionConfirmationQuotaIsSharedAcrossSessionsAndJvmInstances() throws Exception {
+		var participant = account();
+		try (var firstSession = client(); var secondSession = client()) {
+			assertEquals(200, login(firstSession, firstUrl, firstUrl, participant.name(), PASSWORD).statusCode());
+			assertEquals(200, login(secondSession, secondUrl, secondUrl, participant.name(), PASSWORD).statusCode());
+			for (int attempt = 0; attempt < 5; attempt++) {
+				boolean first = attempt % 2 == 0;
+				assertEquals(204, successionQuota(first ? firstSession : secondSession, first ? firstUrl : secondUrl)
+						.statusCode());
+			}
+			var rejected = successionQuota(secondSession, secondUrl);
+			assertEquals(429, rejected.statusCode());
+			assertTrue(Long.parseLong(rejected.headers().firstValue("Retry-After").orElseThrow()) > 0);
+		}
+	}
+
+	private HttpResponse<Void> successionQuota(HttpClient client, URI instance) throws Exception {
+		return client.send(HttpRequest.newBuilder(instance.resolve("/api/auth/me"))
+				.header("X-Cluster-Test-Succession-Quota", "true").GET().build(), HttpResponse.BodyHandlers.discarding());
 	}
 
 	private static HttpRequest finalization(URI base, UUID offerID) {

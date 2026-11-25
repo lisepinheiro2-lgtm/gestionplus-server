@@ -19,6 +19,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.dao.DataAccessException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -173,6 +174,29 @@ public class AccountMfaService {
 
 	public boolean requiresVerification(UUID userID) {
 		return accountMfaStore.hasState(userID) || authorisationService.requiresMfa(userID);
+	}
+
+	/** Reads the persisted factor and checks local key availability without consuming a TOTP. */
+	public MfaStatus getMfaStatus(UUID userID) {
+		Objects.requireNonNull(userID);
+		try {
+			Factor factor = accountMfaStore.findFactor(userID).orElse(null);
+			if (factor != null && factor.encryptedSecret() == null) {
+				return MfaStatus.RECOVERY_REQUIRED;
+			}
+			if (!cipher.available()) {
+				return MfaStatus.UNAVAILABLE;
+			}
+			if (factor == null) {
+				return MfaStatus.NOT_CONFIGURED;
+			}
+
+			byte[] secret = cipher.decrypt(userID, null, factor.encryptedSecret());
+			Arrays.fill(secret, (byte) 0);
+			return MfaStatus.CONFIGURED;
+		} catch (DataAccessException | IllegalStateException failure) {
+			return MfaStatus.UNAVAILABLE;
+		}
 	}
 
 	@Transactional
@@ -461,6 +485,10 @@ public class AccountMfaService {
 
 	private AccessDeniedException denied() {
 		return new AccessDeniedException("Vérification MFA impossible.");
+	}
+
+	public enum MfaStatus {
+		NOT_CONFIGURED, CONFIGURED, RECOVERY_REQUIRED, UNAVAILABLE
 	}
 
 	public enum Verification {

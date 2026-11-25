@@ -24,6 +24,7 @@ import fr.gestionplus.server.account.SuccessionOffer;
 import fr.gestionplus.server.account.SuccessionOffer.OfferStatus;
 import fr.gestionplus.server.account.SuccessionOfferStore;
 import fr.gestionplus.server.persistence.PostgresqlSuccessionOfferStore;
+import fr.gestionplus.server.persistence.PostgresqlSuccessionRevisionStore;
 
 public final class SuccessionOfferCreationProcess {
 
@@ -42,13 +43,13 @@ public final class SuccessionOfferCreationProcess {
 				settings.getProperty("password"));
 		var manager = new DataSourceTransactionManager(source);
 		ProxyFactory proxy = new ProxyFactory(
-				new PostgresqlSuccessionOfferStore(new JdbcTemplate(source), Clock.fixed(now, ZoneOffset.UTC)));
+				new PostgresqlSuccessionOfferStore(new JdbcTemplate(source), Clock.fixed(now, ZoneOffset.UTC), new PostgresqlSuccessionRevisionStore(new JdbcTemplate(source))));
 		proxy.addAdvice(new TransactionInterceptor(manager, new AnnotationTransactionAttributeSource()));
 		SuccessionOfferStore store = (SuccessionOfferStore) proxy.getProxy();
 		SuccessionOffer offer = new SuccessionOffer(UUID.randomUUID(),
 				UUID.fromString(settings.getProperty("outgoing")),
 				UUID.fromString(settings.getProperty("successor")), UUID.fromString(settings.getProperty("tenant")),
-				List.of(), "a".repeat(64), OfferStatus.PENDING, now, now.plusSeconds(86400));
+				List.of(), 1L, OfferStatus.PENDING, now, now.plusSeconds(86400), null, null);
 		Path directory = Path.of(settings.getProperty("directory"));
 		String node = settings.getProperty("node");
 		Files.writeString(directory.resolve(node + "-ready"), "ready");
@@ -66,7 +67,7 @@ public final class SuccessionOfferCreationProcess {
 		String result;
 
 		try {
-			new TransactionTemplate(manager).executeWithoutResult(status -> store.create(offer));
+			new TransactionTemplate(manager).executeWithoutResult(status -> store.create(offer, SuccessionFixtures.revision(offer, 1, List.of(), now)));
 			result = "CREATED";
 		} catch (AccessDeniedException denied) {
 			result = "REFUSED";

@@ -22,7 +22,13 @@ import fr.gestionplus.server.GestionplusServerApplication;
 import fr.gestionplus.server.account.ActivationCodeGenerator;
 import fr.gestionplus.server.account.SmsIdentityChallenge.Purpose;
 import fr.gestionplus.server.account.SmsMessageSender;
-import fr.gestionplus.server.account.SuperAdminSuccessionService;
+import fr.gestionplus.server.account.SuccessionOfferStore;
+import fr.gestionplus.server.account.SuccessionRevisionStore;
+import fr.gestionplus.server.account.SuccessionScope;
+import fr.gestionplus.server.account.SuccessionSecurity;
+import fr.gestionplus.server.account.SuccessionTransaction;
+import fr.gestionplus.server.account.SuccessionTransfer;
+import fr.gestionplus.server.auth.RequestRateLimitExceededException;
 import fr.gestionplus.server.auth.CompromisedPasswordChecker;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -83,7 +89,8 @@ public final class IsolatedClusterApplication {
 		@Bean
 		WebMvcConfigurer delayedRead(@Value("${cluster.test.control-directory}") String directory,
 				@Value("${cluster.test.node}") String node,
-				SuperAdminSuccessionService succession) {
+				SuccessionTransaction transaction, SuccessionScope scope, SuccessionTransfer transfer,
+				SuccessionOfferStore offers, SuccessionRevisionStore revisions, SuccessionSecurity security) {
 			return new WebMvcConfigurer() {
 				@Override
 				public void addInterceptors(InterceptorRegistry registry) {
@@ -92,6 +99,17 @@ public final class IsolatedClusterApplication {
 						public boolean preHandle(HttpServletRequest request, HttpServletResponse response,
 								Object handler)
 								throws Exception {
+
+							if ("true".equals(request.getHeader("X-Cluster-Test-Succession-Quota"))) {
+								try {
+									security.beginSubmission();
+									response.setStatus(204);
+								} catch (RequestRateLimitExceededException limited) {
+									response.setHeader("Retry-After", Long.toString(limited.retryAfterSeconds()));
+									response.setStatus(429);
+								}
+								return false;
+							}
 
 							String offerID = request.getHeader("X-Cluster-Test-Finalize-Offer");
 
@@ -115,7 +133,11 @@ public final class IsolatedClusterApplication {
 								}
 
 								try {
-									succession.finalizeSuccession(target);
+									transaction.execute(() -> {
+										var offer = offers.findById(target).orElseThrow();
+										var locked = scope.lock(offer.tenantID(), offer.outgoingUserID(), offer.successorUserID());
+										return transfer.transferConfirmed(locked, target, revisions.find(target, 1).orElseThrow());
+									});
 									response.setStatus(204);
 								} catch (AccessDeniedException denied) {
 									response.setStatus(403);

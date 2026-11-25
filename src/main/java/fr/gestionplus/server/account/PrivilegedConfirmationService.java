@@ -74,7 +74,7 @@ public class PrivilegedConfirmationService {
 	@Transactional
 	public String issueProof(Action action, String previewDigest, String rawPassword, String totpCode) {
 
-		if (action == null || previewDigest == null || !previewDigest.matches("[0-9a-f]{64}")) {
+		if (action == null || action == Action.SUPER_ADMIN_SUCCESSION_CREATE || previewDigest == null || !previewDigest.matches("[0-9a-f]{64}")) {
 			throw denied();
 		}
 
@@ -91,45 +91,19 @@ public class PrivilegedConfirmationService {
 
 		verifyCredentials(current, rawPassword, totpCode);
 
+		return saveProof(current, sessionIDHash, action, previewDigest);
+	}
+
+	String saveProof(UserAccount current, String sessionIDHash, Action action, String previewDigest) {
 		String proofToken = generateProofToken();
 		String proofHash = digest(proofToken);
 		Instant expiresAt = clock.instant().plus(PROOF_TTL);
-
-		Proof proof = new Proof(current.getUserID(), sessionIDHash, current.getSessionVersion(), action, previewDigest,
-				proofHash, expiresAt);
-
-		proofStore.replaceCurrent(proof);
-
+		proofStore.replaceCurrent(new Proof(current.getUserID(), sessionIDHash, current.getSessionVersion(), action,
+				previewDigest, proofHash, expiresAt));
 		return proofToken;
 	}
 
-	SuccessionConfirmation createSuccessionConfirmation(UserAccount current, UUID offerID, String previewDigest,
-			String rawPassword, String totpCode) {
-
-		UserAccount principal = authenticated.getCurrentAccount();
-
-		if (!principal.getUserID().equals(current.getUserID())) {
-			throw denied();
-		}
-
-		AccountLocks.requireCurrentSession(current, principal);
-
-		String currentSessionIDHash = currentSessionProvider.getCurrentSessionIDHash();
-
-		if (currentSessionIDHash == null) {
-			throw denied();
-		}
-
-		verifyCredentials(current, rawPassword, totpCode);
-
-		Instant confirmedAt = clock.instant();
-		Instant expiresAt = confirmedAt.plus(PROOF_TTL);
-
-		return new SuccessionConfirmation(offerID, current.getUserID(), current.getSessionVersion(),
-				currentSessionIDHash, previewDigest, confirmedAt, expiresAt);
-	}
-
-	private void verifyCredentials(UserAccount current, String rawPassword, String totpCode) {
+	void verifyCredentials(UserAccount current, String rawPassword, String totpCode) {
 
 		if (!currentPasswordVerifier.matches(current.getUserID(), rawPassword)) {
 			throw denied();

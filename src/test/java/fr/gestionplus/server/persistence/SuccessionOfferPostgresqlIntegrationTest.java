@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.time.OffsetDateTime;
 import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
@@ -29,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -46,6 +48,11 @@ import com.github.dockerjava.api.model.PortBinding;
 import com.github.dockerjava.api.model.Ports;
 
 import fr.gestionplus.server.account.SuccessionOffer;
+import fr.gestionplus.server.account.SuccessionOffer.ClosureReason;
+import fr.gestionplus.server.account.SuccessionConsent;
+import fr.gestionplus.server.account.SuccessionConfirmation;
+import fr.gestionplus.server.account.SuccessionRevision;
+import fr.gestionplus.server.support.SuccessionFixtures;
 import fr.gestionplus.server.account.SuccessionOffer.OfferStatus;
 import fr.gestionplus.server.account.SuccessionOfferStore;
 import fr.gestionplus.server.support.SuccessionOfferCreationProcess;
@@ -54,6 +61,7 @@ import fr.gestionplus.server.support.SuccessionOfferCreationProcess;
 class SuccessionOfferPostgresqlIntegrationTest {
 
 	private static final Instant NOW = Instant.parse("2026-11-23T12:00:00Z");
+	private static final Instant LEGACY_CREATED = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
 	private static final AtomicReference<Instant> TIME = new AtomicReference<>(NOW);
 	private static final Clock CLOCK = new Clock() {
 		@Override
@@ -83,14 +91,30 @@ class SuccessionOfferPostgresqlIntegrationTest {
 	private static TransactionTemplate secondTransaction;
 	private static SuccessionOfferStore offerStore;
 	private static SuccessionOfferStore secondOfferStore;
-	private static Participants existing;
+	private static UUID legacyOfferID;
+	private static UUID completedLegacyOfferID;
 
 	@BeforeAll
 	static void upgradeFromV32AndPrepareTwoIndependentStoreInstances() {
 		var source = new DriverManagerDataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-		Flyway.configure().dataSource(source).locations("classpath:db/migration").target("32").load().migrate();
+		Flyway.configure().dataSource(source).locations("classpath:db/migration").target("38").load().migrate();
 		jdbcTemplate = new JdbcTemplate(source);
-		existing = participants();
+		Participants legacy = participants();
+		legacyOfferID = legacyOffer(legacy, "ACCEPTED");
+		completedLegacyOfferID = legacyOffer(legacy, "COMPLETED");
+		OffsetDateTime created = NOW.atOffset(ZoneOffset.UTC);
+		jdbcTemplate.update("""
+				INSERT INTO succession_confirmations
+				    (offer_id, user_id, session_version, session_id_hash, preview_digest, confirmed_at, expires_at)
+				VALUES (?, ?, 0, ?, ?, ?, ?)
+				""", legacyOfferID, legacy.outgoing(), "a".repeat(64), "b".repeat(64), created, created.plusMinutes(5));
+		jdbcTemplate.update("""
+				INSERT INTO privileged_confirmation_proofs
+				    (user_id, action, session_version, preview_digest, proof_hash, created_at, expires_at, session_id_hash)
+				VALUES (?, 'SUPER_ADMIN_SUCCESSION_CREATE', 0, ?, ?, ?, ?, ?),
+				       (?, 'STRUCTURE_ADMIN_TRANSFER', 0, ?, ?, ?, ?, ?)
+				""", legacy.outgoing(), "b".repeat(64), "c".repeat(64), created, created.plusMinutes(5), "a".repeat(64),
+				legacy.outgoing(), "b".repeat(64), "d".repeat(64), created, created.plusMinutes(5), "a".repeat(64));
 		Flyway.configure().dataSource(source).locations("classpath:db/migration").load().migrate();
 		var manager = new DataSourceTransactionManager(source);
 		transaction = new TransactionTemplate(manager);
@@ -104,19 +128,38 @@ class SuccessionOfferPostgresqlIntegrationTest {
 	}
 
 	@BeforeEach
-	void clearOnlyTheIsolatedOffers() {
+	void resetClock() {
 		TIME.set(NOW);
-		jdbcTemplate.update("DELETE FROM succession_offers");
 	}
 
 	@Test
-	void upgradingV32PreservesTheOrganizationAndItsCurrentSuperAdmin() {
-		assertEquals(existing.outgoing(),
-				jdbcTemplate.queryForObject("SELECT super_admin_user_id FROM tenant_organizations WHERE tenant_id = ?",
-						UUID.class, existing.tenant()));
-		SuccessionOffer offer = offer(existing);
-		create(offer);
-		assertEquals(offer, offerStore.findById(offer.offerID()).orElseThrow());
+	void upgradingV38ClosesLegacyOffersAndPreservesTheirHistoryWithoutInventingConsent() {
+		SuccessionOffer legacy = offerStore.findById(legacyOfferID).orElseThrow();
+		assertEquals(OfferStatus.CANCELLED, legacy.status());
+		assertEquals(ClosureReason.LEGACY_INCOMPATIBLE, legacy.closureReason());
+		assertTrue(legacy.closedAt() != null);
+		assertEquals(null, legacy.currentRevision());
+		assertEquals(LEGACY_CREATED.plusSeconds(86400), legacy.expiresAt());
+		assertEquals(OfferStatus.COMPLETED, offerStore.findById(completedLegacyOfferID).orElseThrow().status());
+		assertEquals(List.of(), revisions().findHistory(legacyOfferID));
+		assertEquals(List.of(), consents().findByRevision(legacyOfferID, 1));
+		assertEquals(1, jdbcTemplate.queryForObject(
+				"SELECT count(*) FROM succession_legacy_confirmations WHERE offer_id = ?", Integer.class, legacyOfferID));
+		assertEquals(List.of("STRUCTURE_ADMIN_TRANSFER"), jdbcTemplate.queryForList(
+				"SELECT action FROM privileged_confirmation_proofs WHERE user_id = ?", String.class, legacy.outgoingUserID()));
+		assertTrue(offerStore.findByParticipant(legacy.outgoingUserID()).contains(legacy));
+		assertFalse(close(legacy, ClosureReason.CANCELLED_BY_OUTGOING));
+	}
+
+	private static UUID legacyOffer(Participants participants, String status) {
+		UUID id = UUID.randomUUID();
+		jdbcTemplate.update("""
+				INSERT INTO succession_offers (offer_id, tenant_id, outgoing_user_id, successor_user_id,
+				    admin_roles_to_transfer, preview_digest, status, created_at, expires_at)
+				VALUES (?, ?, ?, ?, '{}'::uuid[], ?, ?, ?, ?)
+				""", id, participants.tenant(), participants.outgoing(), participants.successor(), "b".repeat(64),
+				status, LEGACY_CREATED.atOffset(ZoneOffset.UTC), LEGACY_CREATED.plusSeconds(86400).atOffset(ZoneOffset.UTC));
+		return id;
 	}
 
 	@Test
@@ -125,7 +168,7 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		List<UUID> roles = List.of(UUID.randomUUID(), UUID.randomUUID());
 		SuccessionOffer offer = new SuccessionOffer(UUID.randomUUID(), participants.outgoing(),
 				participants.successor(),
-				participants.tenant(), roles, "a".repeat(64), OfferStatus.PENDING, NOW, NOW.plusSeconds(86400));
+				participants.tenant(), roles, 1L, OfferStatus.PENDING, NOW, NOW.plusSeconds(86400), null, null);
 		create(offer);
 		assertEquals(offer, offerStore.findById(offer.offerID()).orElseThrow());
 		assertTrue(offerStore.findById(UUID.randomUUID()).isEmpty());
@@ -139,7 +182,7 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		create(first);
 
 		if (status == OfferStatus.ACCEPTED) {
-			assertTrue(change(first.offerID(), OfferStatus.PENDING, OfferStatus.ACCEPTED));
+			assertTrue(accept(first));
 		}
 
 		assertThrows(AccessDeniedException.class, () -> create(offer(participants)));
@@ -154,13 +197,14 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		create(first);
 
 		if (status == OfferStatus.ACCEPTED) {
-			assertTrue(change(first.offerID(), OfferStatus.PENDING, OfferStatus.ACCEPTED));
+			assertTrue(accept(first));
 		}
 
 		TIME.set(first.expiresAt());
 		create(offer(participants));
 		assertEquals(2, count(participants.tenant()));
-		assertEquals(status, offerStore.findById(first.offerID()).orElseThrow().status());
+		assertEquals(OfferStatus.EXPIRED, offerStore.findById(first.offerID()).orElseThrow().status());
+		assertEquals(first.expiresAt(), offerStore.findById(first.offerID()).orElseThrow().closedAt());
 	}
 
 	@Test
@@ -168,11 +212,10 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		Participants participants = participants();
 		SuccessionOffer first = offer(participants);
 		create(first);
-		boolean cancelled = transaction
-				.execute(status -> offerStore.cancel(first.offerID(), OfferStatus.PENDING, OfferStatus.CANCELLED));
+		boolean cancelled = close(first, ClosureReason.CANCELLED_BY_OUTGOING);
 		assertTrue(cancelled);
 		create(offer(participants));
-		assertFalse(change(first.offerID(), OfferStatus.CANCELLED, OfferStatus.ACCEPTED));
+		assertFalse(accept(first));
 		assertEquals(2, count(participants.tenant()));
 	}
 
@@ -181,8 +224,9 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		Participants participants = participants();
 		SuccessionOffer first = offer(participants);
 		create(first);
-		assertTrue(change(first.offerID(), OfferStatus.PENDING, OfferStatus.ACCEPTED));
-		boolean completed = transaction.execute(status -> offerStore.complete(first.offerID(), NOW));
+		assertTrue(accept(first));
+		confirm(first, NOW);
+		boolean completed = complete(first, NOW);
 		assertTrue(completed);
 		create(offer(participants));
 		assertEquals(2, count(participants.tenant()));
@@ -193,8 +237,9 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		Participants participants = participants();
 		SuccessionOffer offer = offer(participants);
 		create(offer);
-		assertTrue(change(offer.offerID(), OfferStatus.PENDING, OfferStatus.ACCEPTED));
-		assertFalse(change(offer.offerID(), OfferStatus.ACCEPTED, OfferStatus.COMPLETED));
+		assertTrue(accept(offer));
+		assertFalse(complete(offer, NOW));
+		confirm(offer, offer.expiresAt().minusSeconds(10));
 		assertFalse(complete(offer, offer.createdAt().minusSeconds(1)));
 		assertFalse(complete(offer, offer.expiresAt()));
 		TIME.set(offer.expiresAt().plusSeconds(1));
@@ -203,7 +248,7 @@ class SuccessionOfferPostgresqlIntegrationTest {
 	}
 
 	private boolean complete(SuccessionOffer offer, Instant authorizedAt) {
-		return transaction.execute(status -> offerStore.complete(offer.offerID(), authorizedAt));
+		return transaction.execute(status -> offerStore.complete(offer.offerID(), 1, authorizedAt));
 	}
 
 	@Test
@@ -229,11 +274,11 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		Participants participants = participants();
 		SuccessionOffer expired = new SuccessionOffer(UUID.randomUUID(), participants.outgoing(),
 				participants.successor(), participants.tenant(),
-				List.of(), "a".repeat(64), OfferStatus.PENDING, NOW.minusSeconds(86400), NOW);
+				List.of(), 1L, OfferStatus.PENDING, NOW.minusSeconds(86400), NOW, null, null);
 		assertThrows(AccessDeniedException.class, () -> create(expired));
 		SuccessionOffer accepted = new SuccessionOffer(UUID.randomUUID(), participants.outgoing(),
 				participants.successor(), participants.tenant(),
-				List.of(), "a".repeat(64), OfferStatus.ACCEPTED, NOW, NOW.plusSeconds(86400));
+				List.of(), 1L, OfferStatus.ACCEPTED, NOW, NOW.plusSeconds(86400), null, null);
 		assertThrows(IllegalArgumentException.class, () -> create(accepted));
 		assertEquals(0, count(participants.tenant()));
 	}
@@ -241,17 +286,18 @@ class SuccessionOfferPostgresqlIntegrationTest {
 	@Test
 	void creationAndLockingReadsRequireTheBusinessTransaction() {
 		SuccessionOffer offer = offer(participants());
-		assertThrows(IllegalTransactionStateException.class, () -> offerStore.create(offer));
+		assertThrows(IllegalTransactionStateException.class, () -> offerStore.create(offer, initial(offer)));
 		assertThrows(IllegalTransactionStateException.class, () -> offerStore.findByIdForUpdate(offer.offerID()));
 		assertThrows(IllegalTransactionStateException.class,
-				() -> offerStore.updateStatus(offer.offerID(), OfferStatus.PENDING, OfferStatus.CANCELLED));
+				() -> offerStore.close(offer.offerID(), 1, ClosureReason.CANCELLED_BY_OUTGOING, NOW));
 	}
 
 	@Test
 	void rollbackDoesNotReserveTheOrganizationOrLeaveAPartialOffer() {
 		Participants participants = participants();
 		assertThrows(IllegalStateException.class, () -> transaction.executeWithoutResult(status -> {
-			offerStore.create(offer(participants));
+			var offer = offer(participants);
+			offerStore.create(offer, initial(offer));
 			throw new IllegalStateException("Échec métier fictif.");
 		}));
 		assertEquals(0, count(participants.tenant()));
@@ -294,7 +340,7 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		Participants participants = participants();
 		create(new SuccessionOffer(UUID.randomUUID(), participants.outgoing(), participants.successor(),
 				participants.tenant(),
-				List.of(), "a".repeat(64), OfferStatus.PENDING, NOW, NOW.plusSeconds(1)));
+				List.of(), 1L, OfferStatus.PENDING, NOW.minusSeconds(86399), NOW.plusSeconds(1), null, null));
 		assertTrue(createAfterTenantWait(offer(participants), () -> TIME.set(NOW.plusSeconds(1))));
 		assertEquals(2, count(participants.tenant()));
 	}
@@ -304,7 +350,7 @@ class SuccessionOfferPostgresqlIntegrationTest {
 		Participants participants = participants();
 		SuccessionOffer incoming = new SuccessionOffer(UUID.randomUUID(), participants.outgoing(),
 				participants.successor(), participants.tenant(),
-				List.of(), "a".repeat(64), OfferStatus.PENDING, NOW, NOW.plusSeconds(1));
+				List.of(), 1L, OfferStatus.PENDING, NOW.minusSeconds(86399), NOW.plusSeconds(1), null, null);
 		assertFalse(createAfterTenantWait(incoming, () -> TIME.set(NOW.plusSeconds(1))));
 		assertEquals(0, count(participants.tenant()));
 	}
@@ -350,7 +396,7 @@ class SuccessionOfferPostgresqlIntegrationTest {
 						return secondTransaction.execute(other -> {
 							waitingPid.complete(
 									secondJdbcTemplate.queryForObject("SELECT pg_backend_pid()", Integer.class));
-							secondOfferStore.create(offer);
+							secondOfferStore.create(offer, initial(offer));
 							return true;
 						});
 					} catch (AccessDeniedException denied) {
@@ -386,20 +432,20 @@ class SuccessionOfferPostgresqlIntegrationTest {
 	}
 
 	private static SuccessionOfferStore store(JdbcTemplate jdbcTemplate, DataSourceTransactionManager manager) {
-		ProxyFactory proxy = new ProxyFactory(new PostgresqlSuccessionOfferStore(jdbcTemplate, CLOCK));
+		ProxyFactory proxy = new ProxyFactory(new PostgresqlSuccessionOfferStore(jdbcTemplate, CLOCK, new PostgresqlSuccessionRevisionStore(jdbcTemplate)));
 		proxy.addAdvice(new TransactionInterceptor(manager, new AnnotationTransactionAttributeSource()));
 		return (SuccessionOfferStore) proxy.getProxy();
 	}
 
 	private static void create(SuccessionOffer offer) {
-		transaction.executeWithoutResult(status -> offerStore.create(offer));
+		transaction.executeWithoutResult(status -> offerStore.create(offer, initial(offer)));
 	}
 
 	private static boolean tryCreate(SuccessionOfferStore store, TransactionTemplate transaction,
 			SuccessionOffer offer) {
 
 		try {
-			transaction.executeWithoutResult(status -> store.create(offer));
+			transaction.executeWithoutResult(status -> store.create(offer, initial(offer)));
 			return true;
 		} catch (AccessDeniedException denied) {
 			return false;
@@ -407,14 +453,106 @@ class SuccessionOfferPostgresqlIntegrationTest {
 
 	}
 
-	private static boolean change(UUID id, OfferStatus expected, OfferStatus next) {
-		return transaction.execute(status -> offerStore.updateStatus(id, expected, next));
+	private static SuccessionRevision initial(SuccessionOffer offer) {
+		return SuccessionFixtures.revision(offer, 1, offer.adminRolesToTransfer(), offer.createdAt());
+	}
+
+	private static PostgresqlSuccessionRevisionStore revisions() {
+		return new PostgresqlSuccessionRevisionStore(jdbcTemplate);
+	}
+
+	private static PostgresqlSuccessionConsentStore consents() {
+		return new PostgresqlSuccessionConsentStore(jdbcTemplate, offerStore);
+	}
+
+	private static PostgresqlSuccessionConfirmationStore confirmations() {
+		return new PostgresqlSuccessionConfirmationStore(jdbcTemplate, offerStore);
+	}
+
+	private static boolean accept(SuccessionOffer offer) {
+		return transaction.execute(status -> {
+			consents().saveIfAbsent(new SuccessionConsent(offer.offerID(), offer.outgoingUserID(), 1, NOW));
+			consents().saveIfAbsent(new SuccessionConsent(offer.offerID(), offer.successorUserID(), 1, NOW));
+			return offerStore.markAccepted(offer.offerID(), 1, NOW);
+		});
+	}
+
+	private static boolean close(SuccessionOffer offer, ClosureReason reason) {
+		return transaction.execute(status -> offerStore.close(offer.offerID(), 1, reason, TIME.get()));
+	}
+
+	private static void confirm(SuccessionOffer offer, Instant at) {
+		transaction.executeWithoutResult(status -> {
+			for (UUID participant : List.of(offer.outgoingUserID(), offer.successorUserID())) {
+				confirmations().replaceCurrent(new SuccessionConfirmation(offer.offerID(), participant, 1, 0,
+						"e".repeat(64), initial(offer).previewDigest(), at, at.plusSeconds(300)));
+			}
+		});
+	}
+
+	@Test
+	void revisionChangesInvalidateConfirmationsAndDoNotResurrectOldConsentWhenThePreviewReturns() {
+		SuccessionOffer offer = offer(participants());
+		create(offer);
+		assertTrue(accept(offer));
+		confirm(offer, NOW);
+		TIME.set(NOW.plusSeconds(3));
+		SuccessionRevision next = SuccessionFixtures.revision(offer, 2, List.of(UUID.randomUUID()), TIME.get());
+		assertEquals(true, transaction.execute(status -> offerStore.advanceRevision(offer.offerID(), 1, next)));
+		assertEquals(OfferStatus.PENDING, offerStore.findById(offer.offerID()).orElseThrow().status());
+		assertEquals(offer.expiresAt(), offerStore.findById(offer.offerID()).orElseThrow().expiresAt());
+		assertTrue(confirmations().findByOfferIDAndUserID(offer.offerID(), 1, offer.outgoingUserID()).isEmpty());
+		assertEquals(2, consents().findByRevision(offer.offerID(), 1).size());
+		assertEquals(List.of(), consents().findByRevision(offer.offerID(), 2));
+		assertEquals(false, transaction.execute(status -> consents().saveIfAbsent(
+				new SuccessionConsent(offer.offerID(), offer.outgoingUserID(), 1, TIME.get()))));
+		assertEquals(false, transaction.execute(status -> offerStore.markAccepted(offer.offerID(), 2, TIME.get())));
+
+		TIME.set(TIME.get().plusSeconds(1));
+		SuccessionRevision returned = SuccessionFixtures.revision(offer, 3, List.of(), TIME.get());
+		assertEquals(initial(offer).previewDigest(), returned.previewDigest());
+		assertEquals(true, transaction.execute(status -> offerStore.advanceRevision(offer.offerID(), 2, returned)));
+		assertEquals(List.of(initial(offer), next, returned), revisions().findHistory(offer.offerID()));
+		assertEquals(List.of(), consents().findByRevision(offer.offerID(), 3));
+	}
+
+	@Test
+	void acceptsAndConfirmsOneParticipantWhileTheOtherIsStillPending() {
+		SuccessionOffer offer = offer(participants());
+		create(offer);
+		transaction.executeWithoutResult(status -> {
+			var consent = new SuccessionConsent(offer.offerID(), offer.successorUserID(), 1, NOW);
+			assertTrue(consents().saveIfAbsent(consent));
+			assertFalse(consents().saveIfAbsent(consent));
+			assertFalse(offerStore.markAccepted(offer.offerID(), 1, NOW));
+			confirmations().replaceCurrent(new SuccessionConfirmation(offer.offerID(), offer.successorUserID(), 1, 0,
+					"e".repeat(64), initial(offer).previewDigest(), NOW, NOW.plusSeconds(300)));
+		});
+		assertEquals(OfferStatus.PENDING, offerStore.findById(offer.offerID()).orElseThrow().status());
+		assertEquals(1, consents().findByRevision(offer.offerID(), 1).size());
+		assertTrue(confirmations().findByOfferIDAndUserID(offer.offerID(), 1, offer.successorUserID()).isPresent());
+	}
+
+	@Test
+	void databaseRejectsHistoryEditsDeadlineChangesAndReopening() {
+		SuccessionOffer offer = offer(participants());
+		create(offer);
+		assertTrue(accept(offer));
+		assertThrows(DataIntegrityViolationException.class, () -> jdbcTemplate.update(
+				"UPDATE succession_revisions SET created_at = created_at + INTERVAL '1 second' WHERE offer_id = ?", offer.offerID()));
+		assertThrows(DataIntegrityViolationException.class, () -> jdbcTemplate.update(
+				"DELETE FROM succession_consents WHERE offer_id = ?", offer.offerID()));
+		assertThrows(DataIntegrityViolationException.class, () -> jdbcTemplate.update(
+				"UPDATE succession_offers SET expires_at = expires_at + INTERVAL '1 day' WHERE offer_id = ?", offer.offerID()));
+		assertTrue(close(offer, ClosureReason.WITHDRAWN_BY_SUCCESSOR));
+		assertThrows(DataIntegrityViolationException.class, () -> jdbcTemplate.update(
+				"UPDATE succession_offers SET status = 'PENDING', closure_reason = NULL, closed_at = NULL WHERE offer_id = ?", offer.offerID()));
 	}
 
 	private static SuccessionOffer offer(Participants participants) {
 		return new SuccessionOffer(UUID.randomUUID(), participants.outgoing(), participants.successor(),
 				participants.tenant(),
-				List.of(), "a".repeat(64), OfferStatus.PENDING, TIME.get(), TIME.get().plusSeconds(86400));
+				List.of(), 1L, OfferStatus.PENDING, TIME.get(), TIME.get().plusSeconds(86400), null, null);
 	}
 
 	private static Participants participants() {

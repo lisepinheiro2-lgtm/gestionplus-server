@@ -72,7 +72,7 @@ class PrivilegedConfirmationServiceTest {
 	}
 
 	@ParameterizedTest
-	@EnumSource(Action.class)
+	@EnumSource(value = Action.class, names = "STRUCTURE_ADMIN_TRANSFER")
 	void issuesAnOpaqueTokenAndStoresOnlyItsHashWithTheExactActionAndFiveMinuteDeadline(Action action) {
 		String token = service.issueProof(action, PREVIEW, PASSWORD, "000042");
 		ArgumentCaptor<Proof> proof = ArgumentCaptor.forClass(Proof.class);
@@ -125,13 +125,9 @@ class PrivilegedConfirmationServiceTest {
 	}
 
 	@Test
-	void preparesAConfirmationForOnlyTheCurrentSessionAndOfferAfterFreshMfa() {
-		UUID offerID = UUID.randomUUID();
-		assertEquals(new SuccessionConfirmation(offerID, userID, 7, SESSION, PREVIEW, NOW, NOW.plusSeconds(300)),
-				service.createSuccessionConfirmation(account, offerID, PREVIEW, PASSWORD, "000042"));
-		when(mfa.verifyForLogin(account, "000042")).thenReturn(Verification.DENIED);
+	void rejectsIssuingSuccessionProofThroughTheUnmeteredGenericPath() {
 		assertThrows(AccessDeniedException.class,
-				() -> service.createSuccessionConfirmation(account, offerID, PREVIEW, PASSWORD, "000042"));
-		verifyNoInteractions(proofStore);
+				() -> service.issueProof(Action.SUPER_ADMIN_SUCCESSION_CREATE, PREVIEW, PASSWORD, "000042"));
+		verifyNoInteractions(accountStore, passwords, mfa, proofStore);
 	}
 }

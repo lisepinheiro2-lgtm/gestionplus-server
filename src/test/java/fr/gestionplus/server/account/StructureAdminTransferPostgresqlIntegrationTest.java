@@ -56,7 +56,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 import fr.gestionplus.server.account.PrivilegedConfirmationProofStore.Proof;
 import fr.gestionplus.server.account.PrivilegedConfirmationVerifier.Action;
 import fr.gestionplus.server.account.StructureAdminTransferService.TransferPreview;
-import fr.gestionplus.server.account.SuperAdminSuccessionService.SuccessionPreview;
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditEvent;
 import fr.gestionplus.server.audit.AuditFallback;
@@ -68,6 +67,7 @@ import fr.gestionplus.server.auth.AccountMfaService;
 import fr.gestionplus.server.auth.AuthorizationService;
 import fr.gestionplus.server.auth.DistributedSecurityUnavailableException;
 import fr.gestionplus.server.auth.Permission;
+import fr.gestionplus.server.auth.RequestRateLimitExceededException;
 import fr.gestionplus.server.auth.SessionActivityStore;
 import fr.gestionplus.server.auth.SessionIDHasher;
 import fr.gestionplus.server.auth.UserAccount;
@@ -122,6 +122,16 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 	private AuthorizationService authorization;
 	@Autowired
 	private SuperAdminSuccessionService succession;
+	@Autowired
+	private SuccessionScope successionScope;
+	@Autowired
+	private SuccessionSecurity successionSecurity;
+	@Autowired
+	private SuccessionTransfer successionTransfer;
+	@Autowired
+	private SuccessionRevisionStore successionRevisions;
+	@Autowired
+	private SuccessionConsentStore successionConsents;
 	@Autowired
 	private SessionRegistry sessionRegistry;
 
@@ -191,6 +201,7 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 
 		authenticate(actorID);
 		when(sessionProvider.getCurrentSessionIDHash()).thenAnswer(call -> currentSessionHash.get());
+		when(sessionProvider.getActiveSessionIDHash()).thenAnswer(call -> currentSessionHash.get());
 		when(verifier.consumeRecentProof(any(), anyString(), anyLong(), any(), anyString(), eq("verified-proof")))
 				.thenReturn(true);
 	}
@@ -209,13 +220,13 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 		String successorSession = registerSession(successor);
 		SuccessionPreview preview = succession.previewSuccession(tenantID, newAdminUserID, Set.of());
 
-		SuccessionOffer offer = succession.createSuccessionOffer(preview, "verified-proof");
+		SuccessionOffer offer = createOffer(preview, null);
 
 		SuccessionOffer stored = offerStore.findById(offer.offerID()).orElseThrow();
 		assertEquals(actorID, stored.outgoingUserID());
 		assertEquals(newAdminUserID, stored.successorUserID());
 		assertEquals(tenantID, stored.tenantID());
-		assertEquals(preview.confirmationDigest(), stored.previewDigest());
+		assertEquals(preview.confirmationDigest(), revision(stored).previewDigest());
 		assertEquals(SuccessionOffer.OfferStatus.PENDING, stored.status());
 		assertEquals(offer.createdAt().truncatedTo(ChronoUnit.MICROS), stored.createdAt());
 		assertEquals(Duration.ofHours(24), Duration.between(stored.createdAt(), stored.expiresAt()));
@@ -236,7 +247,7 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 		authenticate(actorID);
 		SuccessionPreview preview = succession.previewSuccession(tenantID, newAdminUserID, Set.of(structureID));
 
-		SuccessionOffer offer = succession.createSuccessionOffer(preview, "verified-proof");
+		SuccessionOffer offer = createOffer(preview, null);
 
 		assertEquals(List.of(structureID), offerStore.findById(offer.offerID()).orElseThrow().adminRolesToTransfer());
 		assertEquals(Set.of("ADMIN"), rolesInStructure(actorID));
@@ -245,11 +256,11 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 	}
 
 	@Test
-	void aSecondLiveProposalIsRefusedByTheTransactionalBusinessService() {
+	void aSecondLiveProposalIsRefusedByTheTransactionalStore() {
 		SuccessionPreview preview = succession.previewSuccession(tenantID, newAdminUserID, Set.of());
-		SuccessionOffer offer = succession.createSuccessionOffer(preview, "verified-proof");
+		SuccessionOffer offer = createOffer(preview, null);
 
-		assertThrows(AccessDeniedException.class, () -> succession.createSuccessionOffer(preview, "verified-proof"));
+		assertThrows(AccessDeniedException.class, () -> createOffer(preview, null));
 
 		assertEquals(SuccessionOffer.OfferStatus.PENDING, offerStore.findById(offer.offerID()).orElseThrow().status());
 		assertEquals(1, successionOfferCount());
@@ -258,10 +269,10 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 	@Test
 	void cancellationByTheOutgoingSuperAdminAllowsANewProposalAndPreservesTheOldOne() {
 		SuccessionPreview preview = succession.previewSuccession(tenantID, newAdminUserID, Set.of());
-		SuccessionOffer first = succession.createSuccessionOffer(preview, "verified-proof");
+		SuccessionOffer first = createOffer(preview, null);
 
-		succession.cancelSuccessionOffer(first.offerID());
-		SuccessionOffer second = succession.createSuccessionOffer(preview, "verified-proof");
+		assertTrue(cancel(first));
+		SuccessionOffer second = createOffer(preview, null);
 
 		assertEquals(SuccessionOffer.OfferStatus.CANCELLED,
 				offerStore.findById(first.offerID()).orElseThrow().status());
@@ -276,17 +287,17 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 
 		assertThrows(IllegalStateException.class,
 				() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-					succession.createSuccessionOffer(preview, "verified-proof");
+					createOffer(preview, null);
 					throw new IllegalStateException("Échec métier fictif après création de l’offre.");
 				}));
 
 		assertEquals(0, successionOfferCount());
-		succession.createSuccessionOffer(preview, "verified-proof");
+		createOffer(preview, null);
 		assertEquals(1, successionOfferCount());
 	}
 
 	@Test
-	void twoConcurrentBusinessCallsCannotBothCreateAnOpenSuccessionOffer() throws Exception {
+	void twoConcurrentTransactionsCannotBothCreateAnOpenSuccessionOffer() throws Exception {
 		SuccessionPreview preview = succession.previewSuccession(tenantID, newAdminUserID, Set.of());
 		CyclicBarrier start = new CyclicBarrier(2);
 
@@ -305,7 +316,7 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 
 		try {
 			start.await(5, TimeUnit.SECONDS);
-			succession.createSuccessionOffer(preview, "verified-proof");
+			createOffer(preview, null);
 			return true;
 		} catch (AccessDeniedException denied) {
 			return false;
@@ -456,19 +467,20 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 	@Test
 	void creationConsumesItsRealProofAndRejectsReuseOrAnotherSession() {
 		SuccessionPreview preview = succession.previewSuccession(tenantID, newAdminUserID, Set.of());
-		String originalSession = currentSessionHash.get();
+		String originalSession = SessionIDHasher.hash(newRedisSession(actorID));
+		currentSessionHash.set(originalSession);
 		String proof = storeProof(actorID, Action.SUPER_ADMIN_SUCCESSION_CREATE, preview.confirmationDigest());
 		useTheStoredVerifier();
 
 		currentSessionHash.set("f".repeat(64));
-		assertThrows(AccessDeniedException.class, () -> succession.createSuccessionOffer(preview, proof));
+		assertThrows(AccessDeniedException.class, () -> createOffer(preview, proof));
 		assertEquals(1, proofCount(actorID));
 		currentSessionHash.set(originalSession);
 
-		SuccessionOffer offer = succession.createSuccessionOffer(preview, proof);
+		SuccessionOffer offer = createOffer(preview, proof);
 		assertEquals(0, proofCount(actorID));
-		succession.cancelSuccessionOffer(offer.offerID());
-		assertThrows(AccessDeniedException.class, () -> succession.createSuccessionOffer(preview, proof));
+		assertTrue(cancel(offer));
+		assertThrows(AccessDeniedException.class, () -> createOffer(preview, proof));
 		assertEquals(1, successionOfferCount());
 	}
 
@@ -477,7 +489,7 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 		SuccessionOffer offer = acceptOffer(Set.of());
 		storeConfirmation(offer, newAdminUserID, newRedisSession(newAdminUserID));
 
-		assertThrows(AccessDeniedException.class, () -> succession.finalizeSuccession(offer.offerID()));
+		assertThrows(AccessDeniedException.class, () -> finalizeTransfer(offer));
 
 		assertEquals(SuccessionOffer.OfferStatus.ACCEPTED, offerStore.findById(offer.offerID()).orElseThrow().status());
 		assertEquals(actorID, tenantRepository.findById(tenantID).orElseThrow().toDomain().getSuperAdminUserID());
@@ -485,7 +497,7 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 	}
 
 	@Test
-	void confirmingThroughTheServiceBindsTheExactSessionAndReplacesOnlyThatParticipantsConfirmation() {
+	void confirmingThroughTheSecurityComponentBindsTheExactSessionAndReplacesOnlyThatParticipantsConfirmation() {
 		SuccessionOffer offer = acceptOffer(Set.of());
 		String password = "Fictitious-Succession-2026!";
 		jdbcTemplate.update("INSERT INTO user_credentials (user_id, password_hash) VALUES (?, ?)",
@@ -496,18 +508,47 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 		storeConfirmation(offer, actorID, outgoingSession);
 		String firstSession = newRedisSession(newAdminUserID);
 		currentSessionHash.set(SessionIDHasher.hash(firstSession));
-		succession.confirmSuccession(offer.offerID(), password, "000042");
+		confirm(offer, password, "000042");
 		String secondSession = newRedisSession(newAdminUserID);
 		currentSessionHash.set(SessionIDHasher.hash(secondSession));
 		assertThrows(AccessDeniedException.class,
-				() -> succession.confirmSuccession(offer.offerID(), password, "000043"));
-		assertThrows(AccessDeniedException.class, () -> succession.finalizeSuccession(offer.offerID()));
-		succession.confirmSuccession(offer.offerID(), password, "000042");
+				() -> confirm(offer, password, "000043"));
+		assertThrows(AccessDeniedException.class, () -> finalizeTransfer(offer));
+		confirm(offer, password, "000042");
 		assertEquals(SessionIDHasher.hash(secondSession), confirmationStore.findByOfferIDAndUserID(
-				offer.offerID(), newAdminUserID).orElseThrow().sessionIDHash());
+				offer.offerID(), 1, newAdminUserID).orElseThrow().sessionIDHash());
 		assertEquals(SessionIDHasher.hash(outgoingSession), confirmationStore.findByOfferIDAndUserID(
-				offer.offerID(), actorID).orElseThrow().sessionIDHash());
+				offer.offerID(), 1, actorID).orElseThrow().sessionIDHash());
 		assertEquals(2, confirmationCount(offer));
+	}
+
+	@Test
+	void creationAndParticipantConfirmationShareTheQuotaEvenWhenVerificationRollsBack() {
+		SuccessionOffer offer = acceptOffer(Set.of());
+		authenticate(actorID);
+		currentSessionHash.set(SessionIDHasher.hash(newRedisSession(actorID)));
+		var preview = revision(offer).preview();
+
+		for (int attempt = 0; attempt < 3; attempt++) {
+			assertThrows(AccessDeniedException.class,
+					() -> succession.issueSuccessionCreationProof(preview, "wrong", "000042"));
+		}
+		for (int attempt = 0; attempt < 2; attempt++) {
+			var submission = successionSecurity.beginSubmission();
+			assertThrows(AccessDeniedException.class, () -> new TransactionTemplate(transactionManager)
+					.executeWithoutResult(status -> {
+						var locked = successionScope.lock(offer.tenantID(), offer.outgoingUserID(), offer.successorUserID());
+						var current = offerStore.findByIdForUpdate(offer.offerID()).orElseThrow();
+						successionSecurity.verifyConfirmation(submission, current, revision(offer), locked.outgoing(),
+								"wrong", "000042");
+					}));
+		}
+
+		assertTrue(assertThrows(RequestRateLimitExceededException.class,
+				() -> succession.issueSuccessionCreationProof(preview, "wrong", "000042")).retryAfterSeconds() > 0);
+		assertEquals(0, proofCount(actorID));
+		assertEquals(0, confirmationCount(offer));
+		assertEquals(2, successionConsents.findByRevision(offer.offerID(), 1).size());
 	}
 
 	private String storeProof(UUID userID, Action action, String previewDigest) {
@@ -599,7 +640,7 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 		String oldSession = registerSession(outgoing);
 		String newSession = registerSession(incoming);
 
-		succession.finalizeSuccession(ready.offer().offerID());
+		finalizeTransfer(ready.offer());
 		assertEquals(SuccessionOffer.OfferStatus.COMPLETED,
 				offerStore.findById(ready.offer().offerID()).orElseThrow().status());
 		assertEquals(0, confirmationCount(ready.offer()));
@@ -637,7 +678,7 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 	void refusesSuccessionWhenTheConfirmedSituationHasChanged() {
 		ReadySuccession ready = prepareSuccession(Set.of());
 		saveMembership(newAdminUserID, structureID, Set.of(UserRole.EMPLOYEE));
-		assertThrows(AccessDeniedException.class, () -> succession.finalizeSuccession(ready.offer().offerID()));
+		assertThrows(AccessDeniedException.class, () -> finalizeTransfer(ready.offer()));
 		assertEquals(actorID, tenantRepository.findById(tenantID).orElseThrow().toDomain().getSuperAdminUserID());
 	}
 
@@ -646,7 +687,7 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 		ReadySuccession ready = prepareSuccession(Set.of());
 		jdbcTemplate.update("UPDATE user_accounts SET session_version = session_version + 1 WHERE user_id = ?",
 				actorID);
-		assertThrows(AccessDeniedException.class, () -> succession.finalizeSuccession(ready.offer().offerID()));
+		assertThrows(AccessDeniedException.class, () -> finalizeTransfer(ready.offer()));
 		assertEquals(actorID, tenantStore.findById(tenantID).orElseThrow().getSuperAdminUserID());
 		assertEquals(2, confirmationCount(ready.offer()));
 	}
@@ -716,7 +757,7 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 						&& event.getResult() == AuditResult.SUCCESS));
 
 		assertSame(failure, assertThrows(IllegalStateException.class,
-				() -> succession.finalizeSuccession(ready.offer().offerID())));
+				() -> finalizeTransfer(ready.offer())));
 		assertEquals(SuccessionOffer.OfferStatus.ACCEPTED,
 				offerStore.findById(ready.offer().offerID()).orElseThrow().status());
 		assertEquals(2, confirmationCount(ready.offer()));
@@ -753,8 +794,7 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 
 				try {
 					start.await(5, TimeUnit.SECONDS);
-					succession.cancelSuccessionOffer(ready.offer().offerID());
-					return true;
+					return cancel(ready.offer());
 				} catch (AccessDeniedException denied) {
 					return false;
 				} finally {
@@ -781,7 +821,7 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 			return call.callRealMethod();
 		}).when(sessionActivity).validateTogether(ready.outgoingSession(), ready.successorSession());
 
-		assertThrows(AccessDeniedException.class, () -> succession.finalizeSuccession(ready.offer().offerID()));
+		assertThrows(AccessDeniedException.class, () -> finalizeTransfer(ready.offer()));
 		assertEquals(actorID, tenantRepository.findById(tenantID).orElseThrow().toDomain().getSuperAdminUserID());
 		assertEquals(2, confirmationCount(ready.offer()));
 	}
@@ -795,7 +835,7 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 			return result;
 		}).when(sessionActivity).validateTogether(ready.outgoingSession(), ready.successorSession());
 
-		succession.finalizeSuccession(ready.offer().offerID());
+		finalizeTransfer(ready.offer());
 		assertEquals(newAdminUserID,
 				tenantRepository.findById(tenantID).orElseThrow().toDomain().getSuperAdminUserID());
 		assertEquals(0, confirmationCount(ready.offer()));
@@ -808,7 +848,7 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 				.validateTogether(ready.outgoingSession(), ready.successorSession());
 
 		assertThrows(DistributedSecurityUnavailableException.class,
-				() -> succession.finalizeSuccession(ready.offer().offerID()));
+				() -> finalizeTransfer(ready.offer()));
 		assertEquals(actorID, tenantRepository.findById(tenantID).orElseThrow().toDomain().getSuperAdminUserID());
 		assertEquals(SuccessionOffer.OfferStatus.ACCEPTED,
 				offerStore.findById(ready.offer().offerID()).orElseThrow().status());
@@ -830,26 +870,75 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 	void confirmationStorageRejectsAnotherUserOrSummaryAndKeepsTheCurrentRows() {
 		ReadySuccession ready = prepareSuccession(Set.of());
 		SuccessionOffer offer = ready.offer();
-		var current = confirmationStore.findByOfferIDAndUserID(offer.offerID(), newAdminUserID).orElseThrow();
-		var wrongUser = new SuccessionConfirmation(offer.offerID(), oldAdminUserID, 0, current.sessionIDHash(),
+		var current = confirmationStore.findByOfferIDAndUserID(offer.offerID(), 1, newAdminUserID).orElseThrow();
+		var wrongUser = new SuccessionConfirmation(offer.offerID(), oldAdminUserID, 1, 0, current.sessionIDHash(),
 				current.previewDigest(), current.confirmedAt(), current.expiresAt());
-		var wrongDigest = new SuccessionConfirmation(offer.offerID(), newAdminUserID, current.sessionVersion(),
+		var wrongDigest = new SuccessionConfirmation(offer.offerID(), newAdminUserID, 1, current.sessionVersion(),
 				current.sessionIDHash(), "f".repeat(64), current.confirmedAt(), current.expiresAt());
 		TransactionTemplate transaction = new TransactionTemplate(transactionManager);
 		assertThrows(AccessDeniedException.class,
 				() -> transaction.executeWithoutResult(status -> confirmationStore.replaceCurrent(wrongUser)));
 		assertThrows(AccessDeniedException.class,
 				() -> transaction.executeWithoutResult(status -> confirmationStore.replaceCurrent(wrongDigest)));
-		assertEquals(current, confirmationStore.findByOfferIDAndUserID(offer.offerID(), newAdminUserID).orElseThrow());
+		assertEquals(current, confirmationStore.findByOfferIDAndUserID(offer.offerID(), 1, newAdminUserID).orElseThrow());
 		assertEquals(2, confirmationCount(offer));
+	}
+
+	private SuccessionOffer createOffer(SuccessionPreview preview, String proof) {
+		return new TransactionTemplate(transactionManager).execute(status -> {
+			var locked = successionScope.lock(preview.tenantID(), preview.outgoing().userID(), preview.successor().userID());
+			if (proof != null) {
+				successionSecurity.requireCreationProof(locked.outgoing(), preview, proof);
+			}
+			Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
+			SuccessionOffer offer = new SuccessionOffer(UUID.randomUUID(), actorID, newAdminUserID, tenantID,
+					preview.adminRolesToTransfer(), 1L, SuccessionOffer.OfferStatus.PENDING, now,
+					now.plus(Duration.ofHours(24)), null, null);
+			offerStore.create(offer, new SuccessionRevision(offer.offerID(), 1, preview, preview.confirmationDigest(), now));
+			return offer;
+		});
+	}
+
+	private SuccessionRevision revision(SuccessionOffer offer) {
+		return successionRevisions.find(offer.offerID(), 1).orElseThrow();
+	}
+
+	private void confirm(SuccessionOffer offer, String password, String totp) {
+		var submission = successionSecurity.beginSubmission();
+		new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+			var locked = successionScope.lock(offer.tenantID(), offer.outgoingUserID(), offer.successorUserID());
+			SuccessionOffer current = offerStore.findByIdForUpdate(offer.offerID()).orElseThrow();
+			confirmationStore.replaceCurrent(successionSecurity.verifyConfirmation(submission, current,
+					revision(offer), locked.successor(), password, totp));
+		});
+	}
+
+	private boolean cancel(SuccessionOffer offer) {
+		return new TransactionTemplate(transactionManager).execute(status -> {
+			successionScope.lock(offer.tenantID(), offer.outgoingUserID(), offer.successorUserID());
+			return offerStore.close(offer.offerID(), 1, SuccessionOffer.ClosureReason.CANCELLED_BY_OUTGOING, clock.instant());
+		});
+	}
+
+	private void finalizeTransfer(SuccessionOffer offer) {
+		new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+			var locked = successionScope.lock(offer.tenantID(), offer.outgoingUserID(), offer.successorUserID());
+			successionTransfer.transferConfirmed(locked, offer.offerID(), revision(offer));
+		});
 	}
 
 	private SuccessionOffer acceptOffer(Set<UUID> structures) {
 		authenticate(actorID);
 		SuccessionPreview preview = succession.previewSuccession(tenantID, newAdminUserID, structures);
-		SuccessionOffer offer = succession.createSuccessionOffer(preview, "verified-proof");
+		SuccessionOffer offer = createOffer(preview, null);
 		authenticate(newAdminUserID);
-		succession.acceptSuccessionOffer(offer.offerID());
+		new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+			Instant now = clock.instant();
+			for (UUID participant : List.of(actorID, newAdminUserID)) {
+				assertTrue(successionConsents.saveIfAbsent(new SuccessionConsent(offer.offerID(), participant, 1, now)));
+			}
+			assertTrue(offerStore.markAccepted(offer.offerID(), 1, now));
+		});
 		return offer;
 	}
 
@@ -867,8 +956,8 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 		long sessionVersion = accountStore.findById(userID).orElseThrow().getSessionVersion();
 		Instant now = clock.instant();
 		new TransactionTemplate(transactionManager).executeWithoutResult(status -> confirmationStore.replaceCurrent(
-				new SuccessionConfirmation(offer.offerID(), userID, sessionVersion, SessionIDHasher.hash(sessionID),
-						offer.previewDigest(), now, now.plusSeconds(300))));
+				new SuccessionConfirmation(offer.offerID(), userID, 1, sessionVersion, SessionIDHasher.hash(sessionID),
+						revision(offer).previewDigest(), now, now.plusSeconds(300))));
 	}
 
 	private int confirmationCount(SuccessionOffer offer) {
@@ -899,7 +988,7 @@ class StructureAdminTransferPostgresqlIntegrationTest extends AuditStorageIntegr
 
 		try {
 			start.await(5, TimeUnit.SECONDS);
-			succession.finalizeSuccession(ready.offer().offerID());
+			finalizeTransfer(ready.offer());
 			return true;
 		} catch (AccessDeniedException denied) {
 			return false;
