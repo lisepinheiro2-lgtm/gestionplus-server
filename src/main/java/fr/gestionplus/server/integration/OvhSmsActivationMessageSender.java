@@ -17,12 +17,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import fr.gestionplus.server.account.ActivationMessageDeliveryException;
-import fr.gestionplus.server.account.ActivationMessageSender;
+import fr.gestionplus.server.account.SmsIdentityChallenge.Purpose;
+import fr.gestionplus.server.account.SmsMessageSender;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-public final class OvhSmsActivationMessageSender implements ActivationMessageSender, AutoCloseable {
+public final class OvhSmsActivationMessageSender implements SmsMessageSender, AutoCloseable {
 
 	private static final URI TIME_ENDPOINT = URI.create("https://api.eu.ovhcloud.com/1.0/auth/time");
 	private static final JsonMapper JSON = JsonMapper.builder()
@@ -56,7 +57,7 @@ public final class OvhSmsActivationMessageSender implements ActivationMessageSen
 	}
 
 	@Override
-	public void send(String phoneNumber, String code) {
+	public void send(Purpose purpose, String phoneNumber, String code) {
 
 		if (phoneNumber == null || !phoneNumber.matches("\\+[1-9][0-9]{1,14}")
 				|| code == null || !code.matches("[0-9]{6}")) {
@@ -73,7 +74,7 @@ public final class OvhSmsActivationMessageSender implements ActivationMessageSen
 			}
 
 			String body = JSON.writeValueAsString(Map.of("sender", sender, "receivers", List.of(phoneNumber),
-					"message", "Gestion+ - Code d'activation : " + code + ". Ne le communiquez a personne.",
+					"message", SmsMessageSender.formatMessage(purpose, code),
 					"noStopClause", true, "validityPeriod", 5, "priority", "high"));
 			String material = applicationSecret + "+" + consumerKey + "+POST+" + jobsEndpoint + "+" + body
 					+ "+" + timestamp;
@@ -91,7 +92,7 @@ public final class OvhSmsActivationMessageSender implements ActivationMessageSen
 			}
 
 		} catch (NoSuchAlgorithmException | RuntimeException failure) {
-			throw new ActivationMessageDeliveryException();
+			throw new ActivationMessageDeliveryException(purpose);
 		}
 
 	}

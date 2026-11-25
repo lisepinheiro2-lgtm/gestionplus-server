@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import fr.gestionplus.server.account.AccountNotificationStore;
+import fr.gestionplus.server.account.AccountLocks;
 import fr.gestionplus.server.account.AccountStore;
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditContextProvider;
@@ -78,9 +79,7 @@ public class AccountMfaService {
 	public Verification verifyForLogin(UserAccount snapshot, String code) {
 		UserAccount current = accountStore.findByIdForUpdate(snapshot.getUserID()).orElse(null);
 
-		if (current == null || !current.getUserID().equals(snapshot.getUserID())
-				|| current.getStatu() != UserAccountStatus.ACTIVE
-				|| current.getSessionVersion() != snapshot.getSessionVersion()) {
+		if (!AccountLocks.isCurrentAccount(current, snapshot.getUserID(), snapshot.getSessionVersion())) {
 			return Verification.DENIED;
 		}
 

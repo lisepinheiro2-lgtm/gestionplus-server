@@ -1,5 +1,6 @@
 package fr.gestionplus.server.auth;
 
+import static fr.gestionplus.server.account.SmsIdentityChallenge.Purpose.ACCOUNT_ACTIVATION;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -7,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -166,9 +168,9 @@ class MfaEnrollmentHttpTest extends AuditStorageIntegrationTest {
 				OffsetDateTime.ofInstant(NOW.plusSeconds(3600), ZoneOffset.UTC));
 		AtomicReference<String> smsCode = new AtomicReference<>();
 		doAnswer(call -> {
-			smsCode.set(call.getArgument(1));
+			smsCode.set(call.getArgument(2));
 			return null;
-		}).when(messageSender).send(anyString(), anyString());
+		}).when(messageSender).send(eq(ACCOUNT_ACTIVATION), anyString(), anyString());
 		Csrf anonymous = csrf(null);
 		String path = "/api/invitations/" + invitationID;
 		mockMvc.perform(

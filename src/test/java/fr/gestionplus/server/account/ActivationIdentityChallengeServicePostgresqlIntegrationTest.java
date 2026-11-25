@@ -1,5 +1,6 @@
 package fr.gestionplus.server.account;
 
+import static fr.gestionplus.server.account.SmsIdentityChallenge.Purpose.ACCOUNT_ACTIVATION;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -26,7 +27,6 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import fr.gestionplus.server.account.AccountInvitationStore.Invitation;
-import fr.gestionplus.server.account.ActivationIdentityChallengeStore.ActivationIdentityChallenge;
 
 @TestPropertySource(properties = "gestionplus.activation.challenge-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 class ActivationIdentityChallengeServicePostgresqlIntegrationTest
@@ -54,19 +54,19 @@ class ActivationIdentityChallengeServicePostgresqlIntegrationTest
 			assertFalse(TransactionSynchronizationManager.isActualTransactionActive());
 			assertTrue(challengeStore.findCurrentByInvitationAndUser(invitationID, userID).isPresent());
 			return null;
-		}).when(messageSender).send(eq(phone), anyString());
+		}).when(messageSender).send(eq(ACCOUNT_ACTIVATION), eq(phone), anyString());
 
 		createChallenge(invitationID);
 
 		ArgumentCaptor<String> code = ArgumentCaptor.forClass(String.class);
-		verify(messageSender).send(eq(phone), code.capture());
-		ActivationIdentityChallenge challenge = challengeStore.findCurrentByInvitationAndUser(invitationID, userID)
+		verify(messageSender).send(eq(ACCOUNT_ACTIVATION), eq(phone), code.capture());
+		SmsIdentityChallenge challenge = challengeStore.findCurrentByInvitationAndUser(invitationID, userID)
 				.orElseThrow();
 
 		assertTrue(code.getValue().matches("[0-9]{6}"));
 		assertEquals(codeDigester.digest(challenge.challengeID(), code.getValue()), challenge.codeDigest());
 		assertNotEquals(code.getValue(), challenge.codeDigest());
-		assertEquals(phone, challenge.phoneNumber());
+		assertEquals(phone, challenge.binding().phoneNumber());
 		assertEquals(NOW, challenge.createdAt());
 		assertEquals(NOW.plusSeconds(300), challenge.expiresAt());
 		assertEquals(1, challengeStore.countByInvitationAndUser(invitationID, userID));
@@ -87,12 +87,12 @@ class ActivationIdentityChallengeServicePostgresqlIntegrationTest
 		when(clock.instant()).thenReturn(NOW.plusSeconds(60));
 		createChallenge(invitationID);
 
-		ActivationIdentityChallenge replacement = challengeStore.findCurrentByInvitationAndUser(invitationID, userID)
+		SmsIdentityChallenge replacement = challengeStore.findCurrentByInvitationAndUser(invitationID, userID)
 				.orElseThrow();
 		assertNotEquals(previousID, replacement.challengeID());
 		assertEquals(NOW.plusSeconds(60), replacement.createdAt());
 		assertEquals(2, challengeStore.countByInvitationAndUser(invitationID, userID));
-		verify(messageSender, times(2)).send(anyString(), anyString());
+		verify(messageSender, times(2)).send(eq(ACCOUNT_ACTIVATION), anyString(), anyString());
 	}
 
 	@Test
@@ -108,7 +108,7 @@ class ActivationIdentityChallengeServicePostgresqlIntegrationTest
 		when(clock.instant()).thenReturn(NOW.plusSeconds(180));
 		assertThrows(AccountActivationConflictException.class, () -> createChallenge(invitationID));
 		assertEquals(3, challengeStore.countByInvitationAndUser(invitationID, userID));
-		verify(messageSender, times(3)).send(anyString(), anyString());
+		verify(messageSender, times(3)).send(eq(ACCOUNT_ACTIVATION), anyString(), anyString());
 	}
 
 	@Test
@@ -116,7 +116,7 @@ class ActivationIdentityChallengeServicePostgresqlIntegrationTest
 		UUID userID = preparePendingAccount();
 		UUID invitationID = prepareInvitation(userID);
 		IllegalStateException failure = new IllegalStateException("Envoi SMS indisponible.");
-		doThrow(failure).when(messageSender).send(anyString(), anyString());
+		doThrow(failure).when(messageSender).send(eq(ACCOUNT_ACTIVATION), anyString(), anyString());
 
 		for (int attempt = 1; attempt <= 3; attempt++) {
 			assertSame(failure, assertThrows(IllegalStateException.class,
@@ -127,12 +127,12 @@ class ActivationIdentityChallengeServicePostgresqlIntegrationTest
 
 		assertThrows(AccountActivationConflictException.class, () -> createChallenge(invitationID));
 		Integer revoked = jdbcTemplate.queryForObject("""
-				SELECT COUNT(*) FROM account_activation_identity_challenges
+				SELECT COUNT(*) FROM sms_identity_challenges
 				WHERE invitation_id = ? AND user_id = ? AND revoked_at IS NOT NULL
 				""", Integer.class, invitationID, userID);
 		assertNotNull(revoked);
 		assertEquals(3, revoked.intValue());
-		verify(messageSender, times(3)).send(anyString(), anyString());
+		verify(messageSender, times(3)).send(eq(ACCOUNT_ACTIVATION), anyString(), anyString());
 	}
 
 	private UUID prepareInvitation(UUID userID) {

@@ -11,6 +11,7 @@ import org.springframework.security.web.authentication.logout.SecurityContextLog
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+import fr.gestionplus.server.account.AccountLocks;
 import fr.gestionplus.server.account.AccountStore;
 import fr.gestionplus.server.api.HttpApiError;
 import fr.gestionplus.server.api.MfaEnrollmentRoutes;
@@ -58,9 +59,7 @@ final class CurrentAccountSessionFilter extends OncePerRequestFilter {
 
 		if (authentication != null && authentication.getPrincipal() instanceof EnrollmentPrincipal principal) {
 			boolean current = accountStore.findById(principal.userID())
-					.filter(account -> principal.userID().equals(account.getUserID())
-							&& account.getStatu() == UserAccountStatus.ACTIVE
-							&& account.getSessionVersion() == principal.sessionVersion())
+					.filter(account -> AccountLocks.isCurrentAccount(account, principal.userID(), principal.sessionVersion()))
 					.isPresent();
 			Instant now = lifetime.now();
 
@@ -101,9 +100,8 @@ final class CurrentAccountSessionFilter extends OncePerRequestFilter {
 		if (authentication != null && authentication.getPrincipal() instanceof UserAccount principal) {
 			requestStarted = lifetime.now();
 			boolean current = accountStore.findById(principal.getUserID())
-					.filter(account -> principal.getUserID().equals(account.getUserID()))
-					.filter(account -> account.getStatu() == UserAccountStatus.ACTIVE)
-					.filter(account -> account.getSessionVersion() == principal.getSessionVersion()).isPresent();
+					.filter(account -> AccountLocks.isCurrentAccount(account, principal.getUserID(),
+							principal.getSessionVersion())).isPresent();
 
 			if (!current) {
 				lifetime.end(session);

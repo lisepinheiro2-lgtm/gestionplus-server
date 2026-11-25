@@ -29,6 +29,7 @@ import fr.gestionplus.server.auth.AccountMfaService;
 import fr.gestionplus.server.auth.AccountMfaService.Verification;
 import fr.gestionplus.server.auth.AuthenticatedUserProvider;
 import fr.gestionplus.server.auth.CredentialService;
+import fr.gestionplus.server.auth.CurrentPasswordVerifier;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
 import fr.gestionplus.server.auth.UserCredential;
@@ -54,7 +55,7 @@ class PrivilegedConfirmationServiceTest {
 	private final PrivilegedConfirmationService service = new PrivilegedConfirmationService(
 			new StaticListableBeanFactory().getBeanProvider(PrivilegedConfirmationVerifier.class), sessionProvider,
 			proofStore,
-			accountStore, authenticated, credentials, passwords, mfa, Clock.fixed(NOW, ZoneOffset.UTC));
+			accountStore, authenticated, new CurrentPasswordVerifier(credentials, passwords), mfa, Clock.fixed(NOW, ZoneOffset.UTC));
 
 	@BeforeEach
 	void prepareCurrentAccountWithSuccessfulPasswordAndMfaVerification() {

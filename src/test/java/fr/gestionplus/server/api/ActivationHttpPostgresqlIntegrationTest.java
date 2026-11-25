@@ -1,8 +1,10 @@
 package fr.gestionplus.server.api;
 
+import static fr.gestionplus.server.account.SmsIdentityChallenge.Purpose.ACCOUNT_ACTIVATION;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
@@ -31,7 +33,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import fr.gestionplus.server.account.AccountInvitationStore;
 import fr.gestionplus.server.account.AccountInvitationStore.Invitation;
-import fr.gestionplus.server.account.ActivationIdentityChallengeStore;
+import fr.gestionplus.server.account.SmsIdentityChallengeStore;
 import fr.gestionplus.server.auth.CompromisedPasswordChecker;
 import fr.gestionplus.server.support.AuditStorageIntegrationTest;
 import tools.jackson.databind.JsonNode;
@@ -52,7 +54,7 @@ class ActivationHttpPostgresqlIntegrationTest extends AuditStorageIntegrationTes
 	@Autowired
 	private AccountInvitationStore invitations;
 	@Autowired
-	private ActivationIdentityChallengeStore challenges;
+	private SmsIdentityChallengeStore challenges;
 	@MockitoBean
 	private CompromisedPasswordChecker checker;
 	@Value("${local.server.port}")
@@ -63,9 +65,9 @@ class ActivationHttpPostgresqlIntegrationTest extends AuditStorageIntegrationTes
 	void prohibitExternalCallsAndCaptureOnlyTheFictitiousSms() {
 		when(checker.isCompromised(anyString())).thenReturn(false);
 		doAnswer(call -> {
-			sentCode.set(call.getArgument(1));
+			sentCode.set(call.getArgument(2));
 			return null;
-		}).when(messageSender).send(anyString(), anyString());
+		}).when(messageSender).send(eq(ACCOUNT_ACTIVATION), anyString(), anyString());
 	}
 
 	@Test

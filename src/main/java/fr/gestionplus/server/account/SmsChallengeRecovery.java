@@ -15,13 +15,13 @@ import org.springframework.stereotype.Component;
 @Component
 @EnableScheduling
 @ConditionalOnProperty(name = "gestionplus.activation.challenge-recovery.enabled", havingValue = "true", matchIfMissing = true)
-public final class ActivationChallengeRecovery {
+public final class SmsChallengeRecovery {
 
-	private static final Logger LOGGER = LoggerFactory.getLogger(ActivationChallengeRecovery.class);
-	private final ActivationIdentityChallengeStore store;
+	private static final Logger LOGGER = LoggerFactory.getLogger(SmsChallengeRecovery.class);
+	private final SmsIdentityChallengeStore store;
 	private final Clock clock;
 
-	public ActivationChallengeRecovery(ActivationIdentityChallengeStore store, ObjectProvider<Clock> clocks) {
+	public SmsChallengeRecovery(SmsIdentityChallengeStore store, ObjectProvider<Clock> clocks) {
 		this.store = store;
 		clock = clocks.getIfAvailable(Clock::systemUTC);
 	}

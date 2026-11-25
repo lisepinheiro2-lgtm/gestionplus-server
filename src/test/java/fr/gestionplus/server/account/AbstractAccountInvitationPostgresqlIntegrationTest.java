@@ -29,7 +29,6 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import fr.gestionplus.server.account.ActivationIdentityChallengeStore.ActivationIdentityChallenge;
 import fr.gestionplus.server.auth.AuthorizationService;
 import fr.gestionplus.server.auth.CredentialService;
 import fr.gestionplus.server.auth.UserAccount;
@@ -57,7 +56,7 @@ abstract class AbstractAccountInvitationPostgresqlIntegrationTest extends AuditS
 	@Autowired
 	protected MailDeliveryExecutor deliveryExecutor;
 	@Autowired
-	protected ActivationIdentityChallengeStore challengeStore;
+	protected SmsIdentityChallengeStore challengeStore;
 
 	@MockitoSpyBean
 	protected AccountInvitationDeliveryStore deliveryStore;
@@ -193,7 +192,7 @@ abstract class AbstractAccountInvitationPostgresqlIntegrationTest extends AuditS
 				.orElseThrow()
 				.expiresAt();
 
-		ActivationIdentityChallenge challenge = new ActivationIdentityChallenge(
+		SmsIdentityChallenge challenge = SmsIdentityChallenge.forActivation(
 				UUID.randomUUID(),
 				userID,
 				account.getPhoneNumber(),

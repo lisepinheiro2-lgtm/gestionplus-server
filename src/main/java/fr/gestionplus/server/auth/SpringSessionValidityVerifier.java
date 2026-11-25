@@ -42,7 +42,7 @@ public class SpringSessionValidityVerifier implements SessionValidityVerifier {
 
 	private Optional<String> findVerifiedSessionID(UUID userID, long sessionVersion, String sessionIDHash) {
 
-		if (userID == null || sessionIDHash == null || sessionVersion < 0 || !sessionIDHash.matches("[0-9a-f]{64}")) {
+		if (userID == null || sessionVersion < 0 || !SessionIDHasher.isValidHash(sessionIDHash)) {
 			return Optional.empty();
 		}
 

@@ -1,5 +1,6 @@
 package fr.gestionplus.server.account;
 
+import static fr.gestionplus.server.account.SmsIdentityChallenge.Purpose.ACCOUNT_ACTIVATION;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -30,7 +31,6 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import fr.gestionplus.server.account.AccountInvitationStore.Invitation;
-import fr.gestionplus.server.account.ActivationIdentityChallengeStore.ActivationIdentityChallenge;
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditEvent;
 import fr.gestionplus.server.audit.AuditMetadata;
@@ -70,14 +70,14 @@ class AccountActivationChallengePostgresqlIntegrationTest extends AbstractAccoun
 			assertFalse(TransactionSynchronizationManager.isActualTransactionActive());
 			assertTrue(challengeStore.findCurrentByInvitationAndUser(invitation.invitationID(), userID).isPresent());
 			return null;
-		}).when(messageSender).send(eq(phone), anyString());
+		}).when(messageSender).send(eq(ACCOUNT_ACTIVATION), eq(phone), anyString());
 
 		activation.requestActivationChallenge(invitation.invitationID(), token);
 
-		verify(messageSender).send(eq(phone), anyString());
-		ActivationIdentityChallenge challenge = challengeStore
+		verify(messageSender).send(eq(ACCOUNT_ACTIVATION), eq(phone), anyString());
+		SmsIdentityChallenge challenge = challengeStore
 				.findCurrentByInvitationAndUser(invitation.invitationID(), userID).orElseThrow();
-		assertEquals(phone, challenge.phoneNumber());
+		assertEquals(phone, challenge.binding().phoneNumber());
 		assertNull(challenge.consumedAt());
 		assertNull(challenge.revokedAt());
 		assertEquals(1, challengeStore.countByInvitationAndUser(invitation.invitationID(), userID));
@@ -123,7 +123,7 @@ class AccountActivationChallengePostgresqlIntegrationTest extends AbstractAccoun
 		UUID invitationID = invitation.invitationID();
 		SecurityContextHolder.clearContext();
 		activation.requestActivationChallenge(invitationID, token);
-		ActivationIdentityChallenge initial = challengeStore.findCurrentByInvitationAndUser(invitationID, userID)
+		SmsIdentityChallenge initial = challengeStore.findCurrentByInvitationAndUser(invitationID, userID)
 				.orElseThrow();
 
 		when(clock.instant()).thenReturn(NOW.plusSeconds(59));
@@ -132,14 +132,14 @@ class AccountActivationChallengePostgresqlIntegrationTest extends AbstractAccoun
 
 		assertEquals(initial, challengeStore.findCurrentByInvitationAndUser(invitationID, userID).orElseThrow());
 		assertEquals(1, challengeStore.countByInvitationAndUser(invitationID, userID));
-		verify(messageSender).send(anyString(), anyString());
+		verify(messageSender).send(eq(ACCOUNT_ACTIVATION), anyString(), anyString());
 		assertSmsAudit(invitationID, AuditResult.FAILURE, AuditReason.OPERATION_FAILED);
 
 		when(clock.instant()).thenReturn(NOW.plusSeconds(60));
 		activation.requestActivationChallenge(invitationID, token);
 
 		assertEquals(2, challengeStore.countByInvitationAndUser(invitationID, userID));
-		verify(messageSender, times(2)).send(anyString(), anyString());
+		verify(messageSender, times(2)).send(eq(ACCOUNT_ACTIVATION), anyString(), anyString());
 		assertEquals(invitation, invitationStore.findByID(invitationID).orElseThrow());
 	}
 
@@ -154,7 +154,7 @@ class AccountActivationChallengePostgresqlIntegrationTest extends AbstractAccoun
 			activation.requestActivationChallenge(invitationID, token);
 		}
 
-		ActivationIdentityChallenge current = challengeStore.findCurrentByInvitationAndUser(invitationID, userID)
+		SmsIdentityChallenge current = challengeStore.findCurrentByInvitationAndUser(invitationID, userID)
 				.orElseThrow();
 		when(clock.instant()).thenReturn(NOW.plusSeconds(180));
 
@@ -163,7 +163,7 @@ class AccountActivationChallengePostgresqlIntegrationTest extends AbstractAccoun
 
 		assertEquals(3, challengeStore.countByInvitationAndUser(invitationID, userID));
 		assertEquals(current, challengeStore.findCurrentByInvitationAndUser(invitationID, userID).orElseThrow());
-		verify(messageSender, times(3)).send(anyString(), anyString());
+		verify(messageSender, times(3)).send(eq(ACCOUNT_ACTIVATION), anyString(), anyString());
 		assertSmsAudit(invitationID, AuditResult.FAILURE, AuditReason.OPERATION_FAILED);
 	}
 
@@ -173,7 +173,7 @@ class AccountActivationChallengePostgresqlIntegrationTest extends AbstractAccoun
 		Invitation invitation = prepareInvitation(userID);
 		UUID invitationID = invitation.invitationID();
 		IllegalStateException failure = new IllegalStateException("token=" + token + " code=654321");
-		doThrow(failure).when(messageSender).send(anyString(), anyString());
+		doThrow(failure).when(messageSender).send(eq(ACCOUNT_ACTIVATION), anyString(), anyString());
 		SecurityContextHolder.clearContext();
 
 		assertSame(failure, assertThrows(IllegalStateException.class,
@@ -182,7 +182,7 @@ class AccountActivationChallengePostgresqlIntegrationTest extends AbstractAccoun
 		assertTrue(challengeStore.findCurrentByInvitationAndUser(invitationID, userID).isEmpty());
 		assertEquals(1, challengeStore.countByInvitationAndUser(invitationID, userID));
 		assertEquals(1, jdbcTemplate.queryForObject("""
-				SELECT COUNT(*) FROM account_activation_identity_challenges
+				SELECT COUNT(*) FROM sms_identity_challenges
 				WHERE invitation_id = ? AND user_id = ? AND revoked_at IS NOT NULL
 				""", Integer.class, invitationID, userID));
 		assertEquals(invitation, invitationStore.findByID(invitationID).orElseThrow());
@@ -195,7 +195,7 @@ class AccountActivationChallengePostgresqlIntegrationTest extends AbstractAccoun
 				"SELECT metadata::text FROM audit_events WHERE event_id = ?",
 				String.class, event.getEventId());
 		ArgumentCaptor<String> code = ArgumentCaptor.forClass(String.class);
-		verify(messageSender).send(anyString(), code.capture());
+		verify(messageSender).send(eq(ACCOUNT_ACTIVATION), anyString(), code.capture());
 		assertFalse(recorded.contains(token));
 		assertFalse(recorded.contains("654321"));
 		assertFalse(recorded.contains(code.getValue()));

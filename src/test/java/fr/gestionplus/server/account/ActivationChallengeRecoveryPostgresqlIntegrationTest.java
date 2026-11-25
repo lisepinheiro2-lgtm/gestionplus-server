@@ -1,10 +1,12 @@
 package fr.gestionplus.server.account;
 
+import static fr.gestionplus.server.account.SmsIdentityChallenge.Purpose.ACCOUNT_ACTIVATION;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
@@ -22,7 +24,6 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import fr.gestionplus.server.account.AccountInvitationStore.Invitation;
-import fr.gestionplus.server.account.ActivationIdentityChallengeStore.ActivationIdentityChallenge;
 
 @TestPropertySource(properties = "gestionplus.activation.challenge-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 class ActivationChallengeRecoveryPostgresqlIntegrationTest extends AbstractAccountInvitationPostgresqlIntegrationTest {
@@ -31,7 +32,7 @@ class ActivationChallengeRecoveryPostgresqlIntegrationTest extends AbstractAccou
 	@Autowired
 	private ActivationIdentityChallengeService service;
 	@MockitoSpyBean
-	private ActivationIdentityChallengeStore recoveryStore;
+	private SmsIdentityChallengeStore recoveryStore;
 
 	@BeforeEach
 	void controlTime() {
@@ -40,30 +41,30 @@ class ActivationChallengeRecoveryPostgresqlIntegrationTest extends AbstractAccou
 
 	@Test
 	void anUnconfirmedCodeCannotBeConsumedEvenIfItsDigestMatches() {
-		ActivationIdentityChallenge challenge = pendingChallenge();
+		SmsIdentityChallenge challenge = pendingChallenge();
 		assertFalse(challenge.isUsable(NOW));
 		boolean consumed = Boolean.TRUE.equals(new TransactionTemplate(transactionManager)
-				.execute(status -> challengeStore.consumeIfCurrent(challenge.challengeID(), NOW)));
+				.execute(status -> challengeStore.consumeIfCurrent(ACCOUNT_ACTIVATION, challenge.challengeID(), NOW)));
 		assertFalse(consumed);
-		assertTrue(challengeStore.confirmSend(challenge.challengeID(), NOW.plusSeconds(1)));
-		assertFalse(challengeStore.confirmSend(challenge.challengeID(), NOW.plusSeconds(2)));
-		assertTrue(challengeStore.findCurrentByInvitationAndUser(challenge.invitationID(), challenge.userID())
+		assertTrue(challengeStore.confirmSend(ACCOUNT_ACTIVATION, challenge.challengeID(), NOW.plusSeconds(1)));
+		assertFalse(challengeStore.confirmSend(ACCOUNT_ACTIVATION, challenge.challengeID(), NOW.plusSeconds(2)));
+		assertTrue(challengeStore.findCurrentByInvitationAndUser(challenge.binding().invitationID(), challenge.binding().userID())
 				.orElseThrow().isUsable(NOW.plusSeconds(1)));
 	}
 
 	@Test
 	void recoveryKeepsHistoryAndCannotTouchAConfirmedSend() {
-		ActivationIdentityChallenge pending = pendingChallenge();
-		ActivationIdentityChallenge confirmed = pendingChallenge();
-		assertTrue(challengeStore.confirmSend(confirmed.challengeID(), NOW));
+		SmsIdentityChallenge pending = pendingChallenge();
+		SmsIdentityChallenge confirmed = pendingChallenge();
+		assertTrue(challengeStore.confirmSend(ACCOUNT_ACTIVATION, confirmed.challengeID(), NOW));
 		assertEquals(0, challengeStore.revokeUnconfirmedSends(NOW.plusSeconds(119)));
 		assertEquals(1, challengeStore.revokeUnconfirmedSends(NOW.plusSeconds(120)));
 		assertEquals(0, challengeStore.revokeUnconfirmedSends(NOW.plusSeconds(121)));
-		assertTrue(challengeStore.findCurrentByInvitationAndUser(pending.invitationID(), pending.userID()).isEmpty());
-		assertEquals(1, challengeStore.countByInvitationAndUser(pending.invitationID(), pending.userID()));
-		assertTrue(challengeStore.findCurrentByInvitationAndUser(confirmed.invitationID(), confirmed.userID())
+		assertTrue(challengeStore.findCurrentByInvitationAndUser(pending.binding().invitationID(), pending.binding().userID()).isEmpty());
+		assertEquals(1, challengeStore.countByInvitationAndUser(pending.binding().invitationID(), pending.binding().userID()));
+		assertTrue(challengeStore.findCurrentByInvitationAndUser(confirmed.binding().invitationID(), confirmed.binding().userID())
 				.isPresent());
-		assertFalse(challengeStore.confirmSend(pending.challengeID(), NOW.plusSeconds(121)));
+		assertFalse(challengeStore.confirmSend(ACCOUNT_ACTIVATION, pending.challengeID(), NOW.plusSeconds(121)));
 	}
 
 	@Test
@@ -86,8 +87,8 @@ class ActivationChallengeRecoveryPostgresqlIntegrationTest extends AbstractAccou
 		invitationStore.save(new Invitation(invitationID, userID, structureID, digest, NOW.plusSeconds(3600), null));
 		IllegalStateException sendingFailure = new IllegalStateException("Envoi indisponible.");
 		IllegalStateException revocationFailure = new IllegalStateException("Révocation indisponible.");
-		doThrow(sendingFailure).when(messageSender).send(anyString(), anyString());
-		doThrow(revocationFailure).when(recoveryStore).revokeCurrent(any(), any());
+		doThrow(sendingFailure).when(messageSender).send(eq(ACCOUNT_ACTIVATION), anyString(), anyString());
+		doThrow(revocationFailure).when(recoveryStore).revokeCurrent(eq(ACCOUNT_ACTIVATION), any(), any());
 
 		assertSame(sendingFailure, assertThrows(IllegalStateException.class,
 				() -> service.createChallenge(invitationID, digest)));
@@ -100,14 +101,14 @@ class ActivationChallengeRecoveryPostgresqlIntegrationTest extends AbstractAccou
 
 	@Test
 	void confirmationIsRefusedAtTheRecoveryDeadline() {
-		ActivationIdentityChallenge challenge = pendingChallenge();
-		assertFalse(challengeStore.confirmSend(challenge.challengeID(), NOW.plusSeconds(120)));
+		SmsIdentityChallenge challenge = pendingChallenge();
+		assertFalse(challengeStore.confirmSend(ACCOUNT_ACTIVATION, challenge.challengeID(), NOW.plusSeconds(120)));
 		assertEquals(1, challengeStore.revokeUnconfirmedSends(NOW.plusSeconds(120)));
 	}
 
-	private ActivationIdentityChallenge pendingChallenge() {
+	private SmsIdentityChallenge pendingChallenge() {
 		UUID userID = preparePendingAccount();
-		ActivationIdentityChallenge challenge = new ActivationIdentityChallenge(UUID.randomUUID(), userID,
+		SmsIdentityChallenge challenge = SmsIdentityChallenge.forActivation(UUID.randomUUID(), userID,
 				account(userID).getPhoneNumber(), UUID.randomUUID(), "a".repeat(64), 0, NOW, NOW.plusSeconds(300),
 				null, null, null, NOW.plusSeconds(120));
 		challengeStore.replaceCurrent(challenge, NOW);

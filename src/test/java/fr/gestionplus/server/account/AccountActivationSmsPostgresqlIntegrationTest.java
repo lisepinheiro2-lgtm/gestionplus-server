@@ -1,5 +1,6 @@
 package fr.gestionplus.server.account;
 
+import static fr.gestionplus.server.account.SmsIdentityChallenge.Purpose.ACCOUNT_ACTIVATION;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -11,7 +12,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.Set;
@@ -20,14 +20,12 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.TestPropertySource;
 
 import fr.gestionplus.server.account.AccountInvitationStore.Invitation;
-import fr.gestionplus.server.account.ActivationIdentityChallengeStore.ActivationIdentityChallenge;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
 import fr.gestionplus.server.auth.UserCredential;
@@ -41,21 +39,18 @@ class AccountActivationSmsPostgresqlIntegrationTest extends AbstractAccountInvit
 	@Autowired
 	private InvitationTokenIssuer tokenIssuer;
 	@Autowired
-	private ActivationCodeDigester codeDigester;
-	@Autowired
-	private ObjectProvider<Clock> clocks;
+	private SmsIdentityChallengeService smsChallenges;
 
 	private UUID userID;
 	private Invitation invitation;
 	private String token;
 	private String code;
-	private ActivationIdentityChallenge challenge;
+	private SmsIdentityChallenge challenge;
 
 	@BeforeEach
 	void requestCode() {
 		when(clock.instant()).thenReturn(NOW);
-		HmacActivationIdentityVerifier hmacVerifier = new HmacActivationIdentityVerifier(challengeStore, codeDigester,
-				clocks);
+		HmacActivationIdentityVerifier hmacVerifier = new HmacActivationIdentityVerifier(smsChallenges);
 		when(verifier.verify(any(), any(), anyString(), anyString())).thenAnswer(call -> hmacVerifier.verify(
 				call.getArgument(0), call.getArgument(1), call.getArgument(2), call.getArgument(3)));
 
@@ -72,7 +67,7 @@ class AccountActivationSmsPostgresqlIntegrationTest extends AbstractAccountInvit
 		activation.requestActivationChallenge(invitationID, token);
 
 		ArgumentCaptor<String> sentCode = ArgumentCaptor.forClass(String.class);
-		verify(messageSender).send(eq(phoneNumber), sentCode.capture());
+		verify(messageSender).send(eq(ACCOUNT_ACTIVATION), eq(phoneNumber), sentCode.capture());
 		code = sentCode.getValue();
 		challenge = currentChallenge().orElseThrow();
 		assertNull(challenge.consumedAt());
@@ -90,7 +85,7 @@ class AccountActivationSmsPostgresqlIntegrationTest extends AbstractAccountInvit
 		assertTrue(currentChallenge().isEmpty());
 		assertEquals(Boolean.TRUE, jdbcTemplate.queryForObject("""
 				SELECT consumed_at IS NOT NULL AND revoked_at IS NULL
-				FROM account_activation_identity_challenges WHERE challenge_id = ?
+				FROM sms_identity_challenges WHERE challenge_id = ?
 				""", Boolean.class, challenge.challengeID()));
 
 		assertThrows(AccessDeniedException.class, () -> completeActivation(code));
@@ -103,7 +98,7 @@ class AccountActivationSmsPostgresqlIntegrationTest extends AbstractAccountInvit
 
 		for (int attempt = 1; attempt <= 2; attempt++) {
 			assertThrows(AccessDeniedException.class, () -> completeActivation(wrongCode));
-			ActivationIdentityChallenge current = currentChallenge().orElseThrow();
+			SmsIdentityChallenge current = currentChallenge().orElseThrow();
 			assertEquals(challenge.challengeID(), current.challengeID());
 			assertEquals(attempt, current.failedAttempts());
 			assertNull(current.consumedAt());
@@ -115,7 +110,7 @@ class AccountActivationSmsPostgresqlIntegrationTest extends AbstractAccountInvit
 
 		assertEquals(Boolean.TRUE, jdbcTemplate.queryForObject("""
 				SELECT failed_attempts = 3 AND revoked_at IS NOT NULL AND consumed_at IS NULL
-				FROM account_activation_identity_challenges WHERE challenge_id = ?
+				FROM sms_identity_challenges WHERE challenge_id = ?
 				""", Boolean.class, challenge.challengeID()));
 		assertPendingActivation();
 	}
@@ -150,7 +145,7 @@ class AccountActivationSmsPostgresqlIntegrationTest extends AbstractAccountInvit
 		assertTrue(currentChallenge().isEmpty());
 	}
 
-	private Optional<ActivationIdentityChallenge> currentChallenge() {
+	private Optional<SmsIdentityChallenge> currentChallenge() {
 		return challengeStore.findCurrentByInvitationAndUser(invitation.invitationID(), userID);
 	}
 

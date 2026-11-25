@@ -3,6 +3,8 @@ package fr.gestionplus.server.account;
 import java.time.Instant;
 import java.util.UUID;
 
+import fr.gestionplus.server.auth.SessionIDHasher;
+
 import fr.gestionplus.server.account.PrivilegedConfirmationVerifier.Action;
 
 public interface PrivilegedConfirmationProofStore {
@@ -17,7 +19,7 @@ public interface PrivilegedConfirmationProofStore {
 
 		public Proof {
 
-			if (userID == null || sessionIDHash == null || !sessionIDHash.matches("[0-9a-f]{64}") || action == null
+			if (userID == null || !SessionIDHasher.isValidHash(sessionIDHash) || action == null
 					|| expiresAt == null || previewDigest == null || !previewDigest.matches("[0-9a-f]{64}")
 					|| proofHash == null || !proofHash.matches("[0-9a-f]{64}") || sessionVersion < 0) {
 				throw new IllegalArgumentException("La preuve est invalide.");

@@ -384,16 +384,16 @@ class MultiInstanceSessionIntegrationTest {
 		stop(first);
 		stop(second);
 		jdbc.update("""
-				INSERT INTO account_activation_identity_challenges
-				    (challenge_id, user_id, invitation_id, phone_number, code_digest, created_at, expires_at,
+				INSERT INTO sms_identity_challenges
+				    (challenge_id, user_id, invitation_id, phone_number, purpose, code_digest, created_at, expires_at,
 				     send_recovery_at)
-				VALUES (?, ?, ?, '+12025550100', ?, CURRENT_TIMESTAMP - INTERVAL '3 minutes',
+				VALUES (?, ?, ?, '+12025550100', 'ACCOUNT_ACTIVATION', ?, CURRENT_TIMESTAMP - INTERVAL '3 minutes',
 				    CURRENT_TIMESTAMP + INTERVAL '5 minutes', CURRENT_TIMESTAMP - INTERVAL '1 minute')
 				""", challengeID, account.id(), UUID.randomUUID(), "a".repeat(64));
 		first = startNode("first");
 		firstUrl = ready("first", first);
 		assertEquals(1, jdbc.queryForObject("""
-				SELECT COUNT(*) FROM account_activation_identity_challenges
+				SELECT COUNT(*) FROM sms_identity_challenges
 				WHERE challenge_id = ? AND revoked_at IS NOT NULL AND send_confirmed_at IS NULL
 				""", Integer.class, challengeID));
 		second = startNode("second");

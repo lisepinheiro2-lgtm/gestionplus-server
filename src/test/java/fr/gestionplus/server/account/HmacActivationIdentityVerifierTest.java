@@ -1,8 +1,10 @@
 package fr.gestionplus.server.account;
 
+import static fr.gestionplus.server.account.SmsIdentityChallenge.Purpose.ACCOUNT_ACTIVATION;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -19,8 +21,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.transaction.PlatformTransactionManager;
 
-import fr.gestionplus.server.account.ActivationIdentityChallengeStore.ActivationIdentityChallenge;
+import fr.gestionplus.server.auth.AuthenticatedUserProvider;
 
 class HmacActivationIdentityVerifierTest {
 
@@ -33,7 +36,7 @@ class HmacActivationIdentityVerifierTest {
 	private static final String CODE = "000042";
 	private static final String KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
-	private final ActivationIdentityChallengeStore challengeStore = mock(ActivationIdentityChallengeStore.class);
+	private final SmsIdentityChallengeStore challengeStore = mock(SmsIdentityChallengeStore.class);
 	private final ActivationCodeDigester codeDigester = new ActivationCodeDigester(KEY);
 	private HmacActivationIdentityVerifier verifier;
 
@@ -41,7 +44,12 @@ class HmacActivationIdentityVerifierTest {
 	void setUp() {
 		ObjectProvider<Clock> clocks = mock();
 		when(clocks.getIfAvailable(any())).thenReturn(Clock.fixed(NOW, ZoneOffset.UTC));
-		verifier = new HmacActivationIdentityVerifier(challengeStore, codeDigester, clocks);
+		SmsIdentityChallengeService smsChallenges = new SmsIdentityChallengeService(challengeStore,
+				mock(AccountStore.class), mock(AuthenticatedUserProvider.class), mock(CurrentSessionProvider.class),
+				mock(ActivationCodeGenerator.class),
+				codeDigester, mock(SmsMessageSender.class), clocks,
+				mock(PlatformTransactionManager.class));
+		verifier = new HmacActivationIdentityVerifier(smsChallenges);
 	}
 
 	@Test
@@ -82,7 +90,7 @@ class HmacActivationIdentityVerifierTest {
 
 	@Test
 	void aChallengeAtTheFailedAttemptLimitIsRejectedEvenWithTheCorrectCode() {
-		givenChallenge(EXPIRES_AT, 3, null, null);
+		givenChallenge(EXPIRES_AT, 3, null, NOW.minusSeconds(1));
 
 		assertRejectedWithoutChangingChallenge(PHONE_NUMBER);
 	}
@@ -104,25 +112,25 @@ class HmacActivationIdentityVerifierTest {
 		assertTrue(verifier.verify(INVITATION_ID, USER_ID, PHONE_NUMBER, "000043").isEmpty());
 
 		verify(challengeStore).findCurrentByInvitationAndUser(INVITATION_ID, USER_ID);
-		verify(challengeStore).recordFailedAttempt(CHALLENGE_ID, NOW);
+		verify(challengeStore).recordFailedAttempt(ACCOUNT_ACTIVATION, CHALLENGE_ID, NOW);
 		verifyNoMoreInteractions(challengeStore);
 	}
 
 	private void givenChallenge(Instant expiresAt, int failedAttempts, Instant consumedAt, Instant revokedAt) {
-		ActivationIdentityChallenge challenge = new ActivationIdentityChallenge(CHALLENGE_ID, USER_ID, PHONE_NUMBER,
-				INVITATION_ID, codeDigester.digest(CHALLENGE_ID, CODE), failedAttempts, NOW.minusSeconds(60), expiresAt,
+		SmsIdentityChallenge challenge = SmsIdentityChallenge.forActivation(CHALLENGE_ID, USER_ID, PHONE_NUMBER,
+				INVITATION_ID, codeDigester.digest(ACCOUNT_ACTIVATION, CHALLENGE_ID, CODE), failedAttempts, NOW.minusSeconds(60), expiresAt,
 				consumedAt, revokedAt, NOW.minusSeconds(60), NOW.plusSeconds(60));
 		when(challengeStore.findCurrentByInvitationAndUser(INVITATION_ID, USER_ID)).thenReturn(Optional.of(challenge));
 	}
 
 	@Test
 	void refusesACorrectCodeUntilTheSendIsConfirmed() {
-		ActivationIdentityChallenge challenge = new ActivationIdentityChallenge(CHALLENGE_ID, USER_ID, PHONE_NUMBER,
-				INVITATION_ID, codeDigester.digest(CHALLENGE_ID, CODE), 0, NOW, NOW.plusSeconds(300), null,
+		SmsIdentityChallenge challenge = SmsIdentityChallenge.forActivation(CHALLENGE_ID, USER_ID, PHONE_NUMBER,
+				INVITATION_ID, codeDigester.digest(ACCOUNT_ACTIVATION, CHALLENGE_ID, CODE), 0, NOW, NOW.plusSeconds(300), null,
 				null, null, NOW.plusSeconds(120));
 		when(challengeStore.findCurrentByInvitationAndUser(INVITATION_ID, USER_ID)).thenReturn(Optional.of(challenge));
 		assertTrue(verifier.verify(INVITATION_ID, USER_ID, PHONE_NUMBER, CODE).isEmpty());
-		verify(challengeStore, org.mockito.Mockito.never()).recordFailedAttempt(any(), any());
+		verify(challengeStore, org.mockito.Mockito.never()).recordFailedAttempt(eq(ACCOUNT_ACTIVATION), any(), any());
 	}
 
 	private void assertRejectedWithoutChangingChallenge(String phoneNumber) {

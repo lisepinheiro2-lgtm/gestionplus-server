@@ -22,10 +22,8 @@ import fr.gestionplus.server.audit.AuditedAccessDeniedException;
 import fr.gestionplus.server.auth.AccountMfaService;
 import fr.gestionplus.server.auth.AccountMfaService.Verification;
 import fr.gestionplus.server.auth.AuthenticatedUserProvider;
-import fr.gestionplus.server.auth.CredentialService;
+import fr.gestionplus.server.auth.CurrentPasswordVerifier;
 import fr.gestionplus.server.auth.UserAccount;
-import fr.gestionplus.server.auth.UserCredential;
-import fr.gestionplus.server.auth.UserCredentialLookup;
 
 @Component
 public class PrivilegedConfirmationService {
@@ -35,23 +33,21 @@ public class PrivilegedConfirmationService {
 	private final PrivilegedConfirmationProofStore proofStore;
 	private final AccountStore accounts;
 	private final AuthenticatedUserProvider authenticated;
-	private final UserCredentialLookup credentials;
-	private final CredentialService passwords;
+	private final CurrentPasswordVerifier currentPasswordVerifier;
 	private final AccountMfaService mfa;
 	private final Clock clock;
 
 	public PrivilegedConfirmationService(ObjectProvider<PrivilegedConfirmationVerifier> verifiers,
 			CurrentSessionProvider currentSessionProvider, PrivilegedConfirmationProofStore proofStore,
-			AccountStore accounts, AuthenticatedUserProvider authenticated, UserCredentialLookup credentials,
-			CredentialService passwords, AccountMfaService mfa, Clock clock) {
+			AccountStore accounts, AuthenticatedUserProvider authenticated,
+			CurrentPasswordVerifier currentPasswordVerifier, AccountMfaService mfa, Clock clock) {
 
 		this.verifiers = verifiers;
 		this.currentSessionProvider = currentSessionProvider;
 		this.proofStore = proofStore;
 		this.accounts = accounts;
 		this.authenticated = authenticated;
-		this.credentials = credentials;
-		this.passwords = passwords;
+		this.currentPasswordVerifier = currentPasswordVerifier;
 		this.mfa = mfa;
 		this.clock = clock;
 	}
@@ -135,10 +131,7 @@ public class PrivilegedConfirmationService {
 
 	private void verifyCredentials(UserAccount current, String rawPassword, String totpCode) {
 
-		UserCredential credential = credentials.findByUserId(current.getUserID())
-				.filter(found -> current.getUserID().equals(found.getUserId())).orElseThrow(this::denied);
-
-		if (!passwords.verifyPassword(credential, rawPassword)) {
+		if (!currentPasswordVerifier.matches(current.getUserID(), rawPassword)) {
 			throw denied();
 		}
 

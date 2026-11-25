@@ -37,8 +37,8 @@ class PasswordChangeServiceTest {
 	private final AccountMfaService mfa = mock(AccountMfaService.class);
 	private final SessionRevocationService sessions = mock(SessionRevocationService.class);
 	private final AuditService audit = mock(AuditService.class);
-	private final PasswordChangeService service = new PasswordChangeService(authenticated, accounts, credentials,
-			passwords, mfa, sessions, audit, mock(PlatformTransactionManager.class));
+	private final PasswordChangeService service = new PasswordChangeService(authenticated, accounts,
+			new CurrentPasswordVerifier(credentials, passwords), passwords, mfa, sessions, audit, mock(PlatformTransactionManager.class));
 	private final UUID userID = UUID.randomUUID();
 	private final UserAccount current = account(userID, UserAccountStatus.ACTIVE, 3);
 	private final UserCredential credential = new UserCredential(userID, "old-test-hash");

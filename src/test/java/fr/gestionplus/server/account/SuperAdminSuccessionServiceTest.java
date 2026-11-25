@@ -36,10 +36,9 @@ import fr.gestionplus.server.audit.AuditService;
 import fr.gestionplus.server.auth.AccountMfaService;
 import fr.gestionplus.server.auth.AuthenticatedUserProvider;
 import fr.gestionplus.server.auth.AuthorizationService;
-import fr.gestionplus.server.auth.CredentialService;
+import fr.gestionplus.server.auth.CurrentPasswordVerifier;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
-import fr.gestionplus.server.auth.UserCredentialLookup;
 import fr.gestionplus.server.auth.UserRole;
 import fr.gestionplus.server.organization.OrganizationalStructure;
 import fr.gestionplus.server.organization.OrganizationalStructureStore;
@@ -86,7 +85,7 @@ class SuperAdminSuccessionServiceTest {
 				new PrivilegedConfirmationService(beans.getBeanProvider(PrivilegedConfirmationVerifier.class),
 						sessionProvider, mock(PrivilegedConfirmationProofStore.class), mock(AccountStore.class),
 						authenticated,
-						mock(UserCredentialLookup.class), mock(CredentialService.class), mock(AccountMfaService.class),
+						mock(CurrentPasswordVerifier.class), mock(AccountMfaService.class),
 						Clock.systemUTC()),
 				audit, clock);
 		when(authenticated.getCurrentAccount()).thenReturn(outgoing);

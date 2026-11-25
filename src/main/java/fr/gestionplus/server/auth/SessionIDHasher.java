@@ -10,6 +10,10 @@ public final class SessionIDHasher {
 	private SessionIDHasher() {
 	}
 
+	public static boolean isValidHash(String sessionIDHash) {
+		return sessionIDHash != null && sessionIDHash.matches("[0-9a-f]{64}");
+	}
+
 	public static String hash(String sessionID) {
 
 		try {

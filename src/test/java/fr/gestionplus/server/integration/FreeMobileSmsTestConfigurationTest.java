@@ -15,7 +15,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
-import fr.gestionplus.server.account.ActivationMessageSender;
+import fr.gestionplus.server.account.SmsMessageSender;
 import fr.gestionplus.server.account.FakeActivationMessageSender;
 
 class FreeMobileSmsTestConfigurationTest {
@@ -27,11 +27,11 @@ class FreeMobileSmsTestConfigurationTest {
 	void doesNotActivateWithoutAnExplicitFlag() {
 		context.run(application -> {
 			assertNull(application.getStartupFailure());
-			assertTrue(application.getBeansOfType(ActivationMessageSender.class).isEmpty());
+			assertTrue(application.getBeansOfType(SmsMessageSender.class).isEmpty());
 		});
 		context.withPropertyValues("gestionplus.sms.free-test.enabled=false").run(application -> {
 			assertNull(application.getStartupFailure());
-			assertTrue(application.getBeansOfType(ActivationMessageSender.class).isEmpty());
+			assertTrue(application.getBeansOfType(SmsMessageSender.class).isEmpty());
 		});
 	}
 
@@ -39,7 +39,7 @@ class FreeMobileSmsTestConfigurationTest {
 	void preservesTheExistingFictitiousSenderWhenFreeIsDisabled() {
 		context.withPropertyValues("gestionplus.sms.fictif=true").run(application -> {
 			assertNull(application.getStartupFailure());
-			assertEquals(1, application.getBeansOfType(ActivationMessageSender.class).size());
+			assertEquals(1, application.getBeansOfType(SmsMessageSender.class).size());
 			assertNotNull(application.getBean(FakeActivationMessageSender.class));
 		});
 	}
@@ -49,7 +49,7 @@ class FreeMobileSmsTestConfigurationTest {
 		configured().run(application -> {
 			assertNull(application.getStartupFailure());
 			assertNotNull(application.getBean(FreeMobileActivationMessageSender.class));
-			assertEquals(1, application.getBeansOfType(ActivationMessageSender.class).size());
+			assertEquals(1, application.getBeansOfType(SmsMessageSender.class).size());
 			assertTrue(application.getBeansOfType(HttpClient.class).isEmpty());
 		});
 	}

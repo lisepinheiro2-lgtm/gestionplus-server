@@ -13,10 +13,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import fr.gestionplus.server.account.ActivationMessageDeliveryException;
-import fr.gestionplus.server.account.ActivationMessageSender;
+import fr.gestionplus.server.account.SmsIdentityChallenge.Purpose;
+import fr.gestionplus.server.account.SmsMessageSender;
 import tools.jackson.databind.json.JsonMapper;
 
-public final class FreeMobileActivationMessageSender implements ActivationMessageSender, AutoCloseable {
+public final class FreeMobileActivationMessageSender implements SmsMessageSender, AutoCloseable {
 
 	private static final URI ENDPOINT = URI.create("https://smsapi.free-mobile.fr/sendmsg");
 	private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -46,18 +47,17 @@ public final class FreeMobileActivationMessageSender implements ActivationMessag
 	}
 
 	@Override
-	public void send(String phoneNumber, String code) {
+	public void send(Purpose purpose, String phoneNumber, String code) {
 
 		if (!recipient.equals(phoneNumber)) {
-			throw new ActivationMessageDeliveryException();
+			throw new ActivationMessageDeliveryException(purpose);
 		}
 
 		if (code == null || !code.matches("[0-9]{6}")) {
 			throw new IllegalArgumentException("Le code d’activation doit contenir exactement six chiffres.");
 		}
 
-		String message = "Gestion+ - Code d'activation : " + code
-				+ ". Ne le communiquez a personne.";
+		String message = SmsMessageSender.formatMessage(purpose, code);
 		byte[] body = JSON.writeValueAsBytes(Map.of("user", accountId, "pass", apiKey, "msg", message));
 		HttpRequest request = HttpRequest.newBuilder(ENDPOINT)
 				.header("Content-Type", "application/json; charset=UTF-8")
@@ -69,15 +69,15 @@ public final class FreeMobileActivationMessageSender implements ActivationMessag
 
 			if (response.statusCode() != 200) {
 				LOGGER.warn("Échec de l’envoi SMS Free de test (HTTP {}).", response.statusCode());
-				throw new ActivationMessageDeliveryException();
+				throw new ActivationMessageDeliveryException(purpose);
 			}
 
 		} catch (IOException failure) {
 			LOGGER.warn("Échec réseau de l’envoi SMS Free de test ({}).", failure.getClass().getSimpleName());
-			throw new ActivationMessageDeliveryException();
+			throw new ActivationMessageDeliveryException(purpose);
 		} catch (InterruptedException failure) {
 			Thread.currentThread().interrupt();
-			throw new ActivationMessageDeliveryException();
+			throw new ActivationMessageDeliveryException(purpose);
 		}
 
 	}

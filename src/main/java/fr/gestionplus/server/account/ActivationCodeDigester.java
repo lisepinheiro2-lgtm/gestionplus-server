@@ -13,6 +13,8 @@ import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import fr.gestionplus.server.account.SmsIdentityChallenge.Purpose;
+
 @Component
 public class ActivationCodeDigester {
 
@@ -34,14 +36,21 @@ public class ActivationCodeDigester {
 	}
 
 	String digest(UUID challengeID, String code) {
+		return digest(Purpose.ACCOUNT_ACTIVATION, challengeID, code);
+	}
 
+	String digest(Purpose purpose, UUID challengeID, String code) {
+		String domain = switch (purpose) {
+		case ACCOUNT_ACTIVATION -> "gestionplus-activation-challenge-v1:";
+		case MFA_ENROLLMENT -> "gestionplus-mfa-enrollment-challenge-v1:";
+		};
 		if (key == null) {
 			throw new IllegalStateException("La clé d'envoi du code est obligatoire.");
 		}
 
 		try {
 			Mac mac = Mac.getInstance("HmacSHA256");
-			byte[] input = ("gestionplus-activation-challenge-v1:" + challengeID + ":" + code)
+			byte[] input = (domain + challengeID + ":" + code)
 					.getBytes(StandardCharsets.US_ASCII);
 
 			mac.init(key);

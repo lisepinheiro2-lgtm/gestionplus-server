@@ -1,5 +1,6 @@
 package fr.gestionplus.server.account;
 
+import static fr.gestionplus.server.account.SmsIdentityChallenge.Purpose.ACCOUNT_ACTIVATION;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -37,7 +38,6 @@ import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import fr.gestionplus.server.account.AccountInvitationDeliveryStore.Request;
 import fr.gestionplus.server.account.AccountInvitationStore.Invitation;
-import fr.gestionplus.server.account.ActivationIdentityChallengeStore.ActivationIdentityChallenge;
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditService;
 import fr.gestionplus.server.auth.AccountMfaService;
@@ -58,7 +58,7 @@ class AccountActivationServiceTest {
 
 	private final AccountStore accounts = mock(AccountStore.class);
 	private final AccountInvitationStore invitations = mock(AccountInvitationStore.class);
-	private final ActivationIdentityChallengeStore challenges = mock(ActivationIdentityChallengeStore.class);
+	private final SmsIdentityChallengeStore challenges = mock(SmsIdentityChallengeStore.class);
 	private final AccountInvitationDeliveryStore deliveries = mock(AccountInvitationDeliveryStore.class);
 	private final AccountInvitationScope scope = mock(AccountInvitationScope.class);
 	private final AuditService audit = mock(AuditService.class);
@@ -247,9 +247,9 @@ class AccountActivationServiceTest {
 		when(verifier.verify(INVITATION_ID, USER_ID, account.getPhoneNumber(), "verified-proof"))
 				.thenReturn(Optional.of(challengeID));
 		when(challenges.findCurrentByInvitationAndUser(INVITATION_ID, USER_ID)).thenReturn(Optional.of(
-				new ActivationIdentityChallenge(challengeID, USER_ID, account.getPhoneNumber(), INVITATION_ID,
+				SmsIdentityChallenge.forActivation(challengeID, USER_ID, account.getPhoneNumber(), INVITATION_ID,
 						"a".repeat(64), 0, NOW, NOW.plusSeconds(300), null, null, NOW, NOW.plusSeconds(120))));
-		when(challenges.consumeIfCurrent(challengeID, NOW)).thenReturn(true);
+		when(challenges.consumeIfCurrent(ACCOUNT_ACTIVATION, challengeID, NOW)).thenReturn(true);
 		when(credentials.encodePassword(USER_ID, PASSWORD)).thenReturn(new UserCredential(USER_ID, "fictitious-hash"));
 		when(mfa.requiresInitialEnrollment(USER_ID)).thenReturn(initialEnrollmentRequired);
 		SimpleTransactionStatus transaction = new SimpleTransactionStatus();

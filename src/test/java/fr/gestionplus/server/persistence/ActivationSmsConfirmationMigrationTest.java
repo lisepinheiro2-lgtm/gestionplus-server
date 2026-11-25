@@ -18,7 +18,7 @@ import com.github.dockerjava.api.model.Ports;
 class ActivationSmsConfirmationMigrationTest {
 
 	@Test
-	void upgradingV27RevokesOpenChallengesWithoutDeletingAnyAttempt() {
+	void v28RevokesOpenChallengesAndV36PreservesActivationHistory() {
 
 		try (var postgres = new PostgreSQLContainer("postgres:16-alpine")
 				.withDatabaseName("fictitious_sms_migration").withUsername("fictitious_migration")
@@ -57,7 +57,7 @@ class ActivationSmsConfirmationMigrationTest {
 			}
 
 			Flyway.configure().dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
-					.locations("classpath:db/migration").load().migrate();
+					.locations("classpath:db/migration").target("28").load().migrate();
 			assertEquals(3,
 					jdbc.queryForObject("SELECT COUNT(*) FROM account_activation_identity_challenges", Integer.class));
 			assertEquals(0, jdbc.queryForObject(
@@ -70,6 +70,34 @@ class ActivationSmsConfirmationMigrationTest {
 			assertNotNull(
 					jdbc.queryForObject("SELECT MIN(send_recovery_at) FROM account_activation_identity_challenges",
 							java.time.OffsetDateTime.class));
+
+			Flyway.configure().dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+					.locations("classpath:db/migration").target("35").load().migrate();
+			UUID currentChallengeID = UUID.randomUUID();
+			jdbc.update("""
+					INSERT INTO account_activation_identity_challenges
+					    (challenge_id, user_id, invitation_id, phone_number, code_digest,
+					     created_at, expires_at, send_confirmed_at, send_recovery_at)
+					VALUES (?, ?, ?, '+12025550100', ?, CURRENT_TIMESTAMP,
+					    CURRENT_TIMESTAMP + INTERVAL '5 minutes', CURRENT_TIMESTAMP,
+					    CURRENT_TIMESTAMP + INTERVAL '2 minutes')
+					""", currentChallengeID, userID, invitationID, "b".repeat(64));
+			String currentChallenge = """
+					SELECT user_id, invitation_id, code_digest, created_at, expires_at, send_confirmed_at,
+					    send_recovery_at, consumed_at, revoked_at FROM %s WHERE challenge_id = ?
+					""";
+			var before = jdbc.queryForMap(currentChallenge.formatted("account_activation_identity_challenges"),
+					currentChallengeID);
+
+			Flyway.configure().dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+					.locations("classpath:db/migration").target("36").load().migrate();
+			assertEquals(before, jdbc.queryForMap(currentChallenge.formatted("sms_identity_challenges"),
+					currentChallengeID));
+			assertEquals(4, jdbc.queryForObject("""
+					SELECT COUNT(*) FROM sms_identity_challenges
+					WHERE user_id = ? AND invitation_id = ? AND purpose = 'ACCOUNT_ACTIVATION'
+					    AND session_id_hash IS NULL AND session_version IS NULL
+					""", Integer.class, userID, invitationID));
 		}
 
 	}

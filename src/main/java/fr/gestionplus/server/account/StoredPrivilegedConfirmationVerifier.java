@@ -7,6 +7,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import fr.gestionplus.server.auth.SessionIDHasher;
+
 @Component
 public class StoredPrivilegedConfirmationVerifier implements PrivilegedConfirmationVerifier {
 
@@ -23,8 +25,7 @@ public class StoredPrivilegedConfirmationVerifier implements PrivilegedConfirmat
 	public boolean consumeRecentProof(UUID userID, String sessionIDHash, long sessionVersion, Action action,
 			String previewDigest, String proof) {
 
-		if (proof == null || !proof.matches("[A-Za-z0-9_-]{43}") || sessionIDHash == null
-				|| !sessionIDHash.matches("[0-9a-f]{64}")) {
+		if (proof == null || !proof.matches("[A-Za-z0-9_-]{43}") || !SessionIDHasher.isValidHash(sessionIDHash)) {
 			return false;
 		}
 

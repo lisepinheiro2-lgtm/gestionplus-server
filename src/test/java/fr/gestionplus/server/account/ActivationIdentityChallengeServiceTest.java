@@ -1,5 +1,6 @@
 package fr.gestionplus.server.account;
 
+import static fr.gestionplus.server.account.SmsIdentityChallenge.Purpose.ACCOUNT_ACTIVATION;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -35,7 +36,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import fr.gestionplus.server.account.AccountInvitationStore.Invitation;
-import fr.gestionplus.server.account.ActivationIdentityChallengeStore.ActivationIdentityChallenge;
+import fr.gestionplus.server.auth.AuthenticatedUserProvider;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
 
@@ -49,12 +50,12 @@ class ActivationIdentityChallengeServiceTest {
 	private static final String CODE = "000042";
 	private static final String DIGEST = "a".repeat(64);
 
-	private final ActivationIdentityChallengeStore challenges = mock(ActivationIdentityChallengeStore.class);
+	private final SmsIdentityChallengeStore challenges = mock(SmsIdentityChallengeStore.class);
 	private final AccountInvitationStore invitations = mock(AccountInvitationStore.class);
 	private final AccountStore accounts = mock(AccountStore.class);
 	private final ActivationCodeGenerator generator = mock(ActivationCodeGenerator.class);
 	private final ActivationCodeDigester digester = mock(ActivationCodeDigester.class);
-	private final ActivationMessageSender sender = mock(ActivationMessageSender.class);
+	private final SmsMessageSender sender = mock(SmsMessageSender.class);
 	private final PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
 	private ActivationIdentityChallengeService service;
 	private final Clock clock = mock(Clock.class);
@@ -64,8 +65,9 @@ class ActivationIdentityChallengeServiceTest {
 		ObjectProvider<Clock> clocks = mock();
 		when(clock.instant()).thenReturn(NOW);
 		when(clocks.getIfAvailable(any())).thenReturn(clock);
-		service = new ActivationIdentityChallengeService(challenges, invitations, accounts, generator, digester,
-				sender, clocks, transactions);
+		SmsIdentityChallengeService smsChallenges = new SmsIdentityChallengeService(challenges, accounts,
+				mock(AuthenticatedUserProvider.class), mock(CurrentSessionProvider.class), generator, digester, sender, clocks, transactions);
+		service = new ActivationIdentityChallengeService(challenges, invitations, accounts, smsChallenges, clocks);
 		Invitation invitation = new Invitation(INVITATION_ID, USER_ID, STRUCTURE_ID, "invitation-digest",
 				NOW.plusSeconds(3600), null);
 		when(invitations.findByID(INVITATION_ID)).thenReturn(Optional.of(invitation));
@@ -75,9 +77,9 @@ class ActivationIdentityChallengeServiceTest {
 		when(accounts.findById(USER_ID)).thenReturn(Optional.of(account));
 		when(accounts.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(account));
 		when(challenges.findCurrentByInvitationAndUser(INVITATION_ID, USER_ID)).thenReturn(Optional.empty());
-		when(challenges.confirmSend(any(), any())).thenReturn(true);
+		when(challenges.confirmSend(eq(ACCOUNT_ACTIVATION), any(), any())).thenReturn(true);
 		when(generator.generate()).thenReturn(CODE);
-		when(digester.digest(any(), eq(CODE))).thenReturn(DIGEST);
+		when(digester.digest(eq(ACCOUNT_ACTIVATION), any(), eq(CODE))).thenReturn(DIGEST);
 		when(transactions.getTransaction(any())).thenAnswer(invocation -> new SimpleTransactionStatus());
 	}
 
@@ -85,7 +87,7 @@ class ActivationIdentityChallengeServiceTest {
 	void persistsOnlyTheDigestAndSendsTheCodeAfterCommit() {
 		service.createChallenge(INVITATION_ID, "invitation-digest");
 
-		ArgumentCaptor<ActivationIdentityChallenge> saved = ArgumentCaptor.forClass(ActivationIdentityChallenge.class);
+		ArgumentCaptor<SmsIdentityChallenge> saved = ArgumentCaptor.forClass(SmsIdentityChallenge.class);
 		var order = inOrder(accounts, challenges, transactions, sender);
 		order.verify(transactions).getTransaction(any());
 		order.verify(accounts).findByIdForUpdate(USER_ID);
@@ -93,13 +95,13 @@ class ActivationIdentityChallengeServiceTest {
 		order.verify(challenges).countByInvitationAndUser(INVITATION_ID, USER_ID);
 		order.verify(challenges).replaceCurrent(saved.capture(), eq(NOW));
 		order.verify(transactions).commit(any());
-		order.verify(sender).send(PHONE, CODE);
-		order.verify(challenges).confirmSend(saved.getValue().challengeID(), NOW);
+		order.verify(sender).send(ACCOUNT_ACTIVATION, PHONE, CODE);
+		order.verify(challenges).confirmSend(ACCOUNT_ACTIVATION, saved.getValue().challengeID(), NOW);
 
-		ActivationIdentityChallenge challenge = saved.getValue();
-		assertEquals(USER_ID, challenge.userID());
-		assertEquals(INVITATION_ID, challenge.invitationID());
-		assertEquals(PHONE, challenge.phoneNumber());
+		SmsIdentityChallenge challenge = saved.getValue();
+		assertEquals(USER_ID, challenge.binding().userID());
+		assertEquals(INVITATION_ID, challenge.binding().invitationID());
+		assertEquals(PHONE, challenge.binding().phoneNumber());
 		assertEquals(DIGEST, challenge.codeDigest());
 		assertNotEquals(CODE, challenge.codeDigest());
 		assertEquals(0, challenge.failedAttempts());
@@ -107,8 +109,8 @@ class ActivationIdentityChallengeServiceTest {
 		assertEquals(NOW.plusSeconds(300), challenge.expiresAt());
 		assertNull(challenge.consumedAt());
 		assertNull(challenge.revokedAt());
-		verify(digester).digest(challenge.challengeID(), CODE);
-		verify(challenges, never()).revokeCurrent(any(), any());
+		verify(digester).digest(ACCOUNT_ACTIVATION, challenge.challengeID(), CODE);
+		verify(challenges, never()).revokeCurrent(eq(ACCOUNT_ACTIVATION), any(), any());
 	}
 
 	@Test
@@ -222,7 +224,7 @@ class ActivationIdentityChallengeServiceTest {
 		service.createChallenge(INVITATION_ID, "invitation-digest");
 
 		verify(challenges).replaceCurrent(any(), eq(NOW));
-		verify(sender).send(PHONE, CODE);
+		verify(sender).send(ACCOUNT_ACTIVATION, PHONE, CODE);
 	}
 
 	@Test
@@ -233,7 +235,7 @@ class ActivationIdentityChallengeServiceTest {
 		service.createChallenge(INVITATION_ID, "invitation-digest");
 
 		verify(challenges).replaceCurrent(any(), eq(NOW));
-		verify(sender).send(PHONE, CODE);
+		verify(sender).send(ACCOUNT_ACTIVATION, PHONE, CODE);
 	}
 
 	@ParameterizedTest
@@ -272,13 +274,13 @@ class ActivationIdentityChallengeServiceTest {
 		service.createChallenge(INVITATION_ID, "invitation-digest");
 
 		verify(challenges).replaceCurrent(any(), eq(NOW));
-		verify(sender).send(PHONE, CODE);
+		verify(sender).send(ACCOUNT_ACTIVATION, PHONE, CODE);
 	}
 
 	@Test
 	void doesNotPersistOrSendWhenDigestingFails() {
 		IllegalStateException failure = new IllegalStateException("Clé de défi indisponible.");
-		when(digester.digest(any(), eq(CODE))).thenThrow(failure);
+		when(digester.digest(eq(ACCOUNT_ACTIVATION), any(), eq(CODE))).thenThrow(failure);
 
 		assertSame(failure, assertThrows(IllegalStateException.class,
 				() -> service.createChallenge(INVITATION_ID, "invitation-digest")));
@@ -311,17 +313,17 @@ class ActivationIdentityChallengeServiceTest {
 	@Test
 	void revokesThePersistedChallengeWhenSendingFailsAndRethrowsTheFailure() {
 		IllegalStateException failure = new IllegalStateException("Envoi SMS indisponible.");
-		doThrow(failure).when(sender).send(PHONE, CODE);
+		doThrow(failure).when(sender).send(ACCOUNT_ACTIVATION, PHONE, CODE);
 
 		assertSame(failure, assertThrows(IllegalStateException.class,
 				() -> service.createChallenge(INVITATION_ID, "invitation-digest")));
 
-		ArgumentCaptor<ActivationIdentityChallenge> saved = ArgumentCaptor.forClass(ActivationIdentityChallenge.class);
+		ArgumentCaptor<SmsIdentityChallenge> saved = ArgumentCaptor.forClass(SmsIdentityChallenge.class);
 		var order = inOrder(challenges, transactions, sender);
 		order.verify(challenges).replaceCurrent(saved.capture(), eq(NOW));
 		order.verify(transactions).commit(any());
-		order.verify(sender).send(PHONE, CODE);
-		order.verify(challenges).revokeCurrent(saved.getValue().challengeID(), NOW);
+		order.verify(sender).send(ACCOUNT_ACTIVATION, PHONE, CODE);
+		order.verify(challenges).revokeCurrent(ACCOUNT_ACTIVATION, saved.getValue().challengeID(), NOW);
 	}
 
 	@Test
@@ -333,11 +335,11 @@ class ActivationIdentityChallengeServiceTest {
 
 		service.createChallenge(INVITATION_ID, "invitation-digest");
 
-		ArgumentCaptor<ActivationIdentityChallenge> saved = ArgumentCaptor.forClass(ActivationIdentityChallenge.class);
+		ArgumentCaptor<SmsIdentityChallenge> saved = ArgumentCaptor.forClass(SmsIdentityChallenge.class);
 		verify(challenges).replaceCurrent(saved.capture(), eq(NOW));
-		assertEquals(updatedPhone, saved.getValue().phoneNumber());
-		verify(sender).send(updatedPhone, CODE);
-		verify(sender, never()).send(PHONE, CODE);
+		assertEquals(updatedPhone, saved.getValue().binding().phoneNumber());
+		verify(sender).send(ACCOUNT_ACTIVATION, updatedPhone, CODE);
+		verify(sender, never()).send(ACCOUNT_ACTIVATION, PHONE, CODE);
 	}
 
 	@Test
@@ -371,8 +373,8 @@ class ActivationIdentityChallengeServiceTest {
 	void preservesBothFailuresWhenSendingAndImmediateRevocationFail() {
 		IllegalStateException sendingFailure = new IllegalStateException("Envoi indisponible.");
 		IllegalStateException revocationFailure = new IllegalStateException("Révocation indisponible.");
-		doThrow(sendingFailure).when(sender).send(PHONE, CODE);
-		doThrow(revocationFailure).when(challenges).revokeCurrent(any(), any());
+		doThrow(sendingFailure).when(sender).send(ACCOUNT_ACTIVATION, PHONE, CODE);
+		doThrow(revocationFailure).when(challenges).revokeCurrent(eq(ACCOUNT_ACTIVATION), any(), any());
 
 		assertSame(sendingFailure, assertThrows(IllegalStateException.class,
 				() -> service.createChallenge(INVITATION_ID, "invitation-digest")));
@@ -382,17 +384,17 @@ class ActivationIdentityChallengeServiceTest {
 
 	@Test
 	void revokesAChallengeWhoseSuccessfulSendCannotBeConfirmed() {
-		when(challenges.confirmSend(any(), any())).thenReturn(false);
+		when(challenges.confirmSend(eq(ACCOUNT_ACTIVATION), any(), any())).thenReturn(false);
 
 		assertThrows(ActivationMessageDeliveryException.class,
 				() -> service.createChallenge(INVITATION_ID, "invitation-digest"));
 
-		verify(challenges).revokeCurrent(any(), eq(NOW));
+		verify(challenges).revokeCurrent(eq(ACCOUNT_ACTIVATION), any(), eq(NOW));
 	}
 
 	@Test
 	void anUnconfirmedSendStillAppliesTheResendCooldown() {
-		ActivationIdentityChallenge pending = new ActivationIdentityChallenge(UUID.randomUUID(), USER_ID, PHONE,
+		SmsIdentityChallenge pending = SmsIdentityChallenge.forActivation(UUID.randomUUID(), USER_ID, PHONE,
 				INVITATION_ID, DIGEST, 0, NOW, NOW.plusSeconds(300), null, null, null, NOW.plusSeconds(120));
 		when(challenges.findCurrentByInvitationAndUser(INVITATION_ID, USER_ID)).thenReturn(Optional.of(pending));
 		assertThrows(AccountActivationConflictException.class,
@@ -414,8 +416,8 @@ class ActivationIdentityChallengeServiceTest {
 		verifyNoInteractions(invitations, accounts, challenges, sender);
 	}
 
-	private ActivationIdentityChallenge currentChallenge(Instant createdAt, Instant expiresAt) {
-		return new ActivationIdentityChallenge(UUID.randomUUID(), USER_ID, PHONE, INVITATION_ID, DIGEST, 0,
+	private SmsIdentityChallenge currentChallenge(Instant createdAt, Instant expiresAt) {
+		return SmsIdentityChallenge.forActivation(UUID.randomUUID(), USER_ID, PHONE, INVITATION_ID, DIGEST, 0,
 				createdAt, expiresAt, null, null, createdAt, createdAt.plusSeconds(120));
 	}
 

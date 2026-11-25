@@ -44,6 +44,15 @@ class ActivationCodeDigesterTest {
 	}
 
 	@Test
+	void separatesActivationAndMfaEvenForTheSameChallengeAndCode() {
+		ActivationCodeDigester digester = new ActivationCodeDigester(KEY);
+		assertEquals(digester.digest(CHALLENGE_ID, "000042"),
+				digester.digest(SmsIdentityChallenge.Purpose.ACCOUNT_ACTIVATION, CHALLENGE_ID, "000042"));
+		assertNotEquals(digester.digest(CHALLENGE_ID, "000042"),
+				digester.digest(SmsIdentityChallenge.Purpose.MFA_ENROLLMENT, CHALLENGE_ID, "000042"));
+	}
+
+	@Test
 	void bindsTheDigestToTheCode() {
 		ActivationCodeDigester digester = new ActivationCodeDigester(KEY);
 

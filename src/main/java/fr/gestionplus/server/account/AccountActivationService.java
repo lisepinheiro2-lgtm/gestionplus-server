@@ -15,7 +15,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import fr.gestionplus.server.account.AccountInvitationStore.Invitation;
-import fr.gestionplus.server.account.ActivationIdentityChallengeStore.ActivationIdentityChallenge;
+import fr.gestionplus.server.account.SmsIdentityChallenge.Purpose;
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditMetadata;
 import fr.gestionplus.server.audit.AuditReason;
@@ -36,7 +36,7 @@ public class AccountActivationService {
 
 	private final AccountStore accountStore;
 	private final AccountInvitationStore invitationStore;
-	private final ActivationIdentityChallengeStore challengeStore;
+	private final SmsIdentityChallengeStore challengeStore;
 	private final AccountInvitationDeliveryStore deliveries;
 	private final AccountInvitationScope scope;
 	private final AuditService auditService;
@@ -50,7 +50,7 @@ public class AccountActivationService {
 
 	AccountActivationService(AccountStore accountStore,
 			AccountInvitationStore invitationStore,
-			ActivationIdentityChallengeStore challengeStore,
+			SmsIdentityChallengeStore challengeStore,
 			AccountInvitationDeliveryStore deliveries,
 			AccountInvitationScope scope,
 			AuditService auditService,
@@ -184,12 +184,12 @@ public class AccountActivationService {
 		scope.requireEmployee(account, invitation.structureID());
 		scope.requirePreparedAccess(account, invitation.structureID());
 
-		ActivationIdentityChallenge challenge = challengeStore
+		SmsIdentityChallenge challenge = challengeStore
 				.findCurrentByInvitationAndUser(invitationID, account.getUserID())
 				.orElseThrow(AccountInvitationScope::activationDenied);
 
 		if (!challenge.challengeID().equals(challengeID)
-				|| !Objects.equals(challenge.phoneNumber(), account.getPhoneNumber())
+				|| !Objects.equals(challenge.binding().phoneNumber(), account.getPhoneNumber())
 				|| !challenge.isUsable(clock.instant())) {
 			throw AccountInvitationScope.activationDenied();
 		}
@@ -198,7 +198,7 @@ public class AccountActivationService {
 				.encodePassword(account.getUserID(), rawPassword);
 
 		if (!isUsable(invitation, clock.instant())
-				|| !challengeStore.consumeIfCurrent(challengeID, clock.instant())) {
+				|| !challengeStore.consumeIfCurrent(Purpose.ACCOUNT_ACTIVATION, challengeID, clock.instant())) {
 			throw AccountInvitationScope.activationDenied();
 		}
 

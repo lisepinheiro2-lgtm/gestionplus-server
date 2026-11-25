@@ -19,7 +19,7 @@ import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import fr.gestionplus.server.GestionplusServerApplication;
-import fr.gestionplus.server.account.ActivationMessageSender;
+import fr.gestionplus.server.account.SmsMessageSender;
 import fr.gestionplus.server.account.SuperAdminSuccessionService;
 import fr.gestionplus.server.auth.CompromisedPasswordChecker;
 import jakarta.servlet.http.HttpServletRequest;
@@ -51,8 +51,8 @@ public final class IsolatedClusterApplication {
 	public static class ClusterTestConfiguration {
 
 		@Bean
-		ActivationMessageSender isolatedMessageSender() {
-			return (phone, code) -> {
+		SmsMessageSender isolatedMessageSender() {
+			return (purpose, phone, code) -> {
 				throw new IllegalStateException("Les envois SMS sont interdits dans cette validation.");
 			};
 		}

@@ -11,13 +11,13 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-import fr.gestionplus.server.account.ActivationMessageSender;
+import fr.gestionplus.server.account.SmsMessageSender;
 
 @Import({ ServletSecurityTestConfiguration.class, RedisIntegrationTestConfiguration.class })
 public abstract class AuditStorageIntegrationTest {
 
 	@MockitoBean
-	protected ActivationMessageSender messageSender;
+	protected SmsMessageSender messageSender;
 
 	@DynamicPropertySource
 	static void auditStorage(DynamicPropertyRegistry properties) {

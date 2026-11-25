@@ -17,10 +17,14 @@ public final class AccountLocks {
 	private AccountLocks() {
 	}
 
-	public static void requireCurrentSession(UserAccount current, UserAccount principal) {
+	public static boolean isCurrentAccount(UserAccount current, UUID userID, long sessionVersion) {
+		return current != null && userID.equals(current.getUserID())
+				&& current.getStatu() == UserAccountStatus.ACTIVE
+				&& current.getSessionVersion() == sessionVersion;
+	}
 
-		if (current.getStatu() != UserAccountStatus.ACTIVE
-				|| current.getSessionVersion() != principal.getSessionVersion()) {
+	public static void requireCurrentSession(UserAccount current, UserAccount principal) {
+		if (!isCurrentAccount(current, principal.getUserID(), principal.getSessionVersion())) {
 			throw new AuditedAccessDeniedException("Une nouvelle connexion est requise.", AuditReason.STALE_SESSION);
 		}
 

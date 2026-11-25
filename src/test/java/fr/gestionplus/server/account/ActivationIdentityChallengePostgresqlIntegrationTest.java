@@ -1,6 +1,7 @@
 
 package fr.gestionplus.server.account;
 
+import static fr.gestionplus.server.account.SmsIdentityChallenge.Purpose.ACCOUNT_ACTIVATION;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -18,7 +19,6 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import fr.gestionplus.server.account.ActivationIdentityChallengeStore.ActivationIdentityChallenge;
 import fr.gestionplus.server.auth.UserAccountStatus;
 
 class ActivationIdentityChallengePostgresqlIntegrationTest
@@ -27,16 +27,16 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 	private static final Instant NOW = Instant.parse("2026-11-15T12:00:00Z");
 
 	@Autowired
-	private ActivationIdentityChallengeStore challengeStore;
+	private SmsIdentityChallengeStore challengeStore;
 
 	@Test
 	void savesAndFindsCurrentChallenge() {
 		UUID invitationID = UUID.randomUUID();
-		ActivationIdentityChallenge challenge = newChallenge(invitationID);
+		SmsIdentityChallenge challenge = newChallenge(invitationID);
 
 		challengeStore.replaceCurrent(challenge, NOW);
 
-		ActivationIdentityChallenge saved = challengeStore
+		SmsIdentityChallenge saved = challengeStore
 				.findCurrentByInvitationAndUser(invitationID, actor.getUserID())
 				.orElseThrow();
 
@@ -47,8 +47,8 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 	@Test
 	void replacingCurrentChallengeRevokesPreviousAndKeepsHistory() {
 		UUID invitationID = UUID.randomUUID();
-		ActivationIdentityChallenge previous = newChallenge(invitationID);
-		ActivationIdentityChallenge replacement = newChallenge(invitationID);
+		SmsIdentityChallenge previous = newChallenge(invitationID);
+		SmsIdentityChallenge replacement = newChallenge(invitationID);
 
 		challengeStore.replaceCurrent(previous, NOW);
 
@@ -61,7 +61,7 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 
 		int revokedRows = jdbcTemplate.queryForObject("""
 				SELECT COUNT(*)
-				FROM account_activation_identity_challenges
+				FROM sms_identity_challenges
 				WHERE challenge_id = ?
 				  AND revoked_at = ?
 				""", Integer.class,
@@ -69,7 +69,7 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 				replacedAt.atOffset(ZoneOffset.UTC));
 
 		assertEquals(1, revokedRows);
-		assertEquals(0, challengeStore.recordFailedAttempt(previous.challengeID(), replacedAt));
+		assertEquals(0, challengeStore.recordFailedAttempt(ACCOUNT_ACTIVATION, previous.challengeID(), replacedAt));
 	}
 
 	@Test
@@ -77,9 +77,9 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 		UUID firstInvitationID = UUID.randomUUID();
 		UUID secondInvitationID = UUID.randomUUID();
 
-		ActivationIdentityChallenge first = newChallenge(firstInvitationID);
-		ActivationIdentityChallenge second = newChallenge(secondInvitationID);
-		ActivationIdentityChallenge replacement = newChallenge(firstInvitationID);
+		SmsIdentityChallenge first = newChallenge(firstInvitationID);
+		SmsIdentityChallenge second = newChallenge(secondInvitationID);
+		SmsIdentityChallenge replacement = newChallenge(firstInvitationID);
 
 		challengeStore.replaceCurrent(first, NOW);
 		challengeStore.replaceCurrent(second, NOW);
@@ -97,21 +97,21 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 	@Test
 	void thirdFailedAttemptRevokesChallenge() {
 		UUID invitationID = UUID.randomUUID();
-		ActivationIdentityChallenge challenge = newChallenge(invitationID);
+		SmsIdentityChallenge challenge = newChallenge(invitationID);
 
 		challengeStore.replaceCurrent(challenge, NOW);
 
 		assertEquals(1, challengeStore.recordFailedAttempt(
-				challenge.challengeID(), NOW.plusSeconds(1)));
+				ACCOUNT_ACTIVATION, challenge.challengeID(), NOW.plusSeconds(1)));
 
 		assertEquals(2, challengeStore.recordFailedAttempt(
-				challenge.challengeID(), NOW.plusSeconds(2)));
+				ACCOUNT_ACTIVATION, challenge.challengeID(), NOW.plusSeconds(2)));
 
 		assertEquals(3, challengeStore.recordFailedAttempt(
-				challenge.challengeID(), NOW.plusSeconds(3)));
+				ACCOUNT_ACTIVATION, challenge.challengeID(), NOW.plusSeconds(3)));
 
 		assertEquals(0, challengeStore.recordFailedAttempt(
-				challenge.challengeID(), NOW.plusSeconds(4)));
+				ACCOUNT_ACTIVATION, challenge.challengeID(), NOW.plusSeconds(4)));
 
 		assertTrue(challengeStore
 				.findCurrentByInvitationAndUser(invitationID, actor.getUserID())
@@ -119,7 +119,7 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 
 		int failedAttempts = jdbcTemplate.queryForObject("""
 				SELECT failed_attempts
-				FROM account_activation_identity_challenges
+				FROM sms_identity_challenges
 				WHERE challenge_id = ?
 				""", Integer.class, challenge.challengeID());
 
@@ -127,7 +127,7 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 
 		Boolean revoked = jdbcTemplate.queryForObject("""
 				SELECT revoked_at IS NOT NULL
-				FROM account_activation_identity_challenges
+				FROM sms_identity_challenges
 				WHERE challenge_id = ?
 				""", Boolean.class, challenge.challengeID());
 
@@ -136,18 +136,18 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 
 	@Test
 	void expiredChallengeCannotRecordAnotherFailure() {
-		ActivationIdentityChallenge challenge = newChallenge(UUID.randomUUID());
+		SmsIdentityChallenge challenge = newChallenge(UUID.randomUUID());
 
 		challengeStore.replaceCurrent(challenge, NOW);
 
 		int result = challengeStore.recordFailedAttempt(
-				challenge.challengeID(), challenge.expiresAt());
+				ACCOUNT_ACTIVATION, challenge.challengeID(), challenge.expiresAt());
 
 		assertEquals(0, result);
 
 		int failedAttempts = jdbcTemplate.queryForObject("""
 				SELECT failed_attempts
-				FROM account_activation_identity_challenges
+				FROM sms_identity_challenges
 				WHERE challenge_id = ?
 				""", Integer.class, challenge.challengeID());
 
@@ -157,17 +157,17 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 	@Test
 	void consumingCurrentChallengeSucceedsOnlyOnce() {
 		UUID invitationID = UUID.randomUUID();
-		ActivationIdentityChallenge challenge = newChallenge(invitationID);
+		SmsIdentityChallenge challenge = newChallenge(invitationID);
 
 		challengeStore.replaceCurrent(challenge, NOW);
 
 		TransactionTemplate transaction = new TransactionTemplate(transactionManager);
 
 		Boolean firstConsumption = transaction
-				.execute(status -> challengeStore.consumeIfCurrent(challenge.challengeID(), NOW.plusSeconds(1)));
+				.execute(status -> challengeStore.consumeIfCurrent(ACCOUNT_ACTIVATION, challenge.challengeID(), NOW.plusSeconds(1)));
 
 		Boolean secondConsumption = transaction
-				.execute(status -> challengeStore.consumeIfCurrent(challenge.challengeID(), NOW.plusSeconds(2)));
+				.execute(status -> challengeStore.consumeIfCurrent(ACCOUNT_ACTIVATION, challenge.challengeID(), NOW.plusSeconds(2)));
 
 		assertEquals(Boolean.TRUE, firstConsumption);
 		assertEquals(Boolean.FALSE, secondConsumption);
@@ -180,7 +180,7 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 	@Test
 	void consumptionIsRolledBackWithBusinessTransaction() {
 		UUID invitationID = UUID.randomUUID();
-		ActivationIdentityChallenge challenge = newChallenge(invitationID);
+		SmsIdentityChallenge challenge = newChallenge(invitationID);
 
 		challengeStore.replaceCurrent(challenge, NOW);
 
@@ -188,7 +188,7 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 
 		transaction.executeWithoutResult(status -> {
 			assertTrue(challengeStore.consumeIfCurrent(
-					challenge.challengeID(), NOW.plusSeconds(1)));
+					ACCOUNT_ACTIVATION, challenge.challengeID(), NOW.plusSeconds(1)));
 
 			status.setRollbackOnly();
 		});
@@ -200,25 +200,25 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 
 	@Test
 	void consumptionRequiresAnExistingTransaction() {
-		ActivationIdentityChallenge challenge = newChallenge(UUID.randomUUID());
+		SmsIdentityChallenge challenge = newChallenge(UUID.randomUUID());
 
 		challengeStore.replaceCurrent(challenge, NOW);
 
 		assertThrows(IllegalTransactionStateException.class,
-				() -> challengeStore.consumeIfCurrent(challenge.challengeID(), NOW));
+				() -> challengeStore.consumeIfCurrent(ACCOUNT_ACTIVATION, challenge.challengeID(), NOW));
 	}
 
 	@Test
 	void expiredChallengeCannotBeConsumed() {
 		UUID invitationID = UUID.randomUUID();
-		ActivationIdentityChallenge challenge = newChallenge(invitationID);
+		SmsIdentityChallenge challenge = newChallenge(invitationID);
 
 		challengeStore.replaceCurrent(challenge, NOW);
 
 		TransactionTemplate transaction = new TransactionTemplate(transactionManager);
 
 		Boolean consumed = transaction.execute(status -> challengeStore.consumeIfCurrent(
-				challenge.challengeID(), challenge.expiresAt()));
+				ACCOUNT_ACTIVATION, challenge.challengeID(), challenge.expiresAt()));
 
 		assertFalse(Boolean.TRUE.equals(consumed));
 
@@ -230,15 +230,15 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 	@Test
 	void failedReplacementRollsBackRevocation() {
 		UUID invitationID = UUID.randomUUID();
-		ActivationIdentityChallenge original = newChallenge(invitationID);
+		SmsIdentityChallenge original = newChallenge(invitationID);
 
 		challengeStore.replaceCurrent(original, NOW);
 
-		ActivationIdentityChallenge duplicate = new ActivationIdentityChallenge(
+		SmsIdentityChallenge duplicate = SmsIdentityChallenge.forActivation(
 				original.challengeID(),
-				original.userID(),
-				original.phoneNumber(),
-				original.invitationID(),
+				original.binding().userID(),
+				original.binding().phoneNumber(),
+				original.binding().invitationID(),
 				original.codeDigest(),
 				0,
 				original.createdAt(),
@@ -265,16 +265,16 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 	@Test
 	void countsTheWholeHistoryIncludingRevokedAndConsumedChallenges() {
 		UUID invitationID = UUID.randomUUID();
-		ActivationIdentityChallenge first = newChallenge(invitationID);
-		ActivationIdentityChallenge second = newChallenge(invitationID);
-		ActivationIdentityChallenge third = newChallenge(invitationID);
+		SmsIdentityChallenge first = newChallenge(invitationID);
+		SmsIdentityChallenge second = newChallenge(invitationID);
+		SmsIdentityChallenge third = newChallenge(invitationID);
 
 		challengeStore.replaceCurrent(first, NOW);
 		challengeStore.replaceCurrent(second, NOW.plusSeconds(1));
 
 		TransactionTemplate transaction = new TransactionTemplate(transactionManager);
 		Boolean consumed = transaction.execute(
-				status -> challengeStore.consumeIfCurrent(second.challengeID(), NOW.plusSeconds(2)));
+				status -> challengeStore.consumeIfCurrent(ACCOUNT_ACTIVATION, second.challengeID(), NOW.plusSeconds(2)));
 		assertEquals(Boolean.TRUE, consumed);
 
 		challengeStore.replaceCurrent(third, NOW.plusSeconds(3));
@@ -302,11 +302,11 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 	@Test
 	void countsExpiredChallengesInTheHistory() {
 		UUID invitationID = UUID.randomUUID();
-		ActivationIdentityChallenge challenge = newChallenge(invitationID);
+		SmsIdentityChallenge challenge = newChallenge(invitationID);
 		challengeStore.replaceCurrent(challenge, NOW);
 
 		jdbcTemplate.update("""
-				UPDATE account_activation_identity_challenges
+				UPDATE sms_identity_challenges
 				SET expires_at = ?
 				WHERE challenge_id = ?
 				""", NOW.atOffset(ZoneOffset.UTC), challenge.challengeID());
@@ -319,18 +319,18 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 	@Test
 	void revokesTheCurrentChallengeOnlyOnceWithoutResettingTheSendCount() {
 		UUID invitationID = UUID.randomUUID();
-		ActivationIdentityChallenge challenge = newChallenge(invitationID);
+		SmsIdentityChallenge challenge = newChallenge(invitationID);
 		challengeStore.replaceCurrent(challenge, NOW);
 		Instant revokedAt = NOW.plusSeconds(1);
 
-		assertTrue(challengeStore.revokeCurrent(challenge.challengeID(), revokedAt));
-		assertFalse(challengeStore.revokeCurrent(challenge.challengeID(), revokedAt.plusSeconds(1)));
+		assertTrue(challengeStore.revokeCurrent(ACCOUNT_ACTIVATION, challenge.challengeID(), revokedAt));
+		assertFalse(challengeStore.revokeCurrent(ACCOUNT_ACTIVATION, challenge.challengeID(), revokedAt.plusSeconds(1)));
 		assertTrue(challengeStore.findCurrentByInvitationAndUser(invitationID, actor.getUserID()).isEmpty());
 		assertEquals(1, challengeStore.countByInvitationAndUser(invitationID, actor.getUserID()));
 
 		OffsetDateTime savedRevokedAt = jdbcTemplate.queryForObject("""
 				SELECT revoked_at
-				FROM account_activation_identity_challenges
+				FROM sms_identity_challenges
 				WHERE challenge_id = ?
 				""", OffsetDateTime.class, challenge.challengeID());
 
@@ -340,10 +340,10 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 	@Test
 	void revokingAnUnknownChallengeLeavesTheCurrentChallengeUnchanged() {
 		UUID invitationID = UUID.randomUUID();
-		ActivationIdentityChallenge challenge = newChallenge(invitationID);
+		SmsIdentityChallenge challenge = newChallenge(invitationID);
 		challengeStore.replaceCurrent(challenge, NOW);
 
-		assertFalse(challengeStore.revokeCurrent(UUID.randomUUID(), NOW.plusSeconds(1)));
+		assertFalse(challengeStore.revokeCurrent(ACCOUNT_ACTIVATION, UUID.randomUUID(), NOW.plusSeconds(1)));
 		assertEquals(challenge, challengeStore.findCurrentByInvitationAndUser(invitationID, actor.getUserID())
 				.orElseThrow());
 	}
@@ -351,19 +351,19 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 	@Test
 	void aConsumedChallengeCannotBeRevoked() {
 		UUID invitationID = UUID.randomUUID();
-		ActivationIdentityChallenge challenge = newChallenge(invitationID);
+		SmsIdentityChallenge challenge = newChallenge(invitationID);
 		challengeStore.replaceCurrent(challenge, NOW);
 
 		TransactionTemplate transaction = new TransactionTemplate(transactionManager);
 		Boolean consumed = transaction.execute(
-				status -> challengeStore.consumeIfCurrent(challenge.challengeID(), NOW.plusSeconds(1)));
+				status -> challengeStore.consumeIfCurrent(ACCOUNT_ACTIVATION, challenge.challengeID(), NOW.plusSeconds(1)));
 		assertEquals(Boolean.TRUE, consumed);
 
-		assertFalse(challengeStore.revokeCurrent(challenge.challengeID(), NOW.plusSeconds(2)));
+		assertFalse(challengeStore.revokeCurrent(ACCOUNT_ACTIVATION, challenge.challengeID(), NOW.plusSeconds(2)));
 
 		Boolean remainsConsumedWithoutRevocation = jdbcTemplate.queryForObject("""
 				SELECT consumed_at IS NOT NULL AND revoked_at IS NULL
-				FROM account_activation_identity_challenges
+				FROM sms_identity_challenges
 				WHERE challenge_id = ?
 				""", Boolean.class, challenge.challengeID());
 
@@ -373,12 +373,12 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 	@Test
 	void revokingAnOldChallengeCannotRevokeItsReplacement() {
 		UUID invitationID = UUID.randomUUID();
-		ActivationIdentityChallenge previous = newChallenge(invitationID);
-		ActivationIdentityChallenge replacement = newChallenge(invitationID);
+		SmsIdentityChallenge previous = newChallenge(invitationID);
+		SmsIdentityChallenge replacement = newChallenge(invitationID);
 		challengeStore.replaceCurrent(previous, NOW);
 		challengeStore.replaceCurrent(replacement, NOW.plusSeconds(1));
 
-		assertFalse(challengeStore.revokeCurrent(previous.challengeID(), NOW.plusSeconds(2)));
+		assertFalse(challengeStore.revokeCurrent(ACCOUNT_ACTIVATION, previous.challengeID(), NOW.plusSeconds(2)));
 		assertEquals(replacement, challengeStore.findCurrentByInvitationAndUser(invitationID, actor.getUserID())
 				.orElseThrow());
 	}
@@ -386,22 +386,22 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 	@Test
 	void anExpiredChallengeCanStillBeRevoked() {
 		UUID invitationID = UUID.randomUUID();
-		ActivationIdentityChallenge challenge = newChallenge(invitationID);
+		SmsIdentityChallenge challenge = newChallenge(invitationID);
 		challengeStore.replaceCurrent(challenge, NOW);
 
-		assertTrue(challengeStore.revokeCurrent(challenge.challengeID(), challenge.expiresAt()));
+		assertTrue(challengeStore.revokeCurrent(ACCOUNT_ACTIVATION, challenge.challengeID(), challenge.expiresAt()));
 		assertTrue(challengeStore.findCurrentByInvitationAndUser(invitationID, actor.getUserID()).isEmpty());
 	}
 
 	@Test
 	void revocationSurvivesTheCallingTransactionRollback() {
 		UUID invitationID = UUID.randomUUID();
-		ActivationIdentityChallenge challenge = newChallenge(invitationID);
+		SmsIdentityChallenge challenge = newChallenge(invitationID);
 		challengeStore.replaceCurrent(challenge, NOW);
 
 		TransactionTemplate transaction = new TransactionTemplate(transactionManager);
 		transaction.executeWithoutResult(status -> {
-			assertTrue(challengeStore.revokeCurrent(challenge.challengeID(), NOW.plusSeconds(1)));
+			assertTrue(challengeStore.revokeCurrent(ACCOUNT_ACTIVATION, challenge.challengeID(), NOW.plusSeconds(1)));
 			status.setRollbackOnly();
 		});
 
@@ -409,12 +409,12 @@ class ActivationIdentityChallengePostgresqlIntegrationTest
 		assertEquals(1, challengeStore.countByInvitationAndUser(invitationID, actor.getUserID()));
 	}
 
-	private ActivationIdentityChallenge newChallenge(UUID invitationID) {
+	private SmsIdentityChallenge newChallenge(UUID invitationID) {
 		return newChallenge(invitationID, actor.getUserID());
 	}
 
-	private ActivationIdentityChallenge newChallenge(UUID invitationID, UUID userID) {
-		return new ActivationIdentityChallenge(
+	private SmsIdentityChallenge newChallenge(UUID invitationID, UUID userID) {
+		return SmsIdentityChallenge.forActivation(
 				UUID.randomUUID(),
 				userID,
 				"0600000000",
