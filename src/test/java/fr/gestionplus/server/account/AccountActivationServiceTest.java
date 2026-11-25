@@ -204,7 +204,7 @@ class AccountActivationServiceTest {
 				"fictitious_user", PASSWORD));
 
 		var order = inOrder(accounts, invitations, mfa, transactions);
-		order.verify(accounts).activateAccount(eq(USER_ID), eq("fictitious_user"), any(UserCredential.class));
+		order.verify(accounts).activateAccount(eq(USER_ID), eq("fictitious_user"), any(UserCredential.class), eq(NOW));
 		order.verify(invitations).save(any(Invitation.class));
 		order.verify(mfa).requiresInitialEnrollment(USER_ID);
 		order.verify(mfa).issueEnrollmentProof(USER_ID, 7);

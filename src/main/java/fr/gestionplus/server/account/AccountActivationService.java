@@ -197,12 +197,13 @@ public class AccountActivationService {
 		UserCredential credential = credentialService
 				.encodePassword(account.getUserID(), rawPassword);
 
-		if (!isUsable(invitation, clock.instant())
-				|| !challengeStore.consumeIfCurrent(Purpose.ACCOUNT_ACTIVATION, challengeID, clock.instant())) {
+		Instant verifiedAt = clock.instant();
+		if (!isUsable(invitation, verifiedAt)
+				|| !challengeStore.consumeIfCurrent(Purpose.ACCOUNT_ACTIVATION, challengeID, verifiedAt)) {
 			throw AccountInvitationScope.activationDenied();
 		}
 
-		accountStore.activateAccount(account.getUserID(), userName, credential);
+		accountStore.activateAccount(account.getUserID(), userName, credential, verifiedAt);
 
 		deliveries.findPending(account.getUserID())
 				.ifPresent(request -> deliveries.cancel(request.requestID()));

@@ -1,5 +1,6 @@
 package fr.gestionplus.server.account;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -24,7 +25,9 @@ public interface AccountStore {
 
 	void updateEmail(UUID userID, String email);
 
-	void activateAccount(UUID userID, String userName, UserCredential credential);
+	void updatePhoneNumber(UUID userID, String phoneNumber);
+
+	void activateAccount(UUID userID, String userName, UserCredential credential, Instant phoneVerifiedAt);
 
 	void replaceCredential(UserCredential credential);
 }

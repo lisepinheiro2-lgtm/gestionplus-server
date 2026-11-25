@@ -45,30 +45,33 @@ public class PostgresqlAccountMfaStore implements AccountMfaStore {
 	}
 
 	@Override
-	public Optional<EnrollmentState> findEnrollment(UUID userID) {
+	public Optional<EnrollmentState> findEnrollment(UUID userID, EnrollmentPurpose purpose) {
 		return jdbc.query("""
-				SELECT enrollment_id, encrypted_secret, session_version, expires_at
-				FROM account_mfa_enrollments WHERE user_id = ?
+				SELECT enrollment_id, encrypted_secret, session_version, expires_at, session_id_hash
+				FROM account_mfa_enrollments WHERE user_id = ? AND purpose = ?
 				""", (row, rowNumber) -> new EnrollmentState(row.getObject(1, UUID.class), userID, row.getBytes(2),
-				row.getLong(3), row.getObject(4, OffsetDateTime.class).toInstant()), userID).stream().findFirst();
+				row.getLong(3), row.getObject(4, OffsetDateTime.class).toInstant(), purpose, row.getString(5)),
+				userID, purpose.name()).stream().findFirst();
 	}
 
 	@Override
 	public void saveEnrollment(EnrollmentState enrollment) {
 		jdbc.update(
 				"""
-						INSERT INTO account_mfa_enrollments (user_id, enrollment_id, encrypted_secret, session_version, expires_at)
-						VALUES (?, ?, ?, ?, ?)
-						ON CONFLICT (user_id) DO UPDATE SET enrollment_id = EXCLUDED.enrollment_id,
+						INSERT INTO account_mfa_enrollments
+						    (user_id, enrollment_id, encrypted_secret, session_version, expires_at, purpose, session_id_hash)
+						VALUES (?, ?, ?, ?, ?, ?, ?)
+						ON CONFLICT (user_id, purpose) DO UPDATE SET enrollment_id = EXCLUDED.enrollment_id,
 						    encrypted_secret = EXCLUDED.encrypted_secret, session_version = EXCLUDED.session_version,
-						    expires_at = EXCLUDED.expires_at
+						    expires_at = EXCLUDED.expires_at, session_id_hash = EXCLUDED.session_id_hash
 						""",
 				enrollment.userID(), enrollment.enrollmentID(), enrollment.encryptedSecret(),
-				enrollment.sessionVersion(), enrollment.expiresAt().atOffset(ZoneOffset.UTC));
+				enrollment.sessionVersion(), enrollment.expiresAt().atOffset(ZoneOffset.UTC),
+				enrollment.purpose().name(), enrollment.sessionIDHash());
 	}
 
 	@Override
-	public void removeEnrollment(UUID userID) {
+	public void removeEnrollments(UUID userID) {
 		jdbc.update("DELETE FROM account_mfa_enrollments WHERE user_id = ?", userID);
 	}
 

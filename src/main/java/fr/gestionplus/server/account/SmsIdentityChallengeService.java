@@ -5,6 +5,7 @@ import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -23,7 +24,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import fr.gestionplus.server.account.SmsIdentityChallenge.Binding;
 import fr.gestionplus.server.account.SmsIdentityChallenge.Purpose;
+import fr.gestionplus.server.account.SmsIdentityChallengeStore.Issuance;
+import fr.gestionplus.server.audit.AuditReason;
+import fr.gestionplus.server.audit.AuditedAccessDeniedException;
 import fr.gestionplus.server.auth.AuthenticatedUserProvider;
+import fr.gestionplus.server.auth.RequestRateLimitExceededException;
 import fr.gestionplus.server.auth.SessionIDHasher;
 import fr.gestionplus.server.auth.UserAccount;
 
@@ -42,7 +47,8 @@ public class SmsIdentityChallengeService {
 	private final TransactionTemplate transaction;
 
 	SmsIdentityChallengeService(SmsIdentityChallengeStore challengeStore, AccountStore accountStore,
-			AuthenticatedUserProvider authenticated, CurrentSessionProvider sessions, ActivationCodeGenerator codeGenerator,
+			AuthenticatedUserProvider authenticated, CurrentSessionProvider sessions,
+			ActivationCodeGenerator codeGenerator,
 			ActivationCodeDigester codeDigester, SmsMessageSender messageSender, ObjectProvider<Clock> clocks,
 			PlatformTransactionManager transactionManager) {
 		this.challengeStore = challengeStore;
@@ -56,33 +62,48 @@ public class SmsIdentityChallengeService {
 		this.transaction = new TransactionTemplate(transactionManager);
 	}
 
-	public boolean createMfaChallenge(Duration codeValidity, int maxChallenges,
-			Duration window, Consumer<UserAccount> authorize) {
-		if (maxChallenges <= 0 || window.isZero() || window.isNegative()) {
+	public void createMfaChallenge(Duration codeValidity, int maxChallenges,
+			Duration window, Duration cooldown, Consumer<UserAccount> authorize) {
+		if (maxChallenges <= 0 || window.isZero() || window.isNegative()
+				|| cooldown.isZero() || cooldown.isNegative()) {
 			throw new IllegalArgumentException("La limite de création des défis SMS est invalide.");
 		}
 
-		return issue(Purpose.MFA_ENROLLMENT, codeValidity, () -> {
+		issue(Purpose.MFA_ENROLLMENT, codeValidity, () -> {
 			UserAccount current = lockCurrentAccount(authenticated.getCurrentAccount());
-			String sessionIDHash = requireSessionIDHash();
-			Binding binding = Binding.forMfaEnrollment(current.getUserID(), current.getPhoneNumber(),
-					sessionIDHash, current.getSessionVersion());
 			authorize.accept(current);
+			Binding binding = Binding.forMfaEnrollment(current.getUserID(), current.getPhoneNumber(),
+					requireSessionIDHash(), current.getSessionVersion());
 			Instant now = clock.instant();
-			Instant since = now.minus(window);
-			if (challengeStore.countByUserAndPurposeSince(current.getUserID(), Purpose.MFA_ENROLLMENT,
-					since) >= maxChallenges) {
-				return Optional.empty();
-			}
-			return Optional.of(new Reservation(binding, now));
+			enforceMfaIssuanceLimit(current.getUserID(), now, maxChallenges, window, cooldown);
+			return new Reservation(binding, now);
 		});
+	}
+
+	private void enforceMfaIssuanceLimit(UUID userID, Instant now, int maxChallenges, Duration window,
+			Duration cooldown) {
+		Duration cooldownHistory = SEND_RECOVERY_DELAY.plus(cooldown);
+		Duration history = window.compareTo(cooldownHistory) >= 0 ? window : cooldownHistory;
+		List<Issuance> recent = challengeStore.findRecentMfaIssuances(userID, now.minus(history), maxChallenges);
+		Instant next = recent.size() == maxChallenges ? recent.getLast().createdAt().plus(window) : now;
+		for (Issuance issuance : recent) {
+			Instant cooldownEnd = issuance.sentAt().plus(cooldown);
+			if (cooldownEnd.isAfter(next)) {
+				next = cooldownEnd;
+			}
+			if (issuance.pendingUntil() != null && issuance.pendingUntil().isAfter(next)) {
+				next = issuance.pendingUntil();
+			}
+		}
+		if (next.isAfter(now)) {
+			throw new RequestRateLimitExceededException(Duration.between(now, next));
+		}
 	}
 
 	public Optional<VerifiedMfaChallenge> verifyMfaChallenge(String proof) {
 		requireOutsideTransaction();
-		if (proof == null || !proof.matches("[0-9]{6}")) {
-			return Optional.empty();
-		}
+
+
 		UserAccount principal = authenticated.getCurrentAccount();
 		String sessionIDHash = requireSessionIDHash();
 		UserAccount current = accountStore.findById(principal.getUserID())
@@ -90,26 +111,31 @@ public class SmsIdentityChallengeService {
 				.orElseThrow(SmsIdentityChallengeService::staleAccount);
 		Binding binding = Binding.forMfaEnrollment(current.getUserID(), current.getPhoneNumber(),
 				sessionIDHash, current.getSessionVersion());
-		return verify(binding, proof).map(challengeID -> new VerifiedMfaChallenge(binding, challengeID));
+		String candidate = proof != null && proof.matches("[0-9]{6}") ? proof : null;
+		return verify(binding, candidate).map(challengeID -> new VerifiedMfaChallenge(binding, challengeID));
 	}
 
 	@Transactional(propagation = Propagation.MANDATORY)
-	public boolean consumeMfaChallenge(VerifiedMfaChallenge verified) {
-		String sessionIDHash = requireSessionIDHash();
+	public Optional<UserAccount> consumeMfaChallenge(VerifiedMfaChallenge verified) {
 		UserAccount current = lockCurrentAccount(authenticated.getCurrentAccount());
 		Binding binding = Binding.forMfaEnrollment(current.getUserID(), current.getPhoneNumber(),
-				sessionIDHash, current.getSessionVersion());
-		return verified.binding.equals(binding)
-				&& findCurrent(binding).filter(challenge -> challenge.challengeID().equals(verified.challengeID))
-						.isPresent()
-				&& challengeStore.consumeIfCurrent(binding.purpose(), verified.challengeID, clock.instant());
+				requireSessionIDHash(), current.getSessionVersion());
+		if (!verified.binding.equals(binding)
+				|| findCurrent(binding).filter(challenge -> challenge.challengeID().equals(verified.challengeID)).isEmpty()
+				|| !challengeStore.consumeIfCurrent(binding.purpose(), verified.challengeID, clock.instant())) {
+			return Optional.empty();
+		}
+
+		return Optional.of(current);
 	}
 
 	private String requireSessionIDHash() {
-		String sessionIDHash = sessions.getCurrentSessionIDHash();
+		String sessionIDHash = sessions.getActiveSessionIDHash();
+
 		if (!SessionIDHasher.isValidHash(sessionIDHash)) {
-			throw new AccessDeniedException("Une session HTTP est requise.");
+			throw new AuditedAccessDeniedException("Une session HTTP active est requise.", AuditReason.STALE_SESSION);
 		}
+
 		return sessionIDHash;
 	}
 
@@ -124,17 +150,20 @@ public class SmsIdentityChallengeService {
 	}
 
 	private static AccessDeniedException staleAccount() {
-		return new AccessDeniedException("Une nouvelle connexion est requise.");
+		return new AuditedAccessDeniedException("Une nouvelle connexion est requise.", AuditReason.STALE_SESSION);
 	}
 
 	static void requireOutsideTransaction() {
+
 		if (TransactionSynchronizationManager.isActualTransactionActive()) {
 			throw new IllegalTransactionStateException("Cette opération SMS doit être appelée hors transaction.");
 		}
+
 	}
 
-	boolean issue(Purpose purpose, Duration codeValidity, Supplier<Optional<Reservation>> authorize) {
+	void issue(Purpose purpose, Duration codeValidity, Supplier<Reservation> authorize) {
 		requireOutsideTransaction();
+
 		if (codeValidity.isZero() || codeValidity.isNegative()) {
 			throw new IllegalArgumentException("La durée de validité du défi SMS doit être positive.");
 		}
@@ -142,49 +171,72 @@ public class SmsIdentityChallengeService {
 		UUID challengeID = UUID.randomUUID();
 		String code = codeGenerator.generate();
 		String codeDigest = codeDigester.digest(purpose, challengeID, code);
-		Optional<SmsIdentityChallenge> created = Objects.requireNonNull(transaction.execute(status ->
-				authorize.get().map(reservation -> {
-					Binding binding = reservation.binding();
-					if (binding.purpose() != purpose) {
-						throw new IllegalArgumentException("La finalité du défi SMS est incohérente.");
-					}
-					Instant now = reservation.authorizedAt();
-					SmsIdentityChallenge challenge = new SmsIdentityChallenge(challengeID, binding, codeDigest, 0,
-							now, now.plus(codeValidity), null, null, null, now.plus(SEND_RECOVERY_DELAY));
-					challengeStore.replaceCurrent(challenge, now);
-					return challenge;
-				})));
-		if (created.isEmpty()) {
-			return false;
-		}
+		SmsIdentityChallenge created = Objects.requireNonNull(transaction.execute(status -> {
+			Reservation reservation = authorize.get();
+			Binding binding = reservation.binding();
+			if (binding.purpose() != purpose) {
+				throw new IllegalArgumentException("La finalité du défi SMS est incohérente.");
+			}
 
-		sendAndConfirm(created.get(), code);
-		return true;
+			Instant now = reservation.authorizedAt();
+			SmsIdentityChallenge challenge = new SmsIdentityChallenge(challengeID, binding, codeDigest, 0,
+					now, now.plus(codeValidity), null, null, null, now.plus(SEND_RECOVERY_DELAY));
+			challengeStore.replaceCurrent(challenge, now);
+			return challenge;
+		}));
+
+		sendAndConfirm(created, code);
 	}
 
 	private void sendAndConfirm(SmsIdentityChallenge challenge, String code) {
 		Purpose purpose = challenge.binding().purpose();
 		UUID challengeID = challenge.challengeID();
+
 		try {
+			if (purpose == Purpose.MFA_ENROLLMENT) {
+				requireCurrentMfaDestination(challenge);
+			}
 			messageSender.send(purpose, challenge.binding().phoneNumber(), code);
+
 			if (!challengeStore.confirmSend(purpose, challengeID, clock.instant())) {
 				throw new ActivationMessageDeliveryException(purpose);
 			}
+
 		} catch (RuntimeException e) {
+
 			try {
 				challengeStore.revokeCurrent(purpose, challengeID, clock.instant());
 			} catch (RuntimeException compensationFailure) {
+
 				if (compensationFailure != e) {
 					e.addSuppressed(compensationFailure);
 				}
+
 			}
+
 			throw e;
+		}
+
+	}
+
+	private void requireCurrentMfaDestination(SmsIdentityChallenge challenge) {
+		Binding binding = challenge.binding();
+		if (!binding.sessionIDHash().equals(requireSessionIDHash())) {
+			throw staleAccount();
+		}
+		accountStore.findById(binding.userID())
+				.filter(account -> AccountLocks.isCurrentAccount(account, binding.userID(), binding.sessionVersion()))
+				.filter(account -> account.isPhoneVerified() && account.getPhoneNumber().equals(binding.phoneNumber()))
+				.orElseThrow(SmsIdentityChallengeService::staleAccount);
+		if (!clock.instant().isBefore(challenge.sendRecoveryAt())) {
+			throw new ActivationMessageDeliveryException(binding.purpose());
 		}
 	}
 
 	private Optional<SmsIdentityChallenge> findCurrent(Binding binding) {
 		Optional<SmsIdentityChallenge> current = switch (binding.purpose()) {
-		case ACCOUNT_ACTIVATION -> challengeStore.findCurrentByInvitationAndUser(binding.invitationID(), binding.userID());
+		case ACCOUNT_ACTIVATION ->
+			challengeStore.findCurrentByInvitationAndUser(binding.invitationID(), binding.userID());
 		case MFA_ENROLLMENT -> challengeStore.findCurrentMfaByUser(binding.userID());
 		};
 		return current.filter(challenge -> challenge.binding().equals(binding));
@@ -193,6 +245,7 @@ public class SmsIdentityChallengeService {
 	Optional<UUID> verify(Binding binding, String proof) {
 		Instant now = clock.instant();
 		Optional<SmsIdentityChallenge> current = findCurrent(binding).filter(challenge -> challenge.isUsable(now));
+
 		if (current.isEmpty()) {
 			return Optional.empty();
 		}
@@ -200,6 +253,7 @@ public class SmsIdentityChallengeService {
 		SmsIdentityChallenge challenge = current.get();
 		UUID challengeID = challenge.challengeID();
 		String candidate = codeDigester.digest(binding.purpose(), challengeID, proof);
+
 		if (MessageDigest.isEqual(challenge.codeDigest().getBytes(StandardCharsets.US_ASCII),
 				candidate.getBytes(StandardCharsets.US_ASCII))) {
 			return Optional.of(challengeID);
@@ -219,6 +273,10 @@ public class SmsIdentityChallengeService {
 		private VerifiedMfaChallenge(Binding binding, UUID challengeID) {
 			this.binding = binding;
 			this.challengeID = challengeID;
+		}
+
+		public String sessionIDHash() {
+			return binding.sessionIDHash();
 		}
 	}
 }

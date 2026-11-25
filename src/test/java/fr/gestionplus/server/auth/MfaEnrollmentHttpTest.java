@@ -267,7 +267,7 @@ class MfaEnrollmentHttpTest extends AuditStorageIntegrationTest {
 					() -> accountMfaService.completeEnrollment(userID, enrollmentID, code));
 
 			assertTrue(accountMfaStore.findFactor(userID).isEmpty());
-			assertEquals(enrollmentID, accountMfaStore.findEnrollment(userID).orElseThrow().enrollmentID());
+			assertEquals(enrollmentID, accountMfaStore.findEnrollment(userID, AccountMfaStore.EnrollmentPurpose.INITIAL).orElseThrow().enrollmentID());
 			assertEquals(version, accountStore.findById(userID).orElseThrow().getSessionVersion());
 			assertFalse(session.isInvalid());
 			assertEquals(0, jdbc.queryForObject(
@@ -311,7 +311,7 @@ class MfaEnrollmentHttpTest extends AuditStorageIntegrationTest {
 
 		verify(mailSender).send(any(SimpleMailMessage.class));
 		assertTrue(accountMfaStore.findFactor(userID).isPresent());
-		assertTrue(accountMfaStore.findEnrollment(userID).isEmpty());
+		assertTrue(accountMfaStore.findEnrollment(userID, AccountMfaStore.EnrollmentPurpose.INITIAL).isEmpty());
 		assertEquals(version, accountStore.findById(userID).orElseThrow().getSessionVersion());
 		assertTrue(session.isInvalid());
 		assertEquals(1, jdbc.queryForObject("""
@@ -382,6 +382,14 @@ class MfaEnrollmentHttpTest extends AuditStorageIntegrationTest {
 		assertTrue(session.isInvalid());
 	}
 
+	@Test
+	void restrictedEnrollmentCannotRequestVoluntaryEnrollment() throws Exception {
+		Csrf token = csrf(openSession());
+		mockMvc.perform(jsonPost(MfaEnrollmentRoutes.VOLUNTARY_REQUEST_PATH, token,
+				JSON.createObjectNode().put("password", PASSWORD).toString()))
+				.andExpect(status().isForbidden());
+	}
+
 	@ParameterizedTest
 	@ValueSource(strings = { "", "malformed", "aaaaaaaaaaaaaaaaaaaaaa" })
 	void rejectsInvalidProofsWithoutCreatingAnAuthenticatedContext(String value) throws Exception {
@@ -408,7 +416,7 @@ class MfaEnrollmentHttpTest extends AuditStorageIntegrationTest {
 	private String enrollmentCode(JsonNode enrollment) {
 		UUID enrollmentID = UUID.fromString(enrollment.get("enrollmentID").asString());
 		byte[] secret = cipher.decrypt(userID, enrollmentID,
-				accountMfaStore.findEnrollment(userID).orElseThrow().encryptedSecret());
+				accountMfaStore.findEnrollment(userID, AccountMfaStore.EnrollmentPurpose.INITIAL).orElseThrow().encryptedSecret());
 
 		try {
 			return TotpCodes.atStep(secret, now.get().getEpochSecond() / 30);

@@ -1,5 +1,6 @@
 package fr.gestionplus.server.auth;
 
+import java.time.Instant;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -16,14 +17,21 @@ public class UserAccount {
 	private final String firstName;
 	private String email;
 	private String phoneNumber;
+	private Instant phoneVerifiedAt;
 
 	public UserAccount(UUID userID, String userName, UserAccountStatus statu, Set<UserRole> roles, UUID employeeID,
 			String lastName, String firstName, String email, String phoneNumber) {
-		this(userID, userName, statu, roles, employeeID, lastName, firstName, email, phoneNumber, 0);
+		this(userID, userName, statu, roles, employeeID, lastName, firstName, email, phoneNumber, 0, null);
 	}
 
 	public UserAccount(UUID userID, String userName, UserAccountStatus statu, Set<UserRole> roles, UUID employeeID,
 			String lastName, String firstName, String email, String phoneNumber, long sessionVersion) {
+		this(userID, userName, statu, roles, employeeID, lastName, firstName, email, phoneNumber, sessionVersion, null);
+	}
+
+	public UserAccount(UUID userID, String userName, UserAccountStatus statu, Set<UserRole> roles, UUID employeeID,
+			String lastName, String firstName, String email, String phoneNumber, long sessionVersion,
+			Instant phoneVerifiedAt) {
 		this.sessionVersion = sessionVersion;
 		this.userID = Objects.requireNonNull(userID, "L'UUID de l'utilisateur ne peut pas être null");
 		this.employeeID = employeeID;
@@ -31,6 +39,7 @@ public class UserAccount {
 		this.firstName = requireIdentityValue(firstName, "Le prénom");
 		this.email = requireIdentityValue(email, "L’adresse e-mail");
 		this.phoneNumber = requirePhoneNumber(phoneNumber, "Le numéro de téléphone");
+		this.phoneVerifiedAt = phoneVerifiedAt;
 
 		if (userName != null) {
 			this.userName = userName.strip();
@@ -151,6 +160,19 @@ public class UserAccount {
 	}
 
 	public void setPhoneNumber(String phoneNumber) {
-		this.phoneNumber = requirePhoneNumber(phoneNumber, "Le numéro de téléphone");
+		String newPhoneNumber = requirePhoneNumber(phoneNumber, "Le numéro de téléphone");
+		if (!this.phoneNumber.equals(newPhoneNumber)) {
+			this.phoneNumber = newPhoneNumber;
+			this.phoneVerifiedAt = null;
+		}
+	}
+
+	public Instant getPhoneVerifiedAt() {
+		return phoneVerifiedAt;
+
+	}
+
+	public boolean isPhoneVerified() {
+		return getPhoneVerifiedAt() != null;
 	}
 }

@@ -133,6 +133,9 @@ public class HttpSecurityConfig {
 				.hasAuthority("ROLE_USER")
 				.requestMatchers(HttpMethod.POST, AccountActivationRoutes.SMS_CHALLENGE_PATH).permitAll()
 				.requestMatchers(HttpMethod.POST, AccountActivationRoutes.ACTIVATION_PATH).permitAll()
+				.requestMatchers(HttpMethod.POST, MfaEnrollmentRoutes.VOLUNTARY_REQUEST_PATH,
+						MfaEnrollmentRoutes.VOLUNTARY_BEGIN_PATH, MfaEnrollmentRoutes.VOLUNTARY_COMPLETE_PATH)
+				.hasAuthority("ROLE_USER")
 				.requestMatchers(HttpMethod.POST, MfaEnrollmentRoutes.ENROLLMENT_PATH)
 				.hasAuthority("ROLE_MFA_ENROLLMENT")
 				.requestMatchers(HttpMethod.POST, MfaEnrollmentRoutes.ENROLLMENT_COMPLETE_PATH)

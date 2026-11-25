@@ -72,7 +72,7 @@ class SessionValueSerializerTest {
 	void preservesTheAuthenticatedIdentityAndSecurityVersionWithoutCredentials() {
 		UserAccount account = new UserAccount(UUID.randomUUID(), "fictitious-cluster-user",
 				UserAccountStatus.ACTIVE, Set.of(UserRole.EMPLOYEE), UUID.randomUUID(), "Fictitious", "Test",
-				"cluster@example.invalid", "+12025550100", 7);
+				"cluster@example.invalid", "+12025550100", 7, Instant.parse("2026-11-22T12:00:00Z"));
 		var authentication = UsernamePasswordAuthenticationToken.authenticated(account, null, List.of());
 		authentication.setDetails(new GestionAuthenticationProvider.LoginAssurance(true));
 		SecurityContext original = new SecurityContextImpl(authentication);
@@ -83,6 +83,7 @@ class SessionValueSerializerTest {
 		assertEquals(account.getUserName(), principal.getUserName());
 		assertEquals(7, principal.getSessionVersion());
 		assertEquals(account.getRoles(), principal.getRoles());
+		assertNull(principal.getPhoneVerifiedAt());
 		assertNull(restored.getAuthentication().getCredentials());
 		assertTrue(assertInstanceOf(GestionAuthenticationProvider.LoginAssurance.class,
 				restored.getAuthentication().getDetails()).mfaVerified());

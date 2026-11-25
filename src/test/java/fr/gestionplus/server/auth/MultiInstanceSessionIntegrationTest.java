@@ -1,5 +1,8 @@
 package fr.gestionplus.server.auth;
 
+import static fr.gestionplus.server.api.MfaEnrollmentRoutes.VOLUNTARY_BEGIN_PATH;
+import static fr.gestionplus.server.api.MfaEnrollmentRoutes.VOLUNTARY_COMPLETE_PATH;
+import static fr.gestionplus.server.api.MfaEnrollmentRoutes.VOLUNTARY_REQUEST_PATH;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -27,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import org.flywaydb.core.Flyway;
@@ -727,9 +731,73 @@ class MultiInstanceSessionIntegrationTest {
 		return proof;
 	}
 
+	@Test
+	@Order(13)
+	void enrollsVoluntaryMfaAcrossTwoJvmInstancesWithSharedQuotaAndRevocation() throws Exception {
+		Account account = account();
+		jdbc.update("UPDATE user_accounts SET phone_verified_at = CURRENT_TIMESTAMP WHERE user_id = ?", account.id());
+		HttpClient clientOne = client();
+		HttpClient clientTwo = client();
+		assertEquals(200, login(clientOne, firstUrl, firstUrl, account.name(), PASSWORD).statusCode());
+		assertEquals(200, login(clientTwo, secondUrl, secondUrl, account.name(), PASSWORD).statusCode());
+		JsonNode csrfOne = csrf(clientOne, firstUrl);
+		JsonNode csrfTwo = csrf(clientTwo, secondUrl);
+		String credentials = JSON.createObjectNode().put("password", PASSWORD).toString();
+
+		int firstResult;
+		int secondResult;
+		try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+			var firstRequest = executor.submit(() -> jsonPost(clientOne, firstUrl, VOLUNTARY_REQUEST_PATH,
+					credentials, csrfOne));
+			var secondRequest = executor.submit(() -> jsonPost(clientTwo, secondUrl, VOLUNTARY_REQUEST_PATH,
+					credentials, csrfTwo));
+			firstResult = firstRequest.get(25, TimeUnit.SECONDS).statusCode();
+			secondResult = secondRequest.get(25, TimeUnit.SECONDS).statusCode();
+		}
+		assertEquals(List.of(204, 429), java.util.stream.Stream.of(firstResult, secondResult).sorted().toList());
+		assertEquals(1, jdbc.queryForObject("""
+				SELECT COUNT(*) FROM sms_identity_challenges WHERE user_id = ? AND purpose = 'MFA_ENROLLMENT'
+				""", Integer.class, account.id()));
+
+		String invalidPassword = JSON.createObjectNode().put("password", "fictitious-incorrect-password").toString();
+		assertEquals(403, jsonPost(clientOne, firstUrl, VOLUNTARY_REQUEST_PATH, invalidPassword, csrfOne).statusCode());
+		assertEquals(403, jsonPost(clientTwo, secondUrl, VOLUNTARY_REQUEST_PATH, invalidPassword, csrfTwo).statusCode());
+		assertEquals(403, jsonPost(clientOne, firstUrl, VOLUNTARY_REQUEST_PATH, invalidPassword, csrfOne).statusCode());
+		assertEquals(429, jsonPost(clientTwo, secondUrl, VOLUNTARY_REQUEST_PATH, invalidPassword, csrfTwo).statusCode());
+
+		HttpClient winner = firstResult == 204 ? clientOne : clientTwo;
+		HttpClient other = firstResult == 204 ? clientTwo : clientOne;
+		JsonNode winnerCsrf = firstResult == 204 ? csrfOne : csrfTwo;
+		JsonNode otherCsrf = firstResult == 204 ? csrfTwo : csrfOne;
+		URI remoteNode = firstResult == 204 ? secondUrl : firstUrl;
+		String sms = JSON.createObjectNode().put("code", IsolatedClusterApplication.VOLUNTARY_SMS_CODE).toString();
+		assertEquals(403, jsonPost(other, remoteNode, VOLUNTARY_BEGIN_PATH, sms, otherCsrf).statusCode());
+		var begin = jsonPost(winner, remoteNode, VOLUNTARY_BEGIN_PATH, sms, winnerCsrf);
+		assertEquals(200, begin.statusCode());
+		UUID enrollmentID = UUID.fromString(JSON.readTree(begin.body()).get("enrollmentID").asString());
+		byte[] secret = enrollmentSecret(account, enrollmentID);
+		String totp;
+		try {
+			totp = TotpCodes.atStep(secret, Instant.now().getEpochSecond() / 30);
+		} finally {
+			java.util.Arrays.fill(secret, (byte) 0);
+		}
+		String completion = JSON.createObjectNode().put("enrollmentID", enrollmentID.toString())
+				.put("code", totp).toString();
+		assertEquals(403, jsonPost(other, remoteNode, VOLUNTARY_COMPLETE_PATH, completion, otherCsrf).statusCode());
+		var completed = jsonPost(winner, remoteNode, VOLUNTARY_COMPLETE_PATH, completion, winnerCsrf);
+		assertEquals(200, completed.statusCode());
+		assertEquals(10, JSON.readTree(completed.body()).get("codes").size());
+		assertEquals(401, get(clientOne, firstUrl, "/api/auth/me").statusCode());
+		assertEquals(401, get(clientTwo, secondUrl, "/api/auth/me").statusCode());
+		assertEquals(1L, jdbc.queryForObject("SELECT session_version FROM user_accounts WHERE user_id = ?",
+				Long.class, account.id()));
+	}
+
 	private static byte[] enrollmentSecret(Account account, UUID enrollmentID) {
-		byte[] encrypted = jdbc.queryForObject("SELECT encrypted_secret FROM account_mfa_enrollments WHERE user_id = ?",
-				byte[].class, account.id());
+		byte[] encrypted = jdbc.queryForObject(
+				"SELECT encrypted_secret FROM account_mfa_enrollments WHERE user_id = ? AND enrollment_id = ?",
+				byte[].class, account.id(), enrollmentID);
 		return new MfaSecretCipher(SETTINGS.getProperty("gestionplus.mfa.key")).decrypt(account.id(), enrollmentID,
 				encrypted);
 	}

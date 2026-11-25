@@ -78,6 +78,7 @@ class AccountActivationSmsPostgresqlIntegrationTest extends AbstractAccountInvit
 		completeActivation(code);
 
 		assertEquals(UserAccountStatus.ACTIVE, account(userID).getStatu());
+		assertEquals(NOW, account(userID).getPhoneVerifiedAt());
 		assertTrue(credentials.existsById(userID));
 		Invitation completed = invitationStore.findByID(invitation.invitationID()).orElseThrow();
 		assertEquals(NOW, completed.completedAt());
@@ -142,7 +143,24 @@ class AccountActivationSmsPostgresqlIntegrationTest extends AbstractAccountInvit
 		completeActivation(code);
 
 		assertEquals(UserAccountStatus.ACTIVE, account(userID).getStatu());
+		assertEquals(NOW, account(userID).getPhoneVerifiedAt());
 		assertTrue(currentChallenge().isEmpty());
+	}
+
+	@Test
+	void changingTheVerifiedNumberClearsTrustAndAdvancesTheSessionVersion() {
+		completeActivation(code);
+		long version = account(userID).getSessionVersion();
+		String previousPhone = account(userID).getPhoneNumber();
+		accountStore.updatePhoneNumber(userID, previousPhone);
+		assertEquals(NOW, account(userID).getPhoneVerifiedAt());
+		assertEquals(version, account(userID).getSessionVersion());
+
+		accountStore.updatePhoneNumber(userID, "+12025550101");
+		assertNull(account(userID).getPhoneVerifiedAt());
+		assertEquals(version + 1, account(userID).getSessionVersion());
+		accountStore.updatePhoneNumber(userID, previousPhone);
+		assertNull(account(userID).getPhoneVerifiedAt());
 	}
 
 	private Optional<SmsIdentityChallenge> currentChallenge() {
@@ -155,6 +173,7 @@ class AccountActivationSmsPostgresqlIntegrationTest extends AbstractAccountInvit
 
 	private void assertPendingActivation() {
 		assertEquals(UserAccountStatus.PENDING_ACTIVATION, account(userID).getStatu());
+		assertNull(account(userID).getPhoneVerifiedAt());
 		assertEquals(invitation, invitationStore.findByID(invitation.invitationID()).orElseThrow());
 		assertFalse(credentials.existsById(userID));
 	}

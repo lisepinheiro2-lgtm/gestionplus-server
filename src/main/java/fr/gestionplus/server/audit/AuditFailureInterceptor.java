@@ -13,6 +13,7 @@ import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.AuthenticationServiceException;
 import org.springframework.security.core.AuthenticationException;
 
 final class AuditFailureInterceptor implements MethodInterceptor {
@@ -68,7 +69,8 @@ final class AuditFailureInterceptor implements MethodInterceptor {
 
 		}
 
-		AuditResult result = failure instanceof AccessDeniedException || failure instanceof AuthenticationException
+		AuditResult result = failure instanceof AccessDeniedException
+				|| (failure instanceof AuthenticationException && !(failure instanceof AuthenticationServiceException))
 				? AuditResult.DENIED
 				: AuditResult.FAILURE;
 
@@ -93,7 +95,7 @@ final class AuditFailureInterceptor implements MethodInterceptor {
 			return AuditReason.ACCESS_NOT_AUTHORIZED;
 		}
 
-		if (failure instanceof AuthenticationException) {
+		if (failure instanceof AuthenticationException && !(failure instanceof AuthenticationServiceException)) {
 			return AuditReason.AUTHENTICATION_REQUIRED;
 		}
 

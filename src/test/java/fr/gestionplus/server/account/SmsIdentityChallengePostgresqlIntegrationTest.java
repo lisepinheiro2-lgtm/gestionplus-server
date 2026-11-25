@@ -35,6 +35,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import fr.gestionplus.server.account.SmsIdentityChallenge.Binding;
 import fr.gestionplus.server.account.SmsIdentityChallengeService.VerifiedMfaChallenge;
+import fr.gestionplus.server.auth.RequestRateLimitExceededException;
 import fr.gestionplus.server.auth.UserAccount;
 import fr.gestionplus.server.auth.UserAccountStatus;
 
@@ -46,6 +47,7 @@ class SmsIdentityChallengePostgresqlIntegrationTest extends AbstractAccountInvit
 	private static final Instant NOW = Instant.parse("2026-11-25T12:00:00Z");
 	private static final Duration WINDOW = Duration.ofMinutes(10);
 	private static final Duration VALIDITY = Duration.ofMinutes(5);
+	private static final Duration COOLDOWN = Duration.ofSeconds(60);
 	private static final String FIRST_SESSION = "a".repeat(64);
 	private static final String OTHER_SESSION = "b".repeat(64);
 
@@ -58,8 +60,10 @@ class SmsIdentityChallengePostgresqlIntegrationTest extends AbstractAccountInvit
 	@BeforeEach
 	void prepareAccount() {
 		when(clock.instant()).thenReturn(NOW);
-		when(sessions.getCurrentSessionIDHash()).thenReturn(FIRST_SESSION);
+		when(sessions.getActiveSessionIDHash()).thenReturn(FIRST_SESSION);
 		account = createAccount(UserAccountStatus.ACTIVE, Set.of(), null);
+		jdbcTemplate.update("UPDATE user_accounts SET phone_verified_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+				account.getUserID());
 		authenticate(account);
 	}
 
@@ -75,17 +79,17 @@ class SmsIdentityChallengePostgresqlIntegrationTest extends AbstractAccountInvit
 				UPDATE sms_identity_challenges SET purpose = 'MFA_ENROLLMENT' WHERE challenge_id = ?
 				""", activation.challengeID()));
 
-		assertTrue(issue());
+		issue();
 		SmsIdentityChallenge first = challengeStore.findCurrentMfaByUser(userID).orElseThrow();
-		when(sessions.getCurrentSessionIDHash()).thenReturn(OTHER_SESSION);
-		assertFalse(issue());
+		when(sessions.getActiveSessionIDHash()).thenReturn(OTHER_SESSION);
+		assertThrows(RequestRateLimitExceededException.class, this::issue);
 		assertEquals(first, challengeStore.findCurrentMfaByUser(userID).orElseThrow());
 
 		when(clock.instant()).thenReturn(NOW.plus(WINDOW));
-		assertTrue(issue());
+		issue();
 		assertEquals(OTHER_SESSION, challengeStore.findCurrentMfaByUser(userID).orElseThrow()
 				.binding().sessionIDHash());
-		assertEquals(2, challengeStore.countByUserAndPurposeSince(userID, MFA_ENROLLMENT, NOW.minusSeconds(1)));
+		assertEquals(2, challengeStore.findRecentMfaIssuances(userID, NOW.minusSeconds(1), 10).size());
 		assertEquals(activation, challengeStore.findCurrentByInvitationAndUser(invitationID, userID).orElseThrow());
 		assertEquals(1, challengeStore.countByInvitationAndUser(invitationID, userID));
 		verify(messageSender, times(2)).send(eq(MFA_ENROLLMENT), eq(account.getPhoneNumber()), anyString());
@@ -93,12 +97,11 @@ class SmsIdentityChallengePostgresqlIntegrationTest extends AbstractAccountInvit
 
 	@Test
 	void rejectedAuthorizationDoesNotReserveOrSendAChallenge() {
-		assertThrows(AccessDeniedException.class, () -> smsChallenges.createMfaChallenge(VALIDITY, 1, WINDOW,
+		assertThrows(AccessDeniedException.class, () -> smsChallenges.createMfaChallenge(VALIDITY, 1, WINDOW, COOLDOWN,
 				current -> {
 					throw new AccessDeniedException("Autorisation refusée.");
 				}));
-		assertEquals(0, challengeStore.countByUserAndPurposeSince(account.getUserID(), MFA_ENROLLMENT,
-				NOW.minus(WINDOW)));
+		assertEquals(0, challengeStore.findRecentMfaIssuances(account.getUserID(), NOW.minus(WINDOW), 10).size());
 		verifyNoInteractions(messageSender);
 	}
 
@@ -110,7 +113,10 @@ class SmsIdentityChallengePostgresqlIntegrationTest extends AbstractAccountInvit
 				start.await();
 				authenticate(account);
 				try {
-					return issue();
+					issue();
+					return true;
+				} catch (RequestRateLimitExceededException limited) {
+					return false;
 				} finally {
 					SecurityContextHolder.clearContext();
 				}
@@ -121,14 +127,13 @@ class SmsIdentityChallengePostgresqlIntegrationTest extends AbstractAccountInvit
 
 			assertFalse(first.get(10, TimeUnit.SECONDS).equals(second.get(10, TimeUnit.SECONDS)));
 		}
-		assertEquals(1, challengeStore.countByUserAndPurposeSince(account.getUserID(), MFA_ENROLLMENT,
-				NOW.minus(WINDOW)));
+		assertEquals(1, challengeStore.findRecentMfaIssuances(account.getUserID(), NOW.minus(WINDOW), 10).size());
 		verify(messageSender).send(eq(MFA_ENROLLMENT), eq(account.getPhoneNumber()), anyString());
 	}
 
 	@Test
 	void onlyTheBoundSessionAndPurposeCanConsumeTheProofOnce() {
-		assertTrue(issue());
+		issue();
 		String code = sentCode();
 		SmsIdentityChallenge mfa = challengeStore.findCurrentMfaByUser(account.getUserID()).orElseThrow();
 		var transaction = new TransactionTemplate(transactionManager);
@@ -138,23 +143,23 @@ class SmsIdentityChallengePostgresqlIntegrationTest extends AbstractAccountInvit
 				challengeStore.consumeIfCurrent(ACCOUNT_ACTIVATION, mfa.challengeID(), NOW)));
 
 		VerifiedMfaChallenge verified = smsChallenges.verifyMfaChallenge(code).orElseThrow();
-		when(sessions.getCurrentSessionIDHash()).thenReturn(OTHER_SESSION);
+		when(sessions.getActiveSessionIDHash()).thenReturn(OTHER_SESSION);
 		assertTrue(smsChallenges.verifyMfaChallenge(code).isEmpty());
-		assertEquals(Boolean.FALSE, transaction.execute(status -> smsChallenges.consumeMfaChallenge(verified)));
+		assertEquals(Boolean.FALSE, transaction.execute(status -> smsChallenges.consumeMfaChallenge(verified).isPresent()));
 		assertEquals(0, challengeStore.findCurrentMfaByUser(account.getUserID()).orElseThrow().failedAttempts());
 
-		when(sessions.getCurrentSessionIDHash()).thenReturn(FIRST_SESSION);
+		when(sessions.getActiveSessionIDHash()).thenReturn(FIRST_SESSION);
 		transaction.executeWithoutResult(status -> {
-			assertTrue(smsChallenges.consumeMfaChallenge(verified));
+			assertTrue(smsChallenges.consumeMfaChallenge(verified).isPresent());
 			status.setRollbackOnly();
 		});
-		assertEquals(Boolean.TRUE, transaction.execute(status -> smsChallenges.consumeMfaChallenge(verified)));
-		assertEquals(Boolean.FALSE, transaction.execute(status -> smsChallenges.consumeMfaChallenge(verified)));
+		assertEquals(Boolean.TRUE, transaction.execute(status -> smsChallenges.consumeMfaChallenge(verified).isPresent()));
+		assertEquals(Boolean.FALSE, transaction.execute(status -> smsChallenges.consumeMfaChallenge(verified).isPresent()));
 	}
 
 	@Test
 	void rejectsProofAfterSecurityVersionChanges() {
-		assertTrue(issue());
+		issue();
 		String code = sentCode();
 		VerifiedMfaChallenge verified = smsChallenges.verifyMfaChallenge(code).orElseThrow();
 		var transaction = new TransactionTemplate(transactionManager);
@@ -164,25 +169,27 @@ class SmsIdentityChallengePostgresqlIntegrationTest extends AbstractAccountInvit
 		assertThrows(AccessDeniedException.class, () -> smsChallenges.verifyMfaChallenge(code));
 		authenticate(current);
 		assertTrue(smsChallenges.verifyMfaChallenge(code).isEmpty());
-		assertEquals(Boolean.FALSE, transaction.execute(status -> smsChallenges.consumeMfaChallenge(verified)));
+		assertEquals(Boolean.FALSE, transaction.execute(status -> smsChallenges.consumeMfaChallenge(verified).isPresent()));
 	}
 
 	@Test
 	void rejectsProofWhenTheStoredPhoneChanges() {
-		assertTrue(issue());
+		issue();
 		String code = sentCode();
 		VerifiedMfaChallenge verified = smsChallenges.verifyMfaChallenge(code).orElseThrow();
 		jdbcTemplate.update("UPDATE user_accounts SET user_phone_number = ? WHERE user_id = ?",
 				"+12025550101", account.getUserID());
 
+		assertThrows(AccessDeniedException.class, () -> smsChallenges.verifyMfaChallenge(code));
+		authenticate(account(account.getUserID()));
 		assertTrue(smsChallenges.verifyMfaChallenge(code).isEmpty());
 		var transaction = new TransactionTemplate(transactionManager);
-		assertEquals(Boolean.FALSE, transaction.execute(status -> smsChallenges.consumeMfaChallenge(verified)));
+		assertEquals(Boolean.FALSE, transaction.execute(status -> smsChallenges.consumeMfaChallenge(verified).isPresent()));
 	}
 
 	@Test
 	void wrongCodesRevokeTheCurrentChallengeWithoutResettingTheQuota() {
-		assertTrue(issue());
+		issue();
 		String actualCode = sentCode();
 		String incorrectCode = actualCode.equals("000000") ? "000001" : "000000";
 		for (int attempt = 0; attempt < SmsIdentityChallenge.MAX_FAILED_ATTEMPTS; attempt++) {
@@ -191,7 +198,7 @@ class SmsIdentityChallengePostgresqlIntegrationTest extends AbstractAccountInvit
 
 		assertTrue(challengeStore.findCurrentMfaByUser(account.getUserID()).isEmpty());
 		assertTrue(smsChallenges.verifyMfaChallenge(actualCode).isEmpty());
-		assertFalse(issue());
+		assertThrows(RequestRateLimitExceededException.class, this::issue);
 	}
 
 	@Test
@@ -204,12 +211,11 @@ class SmsIdentityChallengePostgresqlIntegrationTest extends AbstractAccountInvit
 
 		assertTrue(challengeStore.revokeUnconfirmedSends(NOW.plusSeconds(120)) >= 1);
 		assertTrue(challengeStore.findCurrentMfaByUser(account.getUserID()).isEmpty());
-		assertEquals(1, challengeStore.countByUserAndPurposeSince(account.getUserID(), MFA_ENROLLMENT,
-				NOW.minus(WINDOW)));
+		assertEquals(1, challengeStore.findRecentMfaIssuances(account.getUserID(), NOW.minus(WINDOW), 10).size());
 	}
 
-	private boolean issue() {
-		return smsChallenges.createMfaChallenge(VALIDITY, 1, WINDOW, current -> {
+	private void issue() {
+		smsChallenges.createMfaChallenge(VALIDITY, 1, WINDOW, COOLDOWN, current -> {
 			assertEquals(account.getUserID(), current.getUserID());
 			assertEquals(account.getPhoneNumber(), current.getPhoneNumber());
 		});

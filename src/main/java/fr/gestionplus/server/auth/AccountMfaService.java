@@ -12,6 +12,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -20,29 +21,49 @@ import java.util.UUID;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import fr.gestionplus.server.account.AccountNotificationStore;
 import fr.gestionplus.server.account.AccountLocks;
 import fr.gestionplus.server.account.AccountStore;
+import fr.gestionplus.server.account.CurrentSessionProvider;
+import fr.gestionplus.server.account.SmsIdentityChallengeService;
+import fr.gestionplus.server.account.SmsIdentityChallengeService.VerifiedMfaChallenge;
 import fr.gestionplus.server.audit.AuditAction;
 import fr.gestionplus.server.audit.AuditContextProvider;
 import fr.gestionplus.server.audit.AuditMetadata;
+import fr.gestionplus.server.audit.AuditReason;
 import fr.gestionplus.server.audit.AuditResult;
 import fr.gestionplus.server.audit.AuditService;
 import fr.gestionplus.server.audit.AuditTarget;
 import fr.gestionplus.server.audit.AuditTargetType;
+import fr.gestionplus.server.audit.AuditedAccessDeniedException;
 import fr.gestionplus.server.audit.AuditedOperation;
 import fr.gestionplus.server.auth.AccountMfaStore.EnrollmentProof;
+import fr.gestionplus.server.auth.AccountMfaStore.EnrollmentPurpose;
 import fr.gestionplus.server.auth.AccountMfaStore.EnrollmentState;
 import fr.gestionplus.server.auth.AccountMfaStore.Factor;
 
 @Service
 public class AccountMfaService {
 
+	private static final Duration VOLUNTARY_SMS_VALIDITY = Duration.ofMinutes(5);
+	private static final Duration VOLUNTARY_SMS_COOLDOWN = Duration.ofSeconds(60);
+	private static final Duration VOLUNTARY_SMS_WINDOW = Duration.ofMinutes(15);
+	private static final int MAX_VOLUNTARY_SMS = 3;
+	private static final Duration VOLUNTARY_SUBMISSION_WINDOW = Duration.ofMinutes(10);
+	private static final int MAX_VOLUNTARY_SUBMISSIONS = 5;
+
 	private final AccountStore accountStore;
 	private final AccountMfaStore accountMfaStore;
 	private final AuthorizationService authorisationService;
+	private final SmsIdentityChallengeService smsChallengeService;
+	private final CurrentPasswordVerifier passwordVerifier;
+	private final RequestRateLimiter rateLimiter;
+	private final AuthenticatedUserProvider authenticated;
 	private final MfaSecretCipher cipher;
 	private final ObjectProvider<MfaEnrollmentVerifier> identityVerifier;
 	private final LoginService login;
@@ -50,17 +71,27 @@ public class AccountMfaService {
 	private final AccountNotificationStore notifications;
 	private final AuditService audit;
 	private final AuditContextProvider auditContext;
+	private final TransactionTemplate transaction;
 	private final SecureRandom random = new SecureRandom();
+	private final CurrentSessionProvider sessions;
 	private final Clock clock;
 
 	public AccountMfaService(AccountStore accountStore, AccountMfaStore accountMfaStore,
-			AuthorizationService authorisationService,
-			MfaSecretCipher cipher, ObjectProvider<MfaEnrollmentVerifier> identityVerifier, LoginService login,
-			SessionRevocationService sessionRevocation, AccountNotificationStore notifications,
-			AuditService audit, AuditContextProvider auditContext, Clock clock) {
+			AuthorizationService authorisationService, SmsIdentityChallengeService smsChallengeService,
+			CurrentPasswordVerifier passwordVerifier, RequestRateLimiter rateLimiter,
+			AuthenticatedUserProvider authenticated, MfaSecretCipher cipher,
+			ObjectProvider<MfaEnrollmentVerifier> identityVerifier, LoginService login,
+			SessionRevocationService sessionRevocation, AccountNotificationStore notifications, AuditService audit,
+			AuditContextProvider auditContext, PlatformTransactionManager transactionManager,
+			CurrentSessionProvider sessions, Clock clock) {
+
 		this.accountStore = accountStore;
 		this.accountMfaStore = accountMfaStore;
 		this.authorisationService = authorisationService;
+		this.smsChallengeService = smsChallengeService;
+		this.passwordVerifier = passwordVerifier;
+		this.rateLimiter = rateLimiter;
+		this.authenticated = authenticated;
 		this.cipher = cipher;
 		this.identityVerifier = identityVerifier;
 		this.login = login;
@@ -68,7 +99,76 @@ public class AccountMfaService {
 		this.notifications = notifications;
 		this.audit = audit;
 		this.auditContext = auditContext;
+		this.transaction = new TransactionTemplate(transactionManager);
+		this.sessions = sessions;
 		this.clock = clock;
+	}
+
+	@AuditedOperation(AuditAction.MFA_VOLUNTARY_SMS_REQUEST)
+	@Transactional(propagation = Propagation.NEVER)
+	public void requestVoluntaryEnrollment(String rawPassword) {
+		UserAccount principal = authenticated.getCurrentAccount();
+		requireSubmissionAllowed("mfa-voluntary-enrollment-password", principal.getUserID());
+
+		smsChallengeService.createMfaChallenge(VOLUNTARY_SMS_VALIDITY, MAX_VOLUNTARY_SMS,
+				VOLUNTARY_SMS_WINDOW, VOLUNTARY_SMS_COOLDOWN, current -> {
+					requireVoluntaryEnrollment(current);
+					if (!passwordVerifier.matches(current.getUserID(), rawPassword)) {
+						throw new AuditedAccessDeniedException("Vérification MFA impossible.", AuditReason.INVALID_CREDENTIALS);
+					}
+				});
+		record(AuditAction.MFA_VOLUNTARY_SMS_REQUEST, principal);
+	}
+
+	@AuditedOperation(AuditAction.MFA_VOLUNTARY_ENROLLMENT_BEGIN)
+	@Transactional(propagation = Propagation.NEVER)
+	public Enrollment beginVoluntaryEnrollment(String smsCode) {
+		VerifiedMfaChallenge verified = smsChallengeService.verifyMfaChallenge(smsCode).orElseThrow(this::denied);
+		return transaction.execute(status -> {
+			UserAccount current = smsChallengeService.consumeMfaChallenge(verified).orElseThrow(this::denied);
+			requireVoluntaryEnrollment(current);
+
+			Enrollment enrollment = prepareEnrollment(current.getUserID(), current.getSessionVersion(),
+					clock.instant().plus(EnrollmentPrincipal.VALIDITY), EnrollmentPurpose.VOLUNTARY,
+					verified.sessionIDHash());
+			record(AuditAction.MFA_VOLUNTARY_ENROLLMENT_BEGIN, current);
+			return enrollment;
+		});
+	}
+
+	@AuditedOperation(AuditAction.MFA_VOLUNTARY_ENROLLMENT_COMPLETE)
+	@Transactional(propagation = Propagation.NEVER)
+	public RecoveryCodes completeVoluntaryEnrollment(UUID enrollmentID, String code) {
+		UserAccount principal = authenticated.getCurrentAccount();
+		requireSubmissionAllowed("mfa-voluntary-enrollment-totp", principal.getUserID());
+
+		return transaction.execute(status -> {
+			UserAccount current = activeAccount(principal.getUserID());
+			AccountLocks.requireCurrentSession(current, principal);
+			requireVoluntaryEnrollment(current);
+			String sessionIDHash = sessions.getActiveSessionIDHash();
+			if (!SessionIDHasher.isValidHash(sessionIDHash)) {
+				throw new AuditedAccessDeniedException("Une session HTTP active est requise.", AuditReason.STALE_SESSION);
+			}
+			return completeEnrollment(current, enrollmentID, code, EnrollmentPurpose.VOLUNTARY, sessionIDHash);
+		});
+	}
+
+	private void requireSubmissionAllowed(String scope, UUID userID) {
+		RequestRateLimiter.Decision decision = rateLimiter.acquireForAccount(scope, userID,
+				MAX_VOLUNTARY_SUBMISSIONS, VOLUNTARY_SUBMISSION_WINDOW);
+		if (!decision.allowed()) {
+			throw new RequestRateLimitExceededException(decision.retryAfter());
+		}
+	}
+
+	private void requireVoluntaryEnrollment(UserAccount current) {
+		if (!current.isPhoneVerified() || accountMfaStore.hasState(current.getUserID())) {
+			throw denied();
+		}
+		if (!cipher.available()) {
+			throw new DistributedSecurityUnavailableException();
+		}
 	}
 
 	public boolean requiresVerification(UUID userID) {
@@ -113,13 +213,14 @@ public class AccountMfaService {
 		UserAccount current = activeAccount(userID);
 		MfaEnrollmentVerifier verifier = identityVerifier.getIfAvailable();
 
-		if (!cipher.available() || hasConfiguredFactor(userID) || verifier == null || identityProof == null
+		if (!cipher.available() || accountMfaStore.hasState(userID) || verifier == null || identityProof == null
 				|| identityProof.isBlank()
 				|| !verifier.consumeVerifiedIdentity(userID, current.getSessionVersion(), identityProof)) {
 			throw denied();
 		}
 
-		Enrollment enrollment = prepareEnrollment(userID, current.getSessionVersion());
+		Enrollment enrollment = prepareEnrollment(userID, current.getSessionVersion(),
+				clock.instant().plus(EnrollmentPrincipal.VALIDITY), EnrollmentPurpose.INITIAL, null);
 		record(AuditAction.MFA_ENROLLMENT, current);
 		return enrollment;
 	}
@@ -133,14 +234,15 @@ public class AccountMfaService {
 			throw denied();
 		}
 
-		EnrollmentState pending = accountMfaStore.findEnrollment(current.getUserID())
+		EnrollmentState pending = accountMfaStore.findEnrollment(current.getUserID(), EnrollmentPurpose.INITIAL)
 				.filter(value -> value.sessionVersion() == current.getSessionVersion()
 						&& clock.instant().isBefore(value.expiresAt()))
 				.orElse(null);
 		Enrollment enrollment;
 
 		if (pending == null) {
-			enrollment = prepareEnrollment(current.getUserID(), current.getSessionVersion(), principal.expiresAt());
+			enrollment = prepareEnrollment(current.getUserID(), current.getSessionVersion(), principal.expiresAt(),
+					EnrollmentPurpose.INITIAL, null);
 		} else {
 			Instant expiresAt = pending.expiresAt().isBefore(principal.expiresAt())
 					? pending.expiresAt()
@@ -149,7 +251,7 @@ public class AccountMfaService {
 
 			try {
 				accountMfaStore.saveEnrollment(new EnrollmentState(pending.enrollmentID(), current.getUserID(),
-						pending.encryptedSecret(), current.getSessionVersion(), expiresAt));
+						pending.encryptedSecret(), current.getSessionVersion(), expiresAt, EnrollmentPurpose.INITIAL, null));
 				enrollment = new Enrollment(pending.enrollmentID(), TotpCodes.setupKey(secret), expiresAt);
 			} finally {
 				Arrays.fill(secret, (byte) 0);
@@ -164,23 +266,26 @@ public class AccountMfaService {
 	@AuditedOperation(AuditAction.MFA_ENROLLMENT)
 	@Transactional
 	public RecoveryCodes completeEnrollment(EnrollmentPrincipal principal, UUID enrollmentID, String code) {
-		return completeEnrollment(enrollmentAccount(principal), enrollmentID, code);
+		return completeEnrollment(enrollmentAccount(principal), enrollmentID, code, EnrollmentPurpose.INITIAL, null);
 	}
 
 	@AuditedOperation(value = AuditAction.MFA_ENROLLMENT, account = 0)
 	@Transactional
 	public RecoveryCodes completeEnrollment(UUID userID, UUID enrollmentID, String code) {
 		UserAccount current = activeAccount(userID);
-		return completeEnrollment(current, enrollmentID, code);
+		EnrollmentPurpose purpose = accountMfaStore.hasState(userID) ? EnrollmentPurpose.RECOVERY : EnrollmentPurpose.INITIAL;
+		return completeEnrollment(current, enrollmentID, code, purpose, null);
 	}
 
-	private RecoveryCodes completeEnrollment(UserAccount current, UUID enrollmentID, String code) {
+	private RecoveryCodes completeEnrollment(UserAccount current, UUID enrollmentID, String code,
+			EnrollmentPurpose purpose, String sessionIDHash) {
 		UUID userID = current.getUserID();
-		EnrollmentState pending = accountMfaStore.findEnrollment(userID).orElseThrow(this::denied);
+		EnrollmentState pending = accountMfaStore.findEnrollment(userID, purpose).orElseThrow(this::denied);
 		Instant now = clock.instant();
 
 		if (!pending.enrollmentID().equals(enrollmentID) || !now.isBefore(pending.expiresAt())
-				|| pending.sessionVersion() != current.getSessionVersion() || hasConfiguredFactor(userID)) {
+				|| pending.sessionVersion() != current.getSessionVersion() || !factorAllowsEnrollment(userID, purpose)
+				|| !Objects.equals(pending.sessionIDHash(), sessionIDHash)) {
 			throw denied();
 		}
 
@@ -203,10 +308,11 @@ public class AccountMfaService {
 
 			accountMfaStore.saveFactor(userID, cipher.encrypt(userID, null, secret), step.getAsLong(),
 					codes.stream().map(AccountMfaService::recoveryHash).toList());
-			accountMfaStore.removeEnrollment(userID);
+			accountMfaStore.removeEnrollments(userID);
 			revokeSessions(current);
-			record(AuditAction.MFA_ENROLLMENT, current);
 			notifications.enqueueMfaEnrollment(userID);
+			record(purpose == EnrollmentPurpose.VOLUNTARY ? AuditAction.MFA_VOLUNTARY_ENROLLMENT_COMPLETE
+					: AuditAction.MFA_ENROLLMENT, current);
 			return new RecoveryCodes(codes);
 		} finally {
 			Arrays.fill(secret, (byte) 0);
@@ -237,13 +343,16 @@ public class AccountMfaService {
 
 		accountMfaStore.requireNewFactor(current.getUserID());
 		revokeSessions(current);
-		Enrollment enrollment = prepareEnrollment(current.getUserID(), current.getSessionVersion() + 1);
+		Enrollment enrollment = prepareEnrollment(current.getUserID(), current.getSessionVersion() + 1,
+				clock.instant().plus(EnrollmentPrincipal.VALIDITY), EnrollmentPurpose.RECOVERY, null);
 		record(AuditAction.MFA_RECOVERY, current);
 		return enrollment;
 	}
 
-	private boolean hasConfiguredFactor(UUID userID) {
-		return accountMfaStore.findFactor(userID).filter(factor -> factor.encryptedSecret() != null).isPresent();
+	private boolean factorAllowsEnrollment(UUID userID, EnrollmentPurpose purpose) {
+		Factor factor = accountMfaStore.findFactor(userID).orElse(null);
+		return purpose == EnrollmentPurpose.RECOVERY ? factor != null && factor.encryptedSecret() == null
+				: factor == null;
 	}
 
 	private UserAccount activeAccount(UUID userID) {
@@ -251,11 +360,8 @@ public class AccountMfaService {
 				.filter(account -> account.getStatu() == UserAccountStatus.ACTIVE).orElseThrow(this::denied);
 	}
 
-	private Enrollment prepareEnrollment(UUID userID, long sessionVersion) {
-		return prepareEnrollment(userID, sessionVersion, clock.instant().plus(EnrollmentPrincipal.VALIDITY));
-	}
-
-	private Enrollment prepareEnrollment(UUID userID, long sessionVersion, Instant expiresAt) {
+	private Enrollment prepareEnrollment(UUID userID, long sessionVersion, Instant expiresAt,
+			EnrollmentPurpose purpose, String sessionIDHash) {
 		byte[] secret = new byte[MfaSecretCipher.SECRET_BYTES];
 		random.nextBytes(secret);
 
@@ -263,7 +369,7 @@ public class AccountMfaService {
 			UUID enrollmentID = UUID.randomUUID();
 			accountMfaStore.saveEnrollment(
 					new EnrollmentState(enrollmentID, userID, cipher.encrypt(userID, enrollmentID, secret),
-							sessionVersion, expiresAt));
+							sessionVersion, expiresAt, purpose, sessionIDHash));
 			return new Enrollment(enrollmentID, TotpCodes.setupKey(secret), expiresAt);
 		} finally {
 			Arrays.fill(secret, (byte) 0);
@@ -296,7 +402,7 @@ public class AccountMfaService {
 	}
 
 	public boolean requiresInitialEnrollment(UUID userID) {
-		return authorisationService.requiresMfa(userID) && !hasConfiguredFactor(userID);
+		return authorisationService.requiresMfa(userID) && !accountMfaStore.hasState(userID);
 	}
 
 	private void revokeSessions(UserAccount current) {

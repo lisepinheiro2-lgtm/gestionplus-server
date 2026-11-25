@@ -27,6 +27,7 @@ import fr.gestionplus.server.audit.AuditService;
 import fr.gestionplus.server.audit.AuditedAccessDeniedException;
 import fr.gestionplus.server.auth.DistributedSecurityUnavailableException;
 import fr.gestionplus.server.auth.HttpSecurityAudit;
+import fr.gestionplus.server.auth.RequestRateLimitExceededException;
 import jakarta.servlet.http.HttpServletRequest;
 
 @RestControllerAdvice
@@ -65,6 +66,15 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 				: AuditReason.ACCESS_NOT_AUTHORIZED;
 		audit.refused(request, authentication.getPrincipal(), reason);
 		return response(HttpApiError.fromAccessDenied(failure));
+	}
+
+	@ExceptionHandler(RequestRateLimitExceededException.class)
+	ResponseEntity<Object> rateLimited(RequestRateLimitExceededException failure) {
+		HttpApiError error = HttpApiError.TOO_MANY_REQUESTS;
+		return ResponseEntity.status(error.status()).contentType(MediaType.APPLICATION_JSON)
+				.header(HttpHeaders.CACHE_CONTROL, "no-store")
+				.header(HttpHeaders.RETRY_AFTER, Long.toString(failure.retryAfterSeconds()))
+				.body(error.body());
 	}
 
 	@ExceptionHandler(IllegalArgumentException.class)

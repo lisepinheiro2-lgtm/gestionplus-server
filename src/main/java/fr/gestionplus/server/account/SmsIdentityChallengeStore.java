@@ -1,6 +1,7 @@
 package fr.gestionplus.server.account;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -24,7 +25,10 @@ public interface SmsIdentityChallengeStore {
 
 	Optional<SmsIdentityChallenge> findCurrentByInvitationAndUser(UUID invitationID, UUID userID);
 
-	int countByUserAndPurposeSince(UUID userID, Purpose purpose, Instant since);
+	List<Issuance> findRecentMfaIssuances(UUID userID, Instant since, int limit);
 
 	Optional<SmsIdentityChallenge> findCurrentMfaByUser(UUID userID);
+
+	record Issuance(Instant createdAt, Instant sentAt, Instant pendingUntil) {
+	}
 }

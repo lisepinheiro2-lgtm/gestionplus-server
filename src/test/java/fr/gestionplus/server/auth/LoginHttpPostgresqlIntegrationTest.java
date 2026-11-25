@@ -243,7 +243,7 @@ public class LoginHttpPostgresqlIntegrationTest extends AuditStorageIntegrationT
 		Mockito.when(enrollmentVerifier.consumeVerifiedIdentity(userID, account.getSessionVersion(), "verified"))
 				.thenReturn(true);
 		var enrollment = mfa.beginEnrollment(userID, "verified");
-		var codes = mfa.completeEnrollment(userID, enrollment.enrollmentID(), enrollmentCode(userID)).codes();
+		var codes = mfa.completeEnrollment(userID, enrollment.enrollmentID(), enrollmentCode(userID, AccountMfaStore.EnrollmentPurpose.INITIAL)).codes();
 
 		List<String> hashes = jdbc.queryForList(
 				"SELECT code_hash FROM account_mfa_recovery_codes WHERE user_id = ?", String.class, userID);
@@ -265,7 +265,7 @@ public class LoginHttpPostgresqlIntegrationTest extends AuditStorageIntegrationT
 		assertEquals(Verification.DENIED, mfa.verifyForLogin(recovering, null));
 		assertNotEquals(enrollment.setupKey(), replacement.setupKey());
 
-		var freshCodes = mfa.completeEnrollment(userID, replacement.enrollmentID(), enrollmentCode(userID)).codes();
+		var freshCodes = mfa.completeEnrollment(userID, replacement.enrollmentID(), enrollmentCode(userID, AccountMfaStore.EnrollmentPurpose.RECOVERY)).codes();
 		assertEquals(10, freshCodes.size());
 		assertFalse(freshCodes.stream().anyMatch(codes::contains));
 	}
@@ -380,8 +380,8 @@ public class LoginHttpPostgresqlIntegrationTest extends AuditStorageIntegrationT
 				""", Integer.class, account.getUserID()));
 	}
 
-	private String enrollmentCode(UUID userID) {
-		var pending = mfaStore.findEnrollment(userID).orElseThrow();
+	private String enrollmentCode(UUID userID, AccountMfaStore.EnrollmentPurpose purpose) {
+		var pending = mfaStore.findEnrollment(userID, purpose).orElseThrow();
 		return currentCode(cipher.decrypt(userID, pending.enrollmentID(), pending.encryptedSecret()));
 	}
 

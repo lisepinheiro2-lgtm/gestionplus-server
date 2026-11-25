@@ -1,6 +1,8 @@
 package fr.gestionplus.server.persistence;
 
+import java.time.Instant;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -51,6 +53,9 @@ public class UserAccountEntity {
 	@Column(name = "user_phone_number", nullable = false)
 	private String phoneNumber;
 
+	@Column(name = "phone_verified_at")
+	private Instant phoneVerifiedAt;
+
 	@ElementCollection
 	@CollectionTable(name = "user_account_roles", joinColumns = @JoinColumn(name = "user_id"))
 	@Enumerated(EnumType.STRING)
@@ -76,6 +81,7 @@ public class UserAccountEntity {
 		this.firstName = account.getFirstName();
 		this.email = account.getEmail();
 		this.phoneNumber = account.getPhoneNumber();
+		this.phoneVerifiedAt = account.getPhoneVerifiedAt();
 	}
 
 	@PrePersist
@@ -98,7 +104,7 @@ public class UserAccountEntity {
 
 	public UserAccount toDomain() {
 		return new UserAccount(userId, userName, statu, roles, employeeID, lastName, firstName, email, phoneNumber,
-				sessionVersion);
+				sessionVersion, phoneVerifiedAt);
 	}
 
 	void setPendingActivation() {
@@ -120,7 +126,17 @@ public class UserAccountEntity {
 		this.email = email;
 	}
 
-	void activate(String userName) {
+	void updatePhoneNumber(String phoneNumber) {
+		UserAccount account = toDomain();
+		account.setPhoneNumber(phoneNumber);
+		if (!this.phoneNumber.equals(account.getPhoneNumber())) {
+			this.phoneNumber = account.getPhoneNumber();
+			this.phoneVerifiedAt = account.getPhoneVerifiedAt();
+			advanceSessionVersion();
+		}
+	}
+
+	void activate(String userName, Instant phoneVerifiedAt) {
 
 		if (statu != UserAccountStatus.PENDING_ACTIVATION || employeeID == null) {
 			throw new IllegalStateException("Le compte doit être en attente et associé à un salarié.");
@@ -130,6 +146,7 @@ public class UserAccountEntity {
 			throw new IllegalArgumentException("Le nom d’utilisateur est invalide.");
 		}
 
+		this.phoneVerifiedAt = Objects.requireNonNull(phoneVerifiedAt);
 		this.userName = userName.strip();
 		statu = UserAccountStatus.ACTIVE;
 	}

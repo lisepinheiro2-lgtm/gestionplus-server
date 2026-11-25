@@ -1,5 +1,6 @@
 package fr.gestionplus.server.persistence;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -98,14 +99,20 @@ public class JpaAccountStore implements AccountStore {
 
 	@Override
 	@Transactional
-	public void activateAccount(UUID userID, String userName, UserCredential credential) {
+	public void updatePhoneNumber(UUID userID, String phoneNumber) {
+		accountJpaRepository.findByIdForUpdate(userID).orElseThrow().updatePhoneNumber(phoneNumber);
+	}
+
+	@Override
+	@Transactional
+	public void activateAccount(UUID userID, String userName, UserCredential credential, Instant phoneVerifiedAt) {
 
 		if (!userID.equals(credential.getUserId())) {
 			throw new IllegalArgumentException("L’identifiant du secret ne correspond pas au compte.");
 		}
 
 		UserAccountEntity entity = accountJpaRepository.findByIdForUpdate(userID).orElseThrow();
-		entity.activate(userName);
+		entity.activate(userName, phoneVerifiedAt);
 
 		try {
 			credentialRepository.save(new UserCredentialEntity(credential));

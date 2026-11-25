@@ -95,7 +95,7 @@ public class ActivationIdentityChallengeService {
 
 			refuseIfResendBlocked(invitationID, userID, lockedNow);
 			Binding binding = Binding.forActivation(invitationID, userID, lockedAccount.getPhoneNumber());
-			return Optional.of(new Reservation(binding, lockedNow));
+			return new Reservation(binding, lockedNow);
 		});
 	}
 

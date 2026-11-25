@@ -5,6 +5,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -194,12 +195,16 @@ public class PostgresqlSmsIdentityChallengeStore implements SmsIdentityChallenge
 	}
 
 	@Override
-	public int countByUserAndPurposeSince(UUID userID, Purpose purpose, Instant since) {
-		return jdbcTemplate.queryForObject("""
-				SELECT COUNT(*)
+	public List<Issuance> findRecentMfaIssuances(UUID userID, Instant since, int limit) {
+		return jdbcTemplate.query("""
+				SELECT created_at, COALESCE(send_confirmed_at, created_at) AS sent_at,
+				    CASE WHEN send_confirmed_at IS NULL AND revoked_at IS NULL THEN send_recovery_at END AS pending_until
 				FROM sms_identity_challenges
-				WHERE user_id = ? AND purpose = ? AND created_at > ?
-				""", Integer.class, userID, purpose.name(), atUtc(since));
+				WHERE user_id = ? AND purpose = 'MFA_ENROLLMENT' AND created_at > ?
+				ORDER BY created_at DESC, challenge_id DESC
+				LIMIT ?
+				""", (row, index) -> new Issuance(readInstant(row, "created_at"), readInstant(row, "sent_at"),
+						readInstant(row, "pending_until")), userID, atUtc(since), limit);
 	}
 
 	private SmsIdentityChallenge read(ResultSet row, int rowNumber) throws SQLException {

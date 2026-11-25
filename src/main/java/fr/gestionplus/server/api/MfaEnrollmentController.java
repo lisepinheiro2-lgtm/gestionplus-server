@@ -51,9 +51,33 @@ public class MfaEnrollmentController {
 			@RequestBody CompleteRequest request, HttpServletRequest servletRequest, HttpServletResponse response) {
 		AccountMfaService.RecoveryCodes codes = accountMfaService.completeEnrollment(requirePrincipal(authentication),
 				request.enrollmentID(), request.code());
-		new SecurityContextLogoutHandler().logout(servletRequest, response, authentication);
-		securityContextRepository.saveContext(SecurityContextHolder.createEmptyContext(), servletRequest, response);
+		closeSession(authentication, servletRequest, response);
 		return codes;
+	}
+
+	@PostMapping(MfaEnrollmentRoutes.VOLUNTARY_REQUEST_PATH)
+	public ResponseEntity<Void> requestVoluntary(@RequestBody PasswordRequest request) {
+		accountMfaService.requestVoluntaryEnrollment(request.password());
+		return ResponseEntity.noContent().build();
+	}
+
+	@PostMapping(MfaEnrollmentRoutes.VOLUNTARY_BEGIN_PATH)
+	public AccountMfaService.Enrollment beginVoluntary(@RequestBody SmsRequest request) {
+		return accountMfaService.beginVoluntaryEnrollment(request.code());
+	}
+
+	@PostMapping(MfaEnrollmentRoutes.VOLUNTARY_COMPLETE_PATH)
+	public AccountMfaService.RecoveryCodes completeVoluntary(Authentication authentication,
+			@RequestBody CompleteRequest request, HttpServletRequest servletRequest, HttpServletResponse response) {
+		AccountMfaService.RecoveryCodes codes = accountMfaService.completeVoluntaryEnrollment(request.enrollmentID(),
+				request.code());
+		closeSession(authentication, servletRequest, response);
+		return codes;
+	}
+
+	private void closeSession(Authentication authentication, HttpServletRequest request, HttpServletResponse response) {
+		new SecurityContextLogoutHandler().logout(request, response, authentication);
+		securityContextRepository.saveContext(SecurityContextHolder.createEmptyContext(), request, response);
 	}
 
 	@PostMapping(MfaEnrollmentRoutes.ENROLLMENT_SESSION_PATH)
@@ -95,9 +119,31 @@ public class MfaEnrollmentController {
 		return principal;
 	}
 
+	record PasswordRequest(String password) {
+		@Override
+		public String toString() {
+			return "PasswordRequest[protected]";
+		}
+	}
+
+	record SmsRequest(String code) {
+		@Override
+		public String toString() {
+			return "SmsRequest[protected]";
+		}
+	}
+
 	record CompleteRequest(UUID enrollmentID, String code) {
+		@Override
+		public String toString() {
+			return "CompleteRequest[protected]";
+		}
 	}
 
 	record EnrollmentProofRequest(String proof) {
+		@Override
+		public String toString() {
+			return "EnrollmentProofRequest[protected]";
+		}
 	}
 }

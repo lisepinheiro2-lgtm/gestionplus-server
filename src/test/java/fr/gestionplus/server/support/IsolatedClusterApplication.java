@@ -19,6 +19,8 @@ import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import fr.gestionplus.server.GestionplusServerApplication;
+import fr.gestionplus.server.account.ActivationCodeGenerator;
+import fr.gestionplus.server.account.SmsIdentityChallenge.Purpose;
 import fr.gestionplus.server.account.SmsMessageSender;
 import fr.gestionplus.server.account.SuperAdminSuccessionService;
 import fr.gestionplus.server.auth.CompromisedPasswordChecker;
@@ -26,6 +28,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 public final class IsolatedClusterApplication {
+
+	public static final String VOLUNTARY_SMS_CODE = "012345";
 
 	private IsolatedClusterApplication() {
 	}
@@ -53,7 +57,20 @@ public final class IsolatedClusterApplication {
 		@Bean
 		SmsMessageSender isolatedMessageSender() {
 			return (purpose, phone, code) -> {
-				throw new IllegalStateException("Les envois SMS sont interdits dans cette validation.");
+				if (purpose != Purpose.MFA_ENROLLMENT) {
+					throw new IllegalStateException("Les envois d’activation sont interdits dans cette validation.");
+				}
+			};
+		}
+
+		@Bean
+		@Primary
+		ActivationCodeGenerator isolatedCodeGenerator() {
+			return new ActivationCodeGenerator() {
+				@Override
+				public String generate() {
+					return VOLUNTARY_SMS_CODE;
+				}
 			};
 		}
 

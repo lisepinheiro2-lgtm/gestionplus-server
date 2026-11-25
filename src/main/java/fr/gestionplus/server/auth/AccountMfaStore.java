@@ -13,11 +13,11 @@ public interface AccountMfaStore {
 
 	boolean advanceAcceptedStep(UUID userID, long step);
 
-	Optional<EnrollmentState> findEnrollment(UUID userID);
+	Optional<EnrollmentState> findEnrollment(UUID userID, EnrollmentPurpose purpose);
 
 	void saveEnrollment(EnrollmentState enrollment);
 
-	void removeEnrollment(UUID userID);
+	void removeEnrollments(UUID userID);
 
 	void saveFactor(UUID userID, byte[] encryptedSecret, long lastStep, List<String> recoveryCodeHashes);
 
@@ -35,7 +35,17 @@ public interface AccountMfaStore {
 	}
 
 	record EnrollmentState(UUID enrollmentID, UUID userID, byte[] encryptedSecret, long sessionVersion,
-			Instant expiresAt) {
+			Instant expiresAt, EnrollmentPurpose purpose, String sessionIDHash) {
+		public EnrollmentState {
+			if (purpose == null || (purpose == EnrollmentPurpose.VOLUNTARY
+					? !SessionIDHasher.isValidHash(sessionIDHash) : sessionIDHash != null)) {
+				throw new IllegalArgumentException("Le contexte d'enrôlement MFA est invalide.");
+			}
+		}
+	}
+
+	enum EnrollmentPurpose {
+		INITIAL, RECOVERY, VOLUNTARY
 	}
 
 	record EnrollmentProof(UUID userID, String proofHash, long sessionVersion, Instant expiresAt) {
